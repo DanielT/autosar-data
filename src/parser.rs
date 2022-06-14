@@ -1,3 +1,5 @@
+use std::str::FromStr;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::Write;
@@ -5,6 +7,7 @@ use std::str::Utf8Error;
 use thiserror::Error;
 
 use crate::specification::*;
+use crate::spec_support::*;
 use crate::lexer::*;
 use crate::*;
 
@@ -153,13 +156,14 @@ pub(crate) struct ArxmlParser<'a> {
     log_func: fn (AutosarDataError),
     strict: bool,
     version_compatibility: u32,
-    identifiables: HashMap<String, WeakElement>,
+    pub(crate) identifiables: Vec<(String, WeakElement)>,
+    pub(crate) references: Vec<(String, WeakElement)>,
 }
 
 impl<'a> ArxmlParser<'a> {
     pub(crate) fn new(filename: OsString, buffer: &'a [u8], log_func: fn (AutosarDataError), strict: bool) -> Self {
         Self {
-            filename: filename.clone(),
+            filename,
             line: 1,
             buffer,
             fileversion : AutosarVersion::Autosar_4_0_1, // this is temporary and gets replaced as soon as the xsd declaration in the top-level AUTOSAR element is read
@@ -167,7 +171,8 @@ impl<'a> ArxmlParser<'a> {
             log_func,
             strict,
             version_compatibility: u32::MAX,
-            identifiables: HashMap::new(),
+            identifiables: Vec::new(),
+            references: Vec::new(),
         }
     }
 
@@ -200,7 +205,7 @@ impl<'a> ArxmlParser<'a> {
         }
     }
 
-    pub(crate) fn parse_arxml(&mut self) -> Result<(Element, HashMap<String, WeakElement>), AutosarDataError> {
+    pub(crate) fn parse_arxml(&mut self) -> Result<Element, AutosarDataError> {
         let mut lexer = ArxmlLexer::new(self.buffer, self.filename.clone());
 
         if let ArxmlEvent::ArxmlHeader = self.next(&mut lexer)? {
@@ -210,7 +215,7 @@ impl<'a> ArxmlParser<'a> {
         }
     
         if let ArxmlEvent::BeginElement(elemname, attributes_text) = self.next(&mut lexer)? {
-            if let Some(ElementName::Autosar) = ElementName::from_bytes(elemname) {
+            if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
                 let type_autosar = &specification::DATATYPES[specification::ROOT_DATATYPE];
     
                 let attributes = self.parse_attribute_text(attributes_text, type_autosar.attributes)?;
@@ -227,18 +232,17 @@ impl<'a> ArxmlParser<'a> {
                         return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
                     }
                     let xsd_file = schema_parts.next().unwrap_or("");
-                    if let Some(autosar_version) = AutosarVersion::from_str(xsd_file) {
+                    if let Ok(autosar_version) = AutosarVersion::from_str(xsd_file) {
                         self.fileversion = autosar_version;
                     } else {
                         self.fileversion = AutosarVersion::Autosar_00050;
                         self.optional_error(ArxmlParserError::UnknownAutosarVersion {input_verstring: xsd_file.to_string()})?;
                     }
 
-                    let autosar_root_element = self.parse_element(ElementName::Autosar, attributes, specification::ROOT_DATATYPE, "", &mut lexer)?;
+                    let path = Cow::from("");
+                    let autosar_root_element = self.parse_element(ElementOrFile::None, ElementName::Autosar, attributes, specification::ROOT_DATATYPE, path, &mut lexer)?;
 
-                    let mut identifiables = HashMap::new();
-                    std::mem::swap(&mut self.identifiables, &mut identifiables);
-                    return Ok((autosar_root_element, identifiables));
+                    return Ok(autosar_root_element);
                 } else {
                     return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
                 }
@@ -248,62 +252,61 @@ impl<'a> ArxmlParser<'a> {
     }
 
 
-    fn parse_element(&mut self, element_name: ElementName, attributes: Vec<Attribute>, datatype_id: usize, path_in: &str, lexer: &mut ArxmlLexer) -> Result<Element, AutosarDataError> {
-        let mut element = ElementRaw {
-            elemname: element_name,
-            attributes,
-            content: Vec::new(),
-            type_id: datatype_id,
-        };
+    fn parse_element(&mut self, parent: ElementOrFile, element_name: ElementName, attributes: SmallVec<[Attribute; 1]>, datatype_id: usize, mut path: Cow<str>, lexer: &mut ArxmlLexer) -> Result<Element, AutosarDataError> {
+        let wrapped_element = 
+            Element(Arc::new(Mutex::new(ElementRaw {
+                parent,
+                elemname: element_name,
+                attributes,
+                content: SmallVec::new(),
+                type_id: datatype_id,
+            }
+        )));
+        let mut element = wrapped_element.0.lock().unwrap();
 
-        // track the current element name in the parser for error messages
-        self.current_element = element_name;
+
         let datatype = &specification::DATATYPES[datatype_id];
-        let mut elem_spec_idx = 0;
-        let mut elem_group_idx = 0;
-        let mut num_elements: usize = 0;
+        let mut elem_idx: Vec<usize> = Vec::new();
         let mut short_name_found = false;
         let mut element_count = HashMap::<u16, usize>::new();
-        let mut path = path_in.to_owned();
 
         loop {
+            // track the current element name in the parser for error messages - set this in every loop iteration, since it gets overwritten during the recursive calls
+            self.current_element = element_name;
             let arxmlevent = self.next(lexer)?;
             match arxmlevent {
                 ArxmlEvent::BeginElement(elem_text, attr_text) => {
-                    if let Some(name) = ElementName::from_bytes(elem_text) {
-                        (elem_spec_idx, elem_group_idx) = match datatype.mode {
-                            ContentMode::Sequence => self.find_element_in_sequence_spec(name, datatype_id, elem_spec_idx)?,
-                            ContentMode::Choice => self.find_element_in_choice_spec(name, datatype_id, elem_spec_idx, elem_group_idx, num_elements)?,
-                            ContentMode::Bag
-                            | ContentMode::Mixed => self.find_element_in_bag_spec(name, datatype_id)?,
-                            ContentMode::Characters => return Err(self.error(ArxmlParserError::SubElementNotPermitted {element: element.elemname, sub_element: name})),
-                        };
+                    if let Ok(name) = ElementName::from_bytes(elem_text) {
+                        elem_idx = self.find_element_in_spec_checked(name, datatype_id, &elem_idx)?;
 
                         // the if let is always true, because (elem_spec_idx, elem_group_idx) were only just found by find_element_in_spec()
-                        if let Some(SubElement::Element { elemtype, version_mask, .. }) = get_sub_element_type(&datatype.sub_elements, elem_spec_idx, elem_group_idx) {
-                            self.check_multiplicity(name, datatype_id, elem_spec_idx, elem_group_idx, &mut element_count)?;
+                        if let Some(SubElement::Element { elemtype, version_mask, .. }) = get_sub_element_spec(datatype.sub_elements, &elem_idx) {
+                            self.check_multiplicity(name, datatype_id, &elem_idx, &mut element_count)?;
 
                             self.check_version(*version_mask, ArxmlParserError::ElementVersionError{element: element.elemname, sub_element: name, version: self.fileversion})?;
                             let sub_elem_type = &DATATYPES[*elemtype];
                             let attributes = self.parse_attribute_text(attr_text, sub_elem_type.attributes)?;
-                            let sub_element = self.parse_element(name, attributes, *elemtype, &path, lexer)?;
+                            let sub_element = self.parse_element(ElementOrFile::Element(wrapped_element.downgrade()), name, attributes, *elemtype, Cow::from(path.as_ref()), lexer)?;
                             if name == ElementName::ShortName {
                                 short_name_found = true;
-                                if let Some(CharacterData::String(name_string)) = sub_element.get_character_data() {
-                                    path.write_char('/').unwrap();
-                                    path.write_str(&name_string).unwrap();
+                                let sub_element_inner = sub_element.0.lock().unwrap();
+                                if let Some(ElementContent::CharacterData(CharacterData::String(name_string))) = sub_element_inner.content.get(0) {
+                                    let mut new_path = String::with_capacity(path.len() + name_string.len() + 1);
+                                    new_path.write_str(&path).unwrap();
+                                    new_path.write_char('/').unwrap();
+                                    new_path.write_str(name_string).unwrap();
+                                    path = Cow::from(new_path.clone());
+                                    self.identifiables.push((new_path, wrapped_element.downgrade()));
                                 }
-                            }
+                             }
                             element.content.push(ElementContent::Element(sub_element));
-                            num_elements += 1;
-
                         }
                     } else {
                         return Err(self.error(ArxmlParserError::InvalidBeginElement {element: element.elemname, invalid_element: String::from_utf8_lossy(elem_text).to_string()}));
                     }
                 }
                 ArxmlEvent::EndElement(elem_text) => {
-                    if let Some(name) = ElementName::from_bytes(elem_text) {
+                    if let Ok(name) = ElementName::from_bytes(elem_text) {
                         if name == element.elemname {
                             break;
                         } else {
@@ -322,6 +325,11 @@ impl<'a> ArxmlParser<'a> {
                             ContentMode::Characters
                             | ContentMode::Mixed => {
                                 let value = self.parse_character_data(text_content, character_data_spec)?;
+                                if datatype.is_ref {
+                                    if let CharacterData::String(refpath) = &value {
+                                        self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
+                                    }
+                                }
                                 element.content.push(ElementContent::CharacterData(value));
                             }
                         }
@@ -330,125 +338,129 @@ impl<'a> ArxmlParser<'a> {
                     }
                 }
                 ArxmlEvent::ArxmlHeader => todo!(),
-                ArxmlEvent::EOF => {
+                ArxmlEvent::EndOfFile => {
                     return Err(self.error(ArxmlParserError::UnexpectedEndOfFile { element: element.elemname }));
                 }
             }
         }
 
-        let wrapped_element = Element(Arc::new(Mutex::new(element)));
         if short_name_found {
-            self.identifiables.insert(path, wrapped_element.downgrade());
         } else if datatype.is_named & self.version_compatibility != 0 {
             self.optional_error(ArxmlParserError::RequiredSubelementMissing {element: element_name, sub_element: ElementName::ShortName})?;
         }
 
-        Ok(wrapped_element)
+        Ok(wrapped_element.clone())
     }
 
+    fn find_element_in_spec_checked(&mut self, name: ElementName, type_id: usize, elem_indices: &[usize]) -> Result<Vec<usize>, AutosarDataError> {
+        // Some elements have multiple entries, and the correct one must be chosen based on the autosar version
+        // First try to find the sub element using the current file version. If that fails then search again
+        // allowing elements from all autosar versions. This is useful in order to give better diagnostics.
+        let result = find_sub_element(name, type_id, self.fileversion as u32)
+            .or_else(|| find_sub_element(name, type_id, u32::MAX));
+        if let Some(new_elem_indices) = result {
+            // find the shared prefix length of the input elem_idx and the newly found new_elem_idx
+            let mut prefix_len = 0;
+            while new_elem_indices.len() > prefix_len && elem_indices.len() > prefix_len && new_elem_indices[prefix_len] == elem_indices[prefix_len] {
+                prefix_len += 1;
+            }
 
-    fn find_element_in_sequence_spec(&mut self, name: ElementName, type_id: usize, elem_spec_idx: usize) -> Result<(usize, usize), AutosarDataError> {
-        if let Some((spec_idx, group_idx)) = self.find_element_in_spec(name, type_id, elem_spec_idx, 0) {
-            Ok((spec_idx, group_idx))
-        } else if let Some((spec_idx, group_idx)) = self.find_element_in_spec(name, type_id, 0, 0) {
-            self.optional_error(ArxmlParserError::ElementSequenceOutOfOrder {element: self.current_element, sub_element: name})?;
-            Ok((spec_idx, group_idx))
-        } else {
-            Err(self.error(ArxmlParserError::IncorrectBeginElement {element: self.current_element, sub_element: name}))
-        }
-    }
+            if elem_indices.is_empty() {
+                // when elem_indices is empty, that means that this is the first sub-element
+                // no ordering checks are possible
+            } else if prefix_len == new_elem_indices.len() {
+                // found the exact same element as last time - otherwise the prefix would be shorter by at least 1
+                assert_eq!(elem_indices, &new_elem_indices);
+                // no need to check anything here
+            } else {
+                let mode = if prefix_len == 0 {
+                    DATATYPES[type_id].mode
+                } else {
+                    // different elements, but within the same top level group
+                    let group = get_sub_element_spec(DATATYPES[type_id].sub_elements, &new_elem_indices[..prefix_len]).unwrap();
+                    if let SubElement::Group { groupid } = group {
+                        DATATYPES[*groupid].mode
+                    } else {
+                        panic!()
+                    }
+                };
 
-
-    fn find_element_in_choice_spec(&mut self, name: ElementName, type_id: usize, elem_spec_idx: usize, elem_group_idx: usize, element_count: usize) -> Result<(usize, usize), AutosarDataError> {
-        if let Some((spec_idx, group_idx)) = self.find_element_in_spec(name, type_id, elem_spec_idx, elem_group_idx) {
-            if element_count != 0 {
-                if elem_spec_idx != spec_idx {
-                    return Err(self.error(ArxmlParserError::ElementChoiceConflict {element: self.current_element, sub_element: name}));
-                }
-                if elem_group_idx < group_idx {
-                    self.optional_error(ArxmlParserError::ElementSequenceOutOfOrder {element: self.current_element, sub_element: name})?;
+                match mode {
+                    ContentMode::Sequence => {
+                        if new_elem_indices[prefix_len] < elem_indices[prefix_len] {
+                            self.optional_error(ArxmlParserError::ElementSequenceOutOfOrder {element: self.current_element, sub_element: name})?;
+                        }
+                    }
+                    ContentMode::Choice => {
+                        return Err(self.error(ArxmlParserError::ElementChoiceConflict {element: self.current_element, sub_element: name}));
+                    }
+                    ContentMode::Characters => return Err(self.error(ArxmlParserError::SubElementNotPermitted {element: self.current_element, sub_element: name})),
+                    _ => {}
                 }
             }
-            Ok((spec_idx, group_idx))
-        } else if let Some((_, _)) = self.find_element_in_spec(name, type_id, 0, 0) {
-            // element was found only after restarting the search from the beginning
-            Err(self.error(ArxmlParserError::ElementChoiceConflict {element: self.current_element, sub_element: name}))
+            Ok(new_elem_indices)
         } else {
-            // element was not found in the sub element specification
             Err(self.error(ArxmlParserError::IncorrectBeginElement {element: self.current_element, sub_element: name}))
         }
     }
 
 
-    fn find_element_in_bag_spec(&mut self, name: ElementName, type_id: usize) -> Result<(usize, usize), AutosarDataError> {
-        if let Some((spec_idx, group_idx)) = self.find_element_in_spec(name, type_id, 0, 0) {
-            Ok((spec_idx, group_idx))
-        } else {
-            // element was not found in the sub element specification
-            Err(self.error(ArxmlParserError::IncorrectBeginElement {element: self.current_element, sub_element: name}))
-        }
-    }
-
-    fn find_element_in_spec(&mut self, target_name: ElementName, type_id: usize, start_pos: usize, group_pos: usize) -> Option<(usize, usize)> {
-        let spec = DATATYPES[type_id].sub_elements;
-        for (cur_pos, sub_element) in spec.iter().enumerate().skip(start_pos) {
-            match sub_element {
-                SubElement::Element { name, .. } => {
-                    if *name == target_name {
-                        return Some((cur_pos, 0));
-                    }
-                }
-                SubElement::Group { groupid } => {
-                    let group_spec = &specification::DATATYPES[*groupid];
-                    // the group_pos parameter is only valid when referring to the group at start_pos. All other groups are searched from the beginning
-                    let group_pos = if start_pos == cur_pos { group_pos } else { 0 };
-                    for (cur_group_pos, group_sub_element) in group_spec.sub_elements.iter().enumerate().skip(group_pos) {
-                        if let SubElement::Element { name, .. } = group_sub_element {
-                            if *name == target_name {
-                                return Some((cur_pos, cur_group_pos));
+    fn check_multiplicity(&mut self, name: ElementName, type_id: usize, elem_idx: &[usize], element_count: &mut HashMap<u16, usize>) -> Result<(), AutosarDataError> {
+        // check the multiplicity - in practice the only restriction that matters here is having too many elements where the multiplicity is not Any
+        // element_count will contain the current cout for this element if it has been seen before - if not, there cannot be a multiplicity problem
+        if let Some(count_value) = element_count.get_mut(&(name as u16)) {
+            // get the parent type id, i.e. the type of the containing element or group
+            if let Some(container_type_id) = get_parent_type_id(type_id, elem_idx) {
+                let datatype = &DATATYPES[container_type_id];
+                // multiplicity only matters if the mode is Choice or Sequence - modes Mixed and Bag allow arbitrary amounts of all elements
+                if datatype.mode == ContentMode::Sequence || datatype.mode == ContentMode::Choice {
+                    let elem_spec_idx = *elem_idx.last().unwrap();
+                    match &datatype.sub_elements[elem_spec_idx] {
+                        SubElement::Element { multiplicity, .. } => {
+                            *count_value += 1;
+                            if *multiplicity != ElementMultiplicity::Any {
+                                self.optional_error(ArxmlParserError::TooManySubElements {element: self.current_element, sub_element: name})?;
                             }
-                        } else {
-                            // at them moment groups can only contain elements, so this case doesn't happen
-                            todo!();
+                        }
+                        SubElement::Group { .. } => {
+                            // it should not be possible to get here
+                            panic!();
                         }
                     }
                 }
             }
+        } else {
+            element_count.insert(name as u16, 1);
         }
-        None
+        Ok(())
     }
 
-
-    fn parse_attribute_text(&mut self, attributes_text: &[u8], attr_definitions: &[(AttributeName, &'static CharacterDataSpec, bool, u32)]) -> Result<Vec<Attribute>, AutosarDataError> {
-        let mut attributes = Vec::new();
+    fn parse_attribute_text(&mut self, attributes_text: &[u8], attr_definitions: &[(AttributeName, &'static CharacterDataSpec, bool, u32)]) -> Result<SmallVec<[Attribute; 1]>, AutosarDataError> {
+        let mut attributes = SmallVec::new();
         // attributes_text is a byte string containig all the attributes of an element
         // for example: xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-2-2.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         // when this string is split on ", there will be an odd number of parts, with the last part being empty
         let mut attr_part_iter = attributes_text.split(|c| *c == b'"');
-        loop {
-            if let (Some(attr_name_part), Some(attr_value_part)) = (attr_part_iter.next(), attr_part_iter.next()) {
-                // attr_name_part may have leading whitespace and will always have a trailing '='
-                // these need to be stripped
-                let name_len = attr_name_part.len() - 1; // exclude the trailing =
-                let (name_start, _) = attr_name_part.iter().enumerate().find(|(_, c)| !c.is_ascii_whitespace()).unwrap_or((name_len, &0u8));
-                if let Some(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start .. name_len]) {
-                    if let Some((_, ctype, _, version_mask)) = attr_definitions.iter().find(|(name,_,_,_)| *name == attr_name) {
-                        self.check_version(*version_mask, ArxmlParserError::AttributeVersionError{element: self.current_element, attribute: attr_name, version: self.fileversion})?;
-                        let attr_value = self.parse_character_data(attr_value_part, *ctype)?;
-                        attributes.push(Attribute {attrname: attr_name, content: attr_value});
-                    } else {
-                        self.optional_error(ArxmlParserError::UnknownAttributeError {element: self.current_element, attribute: attr_name.to_string()})?;
-                    }
+        while let (Some(attr_name_part), Some(attr_value_part)) = (attr_part_iter.next(), attr_part_iter.next()) {
+            // attr_name_part may have leading whitespace and will always have a trailing '='
+            // these need to be stripped
+            let name_len = attr_name_part.len() - 1; // exclude the trailing =
+            let (name_start, _) = attr_name_part.iter().enumerate().find(|(_, c)| !c.is_ascii_whitespace()).unwrap_or((name_len, &0u8));
+            if let Ok(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start .. name_len]) {
+                if let Some((_, ctype, _, version_mask)) = attr_definitions.iter().find(|(name,_,_,_)| *name == attr_name) {
+                    self.check_version(*version_mask, ArxmlParserError::AttributeVersionError{element: self.current_element, attribute: attr_name, version: self.fileversion})?;
+                    let attr_value = self.parse_character_data(attr_value_part, *ctype)?;
+                    attributes.push(Attribute {attrname: attr_name, content: attr_value});
                 } else {
-                    self.optional_error(ArxmlParserError::UnknownAttributeError {element: self.current_element, attribute: String::from_utf8_lossy(&attr_name_part[name_start .. name_len]).to_string()})?;
+                    self.optional_error(ArxmlParserError::UnknownAttributeError {element: self.current_element, attribute: attr_name.to_string()})?;
                 }
             } else {
-                break;
+                self.optional_error(ArxmlParserError::UnknownAttributeError {element: self.current_element, attribute: String::from_utf8_lossy(&attr_name_part[name_start .. name_len]).to_string()})?;
             }
         }
 
         for (name, _ctype, required, _ver) in attr_definitions {
-            if *required && attributes.iter().find(|attr| attr.attrname == *name).is_none() {
+            if *required && !attributes.iter().any(|attr: &Attribute| attr.attrname == *name) {
                 self.optional_error(ArxmlParserError::RequiredAttributeMissing {element: self.current_element, attribute: *name})?;
             }
         }
@@ -461,21 +473,21 @@ impl<'a> ArxmlParser<'a> {
         let trimmed_input = trim_byte_string(input);
         match character_data_spec {
             CharacterDataSpec::Enum { items } => {
-                let value = specification::EnumItem::from_bytes(trimmed_input).ok_or(
-                    self.error(ArxmlParserError::UnknownEnumItem { value: String::from_utf8_lossy(&trimmed_input).to_string()})
+                let value = specification::EnumItem::from_bytes(trimmed_input).map_err(
+                    |_| self.error(ArxmlParserError::UnknownEnumItem { value: String::from_utf8_lossy(trimmed_input).to_string()})
                 )?;
-                let (_, version) = items.iter().find(|(item, _)| *item == value).ok_or(
-                    self.error(ArxmlParserError::InvalidEnumItem { value: String::from_utf8_lossy(&trimmed_input).to_string()})
+                let (_, version) = items.iter().find(|(item, _)| *item == value).ok_or_else(
+                    || self.error(ArxmlParserError::InvalidEnumItem { value: String::from_utf8_lossy(trimmed_input).to_string()})
                 )?;
                 self.check_version(*version, ArxmlParserError::EnumItemVersionError {element: self.current_element, enum_item: value, version: self.fileversion})?;
                 Ok(CharacterData::Enum(value))
             }
             CharacterDataSpec::Pattern { check_fn, regex, max_length } => {
                 if max_length.is_some() && trimmed_input.len() > max_length.unwrap() {
-                    self.optional_error(ArxmlParserError::StringValueTooLong { value: String::from_utf8_lossy(&trimmed_input).to_string(), length: max_length.unwrap() })?;
+                    self.optional_error(ArxmlParserError::StringValueTooLong { value: String::from_utf8_lossy(trimmed_input).to_string(), length: max_length.unwrap() })?;
                 }
-                if check_fn(trimmed_input) == false {
-                    self.optional_error(ArxmlParserError::RegexMatchError { value: String::from_utf8_lossy(&trimmed_input).to_string(), regex: regex.to_string() })?;
+                if !check_fn(trimmed_input) {
+                    self.optional_error(ArxmlParserError::RegexMatchError { value: String::from_utf8_lossy(trimmed_input).to_string(), regex: regex.to_string() })?;
                 }
                 match std::str::from_utf8(trimmed_input) {
                     Ok(utf8string) => Ok(CharacterData::String(utf8string.to_owned())),
@@ -489,7 +501,7 @@ impl<'a> ArxmlParser<'a> {
                     trimmed_input
                 };
                 if max_length.is_some() && text.len() > max_length.unwrap() {
-                    self.optional_error(ArxmlParserError::StringValueTooLong { value: String::from_utf8_lossy(&trimmed_input).to_string(), length: max_length.unwrap() })?;
+                    self.optional_error(ArxmlParserError::StringValueTooLong { value: String::from_utf8_lossy(trimmed_input).to_string(), length: max_length.unwrap() })?;
                 }
                 match std::str::from_utf8(text) {
                     Ok(utf8string) => Ok(CharacterData::String(utf8string.to_owned())),
@@ -499,7 +511,7 @@ impl<'a> ArxmlParser<'a> {
             CharacterDataSpec::UnsignedInteger => {
                 let strval = std::str::from_utf8(trimmed_input)
                     .map_err(|err| self.error(ArxmlParserError::Utf8Error { source: err }))?;
-                let value = usize::from_str_radix(strval, 10)
+                let value = strval.parse()
                     .map_err(|_| self.error(ArxmlParserError::InvalidArxmlFileHeader))?;
     
                 Ok(CharacterData::UnsignedInteger(value))
@@ -507,7 +519,7 @@ impl<'a> ArxmlParser<'a> {
             CharacterDataSpec::Double => {
                 let strval = std::str::from_utf8(trimmed_input)
                     .map_err(|err| self.error(ArxmlParserError::Utf8Error { source: err }))?;
-                let value = strval.parse::<f64>()
+                let value = strval.parse()
                     .map_err(|_| self.error(ArxmlParserError::InvalidArxmlFileHeader))?;
     
                 Ok(CharacterData::Double(value))
@@ -515,46 +527,8 @@ impl<'a> ArxmlParser<'a> {
         }
     }
 
-
-    fn check_multiplicity(&mut self, name: ElementName, type_id: usize, elem_spec_idx: usize, elem_group_idx: usize, element_count: &mut HashMap<u16, usize>) -> Result<(), AutosarDataError> {
-        let datatype = &DATATYPES[type_id];
-        // check the multiplicity - in practice the only restriction that matters here is having too many elements where the mutliplicity is not Any
-        match &datatype.sub_elements[elem_spec_idx] {
-            SubElement::Element { multiplicity, .. } => {
-                if datatype.mode == ContentMode::Sequence || datatype.mode == ContentMode::Choice {
-                    if let Some(val) = element_count.get_mut(&(name as u16)) {
-                        *val += 1;
-                        if ElementMultiplicity::Any != *multiplicity {
-                            self.optional_error(ArxmlParserError::TooManySubElements {element: self.current_element, sub_element: name})?;
-                        }
-                    } else {
-                        element_count.insert(name as u16, 1);
-                    }
-                }
-            }
-            SubElement::Group { groupid } => {
-                self.check_multiplicity(name, *groupid, elem_group_idx, 0, element_count)?;
-            }
-        }
-        Ok(())
-    }
-
     pub(crate) fn get_fileversion(&self) -> AutosarVersion {
         self.fileversion
-    }
-}
-
-
-fn get_sub_element_type(spec: &[SubElement], element_idx: usize, group_idx: usize) -> Option<&SubElement> {
-    match spec.get(element_idx) {
-        Some(sub_elem_spec @ SubElement::Element { .. }) => {
-            Some(sub_elem_spec)
-        }
-        Some(SubElement::Group { groupid }) => {
-            let group_spec = &specification::DATATYPES[*groupid];
-            get_sub_element_type(&group_spec.sub_elements, group_idx, usize::MAX)
-        }
-        None => None
     }
 }
 
@@ -566,4 +540,13 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
     }
     let (start, _) = input.iter().enumerate().find(|(_, c)| !c.is_ascii_whitespace()).unwrap_or((len, &0u8));
     &input[start .. len]
+}
+
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test() {
+
+    }
 }

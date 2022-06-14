@@ -26,7 +26,7 @@ pub(crate) enum ArxmlEvent<'a> {
     BeginElement(&'a [u8], &'a [u8]),
     EndElement(&'a [u8]),
     Characters(&'a [u8]),
-    EOF
+    EndOfFile,
 }
 
 
@@ -100,8 +100,8 @@ impl<'a> ArxmlLexer<'a> {
         self.line += count_lines(text);
         self.bufpos = endpos + 1;
 
-        if elemname.len() == 0 {
-            println!("zero length element name in {}", String::from_utf8_lossy(text))
+        if elemname.is_empty() {
+            println!("empty element name in {}", String::from_utf8_lossy(text))
         }
         ArxmlEvent::BeginElement(elemname, attributes)
     }
@@ -151,9 +151,7 @@ impl<'a> ArxmlLexer<'a> {
                 }
             }
 
-            if ver != b"1.0" {
-                Some(Err(AutosarDataError::LexerError { filename: self.sourcefile.clone() , line: self.line, source: ArxmlLexerError::InvalidXmlHeader }))
-            } else  if encoding != b"utf-8" && encoding != b"UTF-8" && encoding != b"utf8" && encoding != b"UTF8" {
+            if ver != b"1.0" || (encoding != b"utf-8" && encoding != b"UTF-8" && encoding != b"utf8" && encoding != b"UTF8") {
                 Some(Err(AutosarDataError::LexerError { filename: self.sourcefile.clone() , line: self.line, source: ArxmlLexerError::InvalidXmlHeader }))
             } else {
                 Some(Ok(ArxmlEvent::ArxmlHeader))
@@ -192,7 +190,7 @@ impl<'a> ArxmlLexer<'a> {
         } else {
             loop {
                 if self.bufpos == self.buffer.len() {
-                    break Ok((self.line, ArxmlEvent::EOF))
+                    break Ok((self.line, ArxmlEvent::EndOfFile))
                 } else if self.buffer[self.bufpos] == b'<' {
                     // start of an <element> or </element> or <!--comment-->
                     let mut endpos = self.bufpos;
@@ -204,23 +202,21 @@ impl<'a> ArxmlLexer<'a> {
                         break Err(AutosarDataError::LexerError { filename: self.sourcefile.clone() , line: self.line, source: ArxmlLexerError::IncompleteData })
                     } else if endpos <= self.bufpos + 1 {
                         break Err(AutosarDataError::LexerError { filename: self.sourcefile.clone() , line: self.line, source: ArxmlLexerError::InvalidElement })
-                    } else {
-                        if self.buffer[self.bufpos + 1] == b'/' {
-                            break Ok((self.line, self.read_element_end(endpos)))
-                        } else if self.buffer[self.bufpos + 1] == b'?' {
-                            if let Some(result) = self.read_xml_header(endpos) {
-                                break Ok((self.line, result?));
-                            }
-                        } else if self.buffer[self.bufpos + 1] == b'!' {
-                            self.read_comment(endpos)?;
-                        } else {
-                            break Ok((self.line, self.read_element_start(endpos)))
+                    } else if self.buffer[self.bufpos + 1] == b'/' {
+                        break Ok((self.line, self.read_element_end(endpos)))
+                    } else if self.buffer[self.bufpos + 1] == b'?' {
+                        if let Some(result) = self.read_xml_header(endpos) {
+                            break Ok((self.line, result?));
                         }
+                    } else if self.buffer[self.bufpos + 1] == b'!' {
+                        self.read_comment(endpos)?;
+                    } else {
+                        break Ok((self.line, self.read_element_start(endpos)))
                     }
                 } else {
                     // start of characters or whitespace
                     if let ArxmlEvent::Characters(text) = self.read_characters() {
-                        let is_whitespace = text.iter().fold(true, |acc, c| acc && c.is_ascii_whitespace());
+                        let is_whitespace = text.iter().all(|c| c.is_ascii_whitespace());
                         // only break and return a value if the text is not empty
                         if !is_whitespace {
                             break Ok((self.line, ArxmlEvent::Characters(text)));
@@ -249,7 +245,7 @@ fn test_buffer_parser() {
     match parser.next() {
         Ok((_, ArxmlEvent::BeginElement(elem, attrs))) => {
             assert_eq!(elem, b"element");
-            assert_eq!(attrs.len(), 2)
+            assert_eq!(attrs.len(), 17)
         }
         _ => assert!(false)
     }
