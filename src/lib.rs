@@ -1,56 +1,55 @@
-use std::{ffi::{OsStr, OsString}, sync::{Arc, Mutex, Weak}, collections::HashMap};
-use std::{fs::File, io::Read};
-use smallvec::SmallVec;
+use element::ElementActionError;
 use iterators::*;
-use specification::*;
-use thiserror::Error;
 use lexer::*;
 use parser::*;
-use element::ElementActionError;
+use smallvec::SmallVec;
+use specification::*;
+use std::{
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    sync::{Arc, Mutex, Weak},
+};
+use std::{fs::File, io::Read};
+use thiserror::Error;
 
+mod arxmlfile;
+mod chardata;
+mod element;
+mod iterators;
 mod lexer;
 mod parser;
-pub mod specification;
 mod spec_support;
-mod iterators;
-mod element;
-mod chardata;
-mod arxmlfile;
+pub mod specification;
 
 #[derive(Error, Debug)]
 pub enum AutosarDataError {
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorRead {
         filename: OsString,
-        ioerror: std::io::Error
+        ioerror: std::io::Error,
     },
     #[error("Failed to open {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorOpen {
         filename: OsString,
-        ioerror: std::io::Error
+        ioerror: std::io::Error,
     },
     #[error("Failed to tokenize {} on line {line}: {source}", .filename.to_string_lossy())]
     LexerError {
         filename: OsString,
         line: usize,
-        source: ArxmlLexerError
+        source: ArxmlLexerError,
     },
     #[error("failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
     ParserError {
         filename: OsString,
         line: usize,
-        source: ArxmlParserError
+        source: ArxmlParserError,
     },
     #[error("element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
-    OverlappingDataError {
-        filename: OsString,
-        path: String,
-    },
+    OverlappingDataError { filename: OsString, path: String },
 
     #[error("element operation failed: {source}")]
-    ElementActionError {
-        source: ElementActionError
-    },
+    ElementActionError { source: ElementActionError },
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -58,7 +57,7 @@ pub enum CharacterData {
     Enum(EnumItem),
     String(String),
     UnsignedInteger(usize),
-    Double(f64)
+    Double(f64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,14 +69,14 @@ pub enum ElementContent {
 #[derive(Debug, Clone)]
 pub struct Attribute {
     pub(crate) attrname: AttributeName,
-    pub(crate) content: CharacterData
+    pub(crate) content: CharacterData,
 }
 
 #[derive(Debug)]
 pub enum ElementOrFile {
     Element(WeakElement),
     File(WeakArxmlFile),
-    None // needed while constructing the data trees, otherwise there's a chicken vs. egg problem
+    None, // needed while constructing the data trees, otherwise there's a chicken vs. egg problem
 }
 
 #[derive(Debug)]
@@ -162,7 +161,10 @@ impl AutosarData {
             for (key, value) in parser.identifiables {
                 if let Some(existing) = inner.identifiables.insert(key, value) {
                     if let Some(element) = existing.upgrade() {
-                        return Err(AutosarDataError::OverlappingDataError { filename: filename.to_os_string(), path: element.path().unwrap_or_else(|| "".to_owned()) });
+                        return Err(AutosarDataError::OverlappingDataError {
+                            filename: filename.to_os_string(),
+                            path: element.path().unwrap_or_else(|| "".to_owned()),
+                        });
                     }
                 }
             }
@@ -186,14 +188,10 @@ impl AutosarData {
     }
 
 
-    pub fn write_arxml_buffers(&self) {
-
-    }
+    pub fn write_arxml_buffers(&self) {}
 
 
-    pub fn write_arxml_files(&self) {
-
-    }
+    pub fn write_arxml_files(&self) {}
 
     pub fn files(&self) -> ArxmlFileIterator {
         ArxmlFileIterator::new(self.clone())
@@ -291,7 +289,7 @@ impl AutosarData {
                     referrer_list.swap_remove(index);
                 }
             }
-        }        
+        }
     }
 }
 
@@ -318,13 +316,21 @@ fn log_func(err: AutosarDataError) {
 fn load_file_data(filename: &OsStr) -> Result<Vec<u8>, AutosarDataError> {
     let mut file = match File::open(filename) {
         Ok(file) => file,
-        Err(error) => return Err(AutosarDataError::IoErrorOpen { filename: filename.to_os_string(), ioerror: error }),
+        Err(error) => {
+            return Err(AutosarDataError::IoErrorOpen {
+                filename: filename.to_os_string(),
+                ioerror: error,
+            })
+        }
     };
-    
+
     let filesize = file.metadata().unwrap().len();
     let mut buffer = Vec::with_capacity(filesize as usize);
     match file.read_to_end(&mut buffer) {
         Ok(_) => Ok(buffer),
-        Err(err) => Err(AutosarDataError::IoErrorRead { filename: filename.to_os_string(), ioerror: err }),
+        Err(err) => Err(AutosarDataError::IoErrorRead {
+            filename: filename.to_os_string(),
+            ioerror: err,
+        }),
     }
 }

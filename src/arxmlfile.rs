@@ -2,13 +2,23 @@ use crate::*;
 
 impl ArxmlFile {
     pub(crate) fn new(filename: OsString, version: AutosarVersion, container: &AutosarData) -> Self {
-        let xsi_schemalocation = CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
+        let xsi_schemalocation =
+            CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
         let xmlns = CharacterData::String("http://autosar.org/schema/r4.0".to_string());
         let xmlns_xsi = CharacterData::String("http://www.w3.org/2001/XMLSchema-instance".to_string());
         let root_attributes = smallvec::smallvec![
-            Attribute {attrname: AttributeName::xsiSchemalocation, content: xsi_schemalocation},
-            Attribute {attrname: AttributeName::xmlns, content: xmlns},
-            Attribute {attrname: AttributeName::xmlnsXsi, content: xmlns_xsi},
+            Attribute {
+                attrname: AttributeName::xsiSchemalocation,
+                content: xsi_schemalocation
+            },
+            Attribute {
+                attrname: AttributeName::xmlns,
+                content: xmlns
+            },
+            Attribute {
+                attrname: AttributeName::xmlnsXsi,
+                content: xmlns_xsi
+            },
         ];
         let root_element = Element(Arc::new(Mutex::new(ElementRaw {
             parent: ElementOrFile::None,
@@ -53,8 +63,11 @@ impl ArxmlFile {
 
     pub fn set_version(&self, new_ver: AutosarVersion) {
         if let Ok(inner) = self.0.lock() {
-            let attributevalue = CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
-            inner.root_element.set_attribute_internal(AttributeName::xsiSchemalocation, attributevalue, new_ver);
+            let attributevalue =
+                CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
+            inner
+                .root_element
+                .set_attribute_internal(AttributeName::xsiSchemalocation, attributevalue, new_ver);
         }
     }
 

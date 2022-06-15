@@ -36,10 +36,7 @@ pub struct ElementsIterator {
 
 impl ElementsIterator {
     pub(crate) fn new(element: Element) -> Self {
-        Self {
-            element,
-            index: 0,
-        }
+        Self { element, index: 0 }
     }
 }
 
@@ -94,7 +91,7 @@ impl ElementContentIterator {
 
 pub struct AutosarDataElementsDfsIterator {
     files_iter: ArxmlFileIterator,
-    current_dfs_iter: Option<ElementsDfsIterator>
+    current_dfs_iter: Option<ElementsDfsIterator>,
 }
 
 impl AutosarDataElementsDfsIterator {
@@ -112,7 +109,7 @@ impl Iterator for AutosarDataElementsDfsIterator {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(dfs_iter) = &mut self.current_dfs_iter {
             if let Some(result) = dfs_iter.next() {
-                return  Some(result);
+                return Some(result);
             }
         }
         if let Some(current_file) = &self.files_iter.next() {
@@ -201,23 +198,29 @@ fn test_elements_dfs_iterator() {
     let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
         parent: ElementOrFile::None,
         elemname: specification::ElementName::ArPackage, // doesn't matter for this test
-        type_id: 0, // doesn't matter for this test
+        type_id: 0,                                      // doesn't matter for this test
         attributes: SmallVec::new(),
-        content: SmallVec::new()
+        content: SmallVec::new(),
     })));
     let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
         parent: ElementOrFile::None,
         elemname: specification::ElementName::ArPackages, // doesn't matter for this test
-        type_id: 0, // doesn't matter for this test
+        type_id: 0,                                       // doesn't matter for this test
         attributes: SmallVec::new(),
-        content: smallvec::smallvec![ElementContent::Element(sub_sub_element.clone()),ElementContent::Element(sub_sub_element.clone())],
+        content: smallvec::smallvec![
+            ElementContent::Element(sub_sub_element.clone()),
+            ElementContent::Element(sub_sub_element.clone())
+        ],
     })));
     let element = Element(Arc::new(Mutex::new(ElementRaw {
         parent: ElementOrFile::None,
         elemname: specification::ElementName::Autosar, // doesn't matter for this test
-        type_id: 0, // doesn't matter for this test
+        type_id: 0,                                    // doesn't matter for this test
         attributes: SmallVec::new(),
-        content: smallvec::smallvec![ElementContent::Element(sub_element.clone()),ElementContent::Element(sub_element.clone())],
+        content: smallvec::smallvec![
+            ElementContent::Element(sub_element.clone()),
+            ElementContent::Element(sub_element.clone())
+        ],
     })));
     let dfs_iter = element.elements_dfs();
     assert_eq!(dfs_iter.count(), 7);

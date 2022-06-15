@@ -1,22 +1,20 @@
 use smallvec::smallvec;
 use std::str::FromStr;
 
+use crate::iterators::*;
 use crate::spec_support::*;
 use crate::specification::*;
-use crate::iterators::*;
 
 use super::*;
 
 #[derive(Debug, Error)]
-pub enum ElementActionError {
-
-}
+pub enum ElementActionError {}
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum ContentType {
     Elements,
     CharacterData,
-    Mixed
+    Mixed,
 }
 
 impl Element {
@@ -92,7 +90,7 @@ impl Element {
             }
             path_components.push(String::new());
             path_components.reverse();
-    
+
             Some(path_components.join("/"))
         } else {
             None
@@ -105,9 +103,7 @@ impl Element {
         loop {
             let parent = if let Ok(inner) = cur_elem.0.lock() {
                 match &inner.parent {
-                    ElementOrFile::Element(weak_parent) => {
-                        weak_parent.upgrade()?
-                    }
+                    ElementOrFile::Element(weak_parent) => weak_parent.upgrade()?,
                     ElementOrFile::File(weak_arxmlfile) => {
                         return weak_arxmlfile.upgrade();
                     }
@@ -155,10 +151,16 @@ impl Element {
                 Err(())
             } else {
                 let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                    parent: ElementOrFile::Element(self.downgrade()), elemname: element_name, type_id: *elemtype, content: smallvec![], attributes: smallvec![]
+                    parent: ElementOrFile::Element(self.downgrade()),
+                    elemname: element_name,
+                    type_id: *elemtype,
+                    content: smallvec![],
+                    attributes: smallvec![],
                 })));
                 let mut inner = self.0.lock().unwrap();
-                inner.content.insert(position, ElementContent::Element(sub_element.clone()));
+                inner
+                    .content
+                    .insert(position, ElementContent::Element(sub_element.clone()));
                 Ok(sub_element)
             }
         } else {
@@ -171,7 +173,12 @@ impl Element {
         self.create_named_sub_element_inner(element_name, item_name, end_pos)
     }
 
-    pub fn create_named_sub_element_at(&self, element_name: ElementName, item_name: &str, position: usize) -> Result<Element, ()> {
+    pub fn create_named_sub_element_at(
+        &self,
+        element_name: ElementName,
+        item_name: &str,
+        position: usize,
+    ) -> Result<Element, ()> {
         let (start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         if start_pos <= position && position <= end_pos {
             self.create_named_sub_element_inner(element_name, item_name, position)
@@ -180,7 +187,12 @@ impl Element {
         }
     }
 
-    fn create_named_sub_element_inner(&self, element_name: ElementName, item_name: &str, position: usize) -> Result<Element, ()> {
+    fn create_named_sub_element_inner(
+        &self,
+        element_name: ElementName,
+        item_name: &str,
+        position: usize,
+    ) -> Result<Element, ()> {
         if !item_name.is_empty() {
             let file = self.containing_file().ok_or(())?;
             let type_id = self.type_id();
@@ -189,15 +201,23 @@ impl Element {
             if let SubElement::Element { elemtype, .. } = sub_element_spec {
                 if DATATYPES[*elemtype].is_named & file.version() as u32 != 0 {
                     let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                        parent: ElementOrFile::Element(self.downgrade()), elemname: element_name, type_id: *elemtype, content: smallvec![], attributes: smallvec![]
+                        parent: ElementOrFile::Element(self.downgrade()),
+                        elemname: element_name,
+                        type_id: *elemtype,
+                        content: smallvec![],
+                        attributes: smallvec![],
                     })));
                     {
                         // separate scope to limit the lifetime of the mutex
                         let mut inner = self.0.lock().map_err(|_| ())?;
-                        inner.content.insert(position, ElementContent::Element(sub_element.clone()));
-                    }                    
+                        inner
+                            .content
+                            .insert(position, ElementContent::Element(sub_element.clone()));
+                    }
                     let shortname_element = sub_element.create_sub_element(ElementName::ShortName)?;
-                    shortname_element.set_character_data(CharacterData::String(item_name.to_owned())).unwrap();
+                    shortname_element
+                        .set_character_data(CharacterData::String(item_name.to_owned()))
+                        .unwrap();
                     Ok(sub_element)
                 } else {
                     Err(())
@@ -226,7 +246,8 @@ impl Element {
             let mut end_pos = 0;
             for (idx, content_item) in inner.content.iter().enumerate() {
                 if let ElementContent::Element(subelement) = content_item {
-                    let existing_element_indices = find_sub_element(subelement.element_name(), type_id, version as u32).unwrap();
+                    let existing_element_indices =
+                        find_sub_element(subelement.element_name(), type_id, version as u32).unwrap();
                     let group = find_common_group(type_id, &new_element_indices, &existing_element_indices);
                     match group.mode {
                         ContentMode::Sequence => {
@@ -235,17 +256,19 @@ impl Element {
                                 std::cmp::Ordering::Less => {
                                     // new element is smaller than the existing one
                                     // this means that all plausible insert positions have already been seen
-                                    break
+                                    break;
                                 }
                                 std::cmp::Ordering::Equal => {
                                     // new element is not smaller than the current one, so set the end position
                                     end_pos = idx + 1;
                                     // are identical elements of this type allowed at all?
-                                    let sub_elem_spec = get_sub_element_spec(DATATYPES[type_id].sub_elements, &new_element_indices).unwrap();
-                                    if let SubElement::Element {multiplicity, .. } = sub_elem_spec {
+                                    let sub_elem_spec =
+                                        get_sub_element_spec(DATATYPES[type_id].sub_elements, &new_element_indices)
+                                            .unwrap();
+                                    if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
                                         if *multiplicity != ElementMultiplicity::Any {
                                             // the new element is identical to an existing one, but repetitions are not allowed
-                                            return Err(())
+                                            return Err(());
                                         }
                                     }
                                 }
@@ -261,11 +284,13 @@ impl Element {
                             // can insert elements that ar identical to the existing element, if more than one of this element is allowed
                             // can't insert anything else
                             if new_element_indices == existing_element_indices {
-                                let sub_elem_spec = get_sub_element_spec(DATATYPES[type_id].sub_elements, &new_element_indices).unwrap();
-                                if let SubElement::Element {multiplicity, .. } = sub_elem_spec {
+                                let sub_elem_spec =
+                                    get_sub_element_spec(DATATYPES[type_id].sub_elements, &new_element_indices)
+                                        .unwrap();
+                                if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
                                     if *multiplicity != ElementMultiplicity::Any {
                                         // the new element is identical to an existing one, but repetitions are not allowed
-                                        return Err(())
+                                        return Err(());
                                     }
                                 } else {
                                     panic!(); // can't happen
@@ -278,8 +303,7 @@ impl Element {
                                 return Err(());
                             }
                         }
-                        ContentMode::Bag
-                        | ContentMode::Mixed => {
+                        ContentMode::Bag | ContentMode::Mixed => {
                             // can insert before or after the current element
                             end_pos = idx + 1;
                         }
@@ -331,19 +355,23 @@ impl Element {
 
         // remove the back-reference to the parent inside the sub_element.
         // This matters if other references to the sub_element exist, causing it to remain alive
-        if let Ok( mut sub_element_inner) = sub_element.0.lock() {
+        if let Ok(mut sub_element_inner) = sub_element.0.lock() {
             sub_element_inner.parent = ElementOrFile::None;
             sub_element_inner.content.truncate(0);
         }
         let mut inner = self.0.lock().map_err(|_| ())?;
-        let (pos, _) = inner.content.iter().enumerate().find(
-            |(_, item)|
-            if let ElementContent::Element(elem) = item {
-                *elem == sub_element
-            } else {
-                false
-            }
-        ).ok_or(())?;
+        let (pos, _) = inner
+            .content
+            .iter()
+            .enumerate()
+            .find(|(_, item)| {
+                if let ElementContent::Element(elem) = item {
+                    *elem == sub_element
+                } else {
+                    false
+                }
+            })
+            .ok_or(())?;
         inner.content.remove(pos);
         Ok(())
     }
@@ -375,7 +403,7 @@ impl Element {
 
 
     /// set the character data of this element
-    /// 
+    ///
     /// This method only applies to elements which contain character data, i.e. element.get_content_type == CharacterData
     pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), ()> {
         let type_id = self.type_id();
@@ -440,16 +468,19 @@ impl Element {
 
 
     /// insert a character data item into the content of this element
-    /// 
+    ///
     /// This method only applies to elements which contain mixed data, i.e. element.get_content_type == Mixed.
     /// Use create_sub_element_at to add an element instead of a character data item
-    /// 
+    ///
     /// return true if the data was added
     pub fn insert_character_content_item(&self, chardata: &str, position: usize) -> bool {
         if let Ok(mut inner) = self.0.lock() {
             if let ContentMode::Mixed = &DATATYPES[inner.type_id].mode {
                 if position <= inner.content.len() {
-                    inner.content.insert(position, ElementContent::CharacterData(CharacterData::String(chardata.to_owned())));
+                    inner.content.insert(
+                        position,
+                        ElementContent::CharacterData(CharacterData::String(chardata.to_owned())),
+                    );
                     return true;
                 }
             }
@@ -458,11 +489,11 @@ impl Element {
     }
 
     /// remove a character data item from the content of this element
-    /// 
+    ///
     /// This method only applies to elements which contain mixed data, i.e. element.get_content_type == Mixed
-    /// 
+    ///
     /// returns true if data was removed
-    pub fn remove_content_item(&self, position: usize) -> bool{
+    pub fn remove_content_item(&self, position: usize) -> bool {
         if let Ok(mut inner) = self.0.lock() {
             if let ContentMode::Mixed = &DATATYPES[inner.type_id].mode {
                 if position < inner.content.len() {
@@ -475,16 +506,16 @@ impl Element {
         }
         false
     }
-    
+
 
     /// get the character content of the element
-    /// 
+    ///
     /// This method only applies to elements which contain character data, i.e. element.get_content_type == CharacterData
     pub fn character_data(&self) -> Option<CharacterData> {
         if let Ok(inner) = self.0.lock() {
             if let ContentMode::Characters = &DATATYPES[inner.type_id].mode {
                 if let Some(ElementContent::CharacterData(cdata)) = inner.content.get(0) {
-                    return Some(cdata.clone())
+                    return Some(cdata.clone());
                 }
             }
         }
@@ -515,7 +546,7 @@ impl Element {
     pub fn attributes(&self) -> AttributeIterator {
         AttributeIterator {
             element: self.clone(),
-            index: 0
+            index: 0,
         }
     }
 
@@ -554,7 +585,10 @@ impl Element {
                         if let Some(attr) = locked_elem.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
                             attr.content = value;
                         } else {
-                            locked_elem.attributes.push(Attribute { attrname, content: value });
+                            locked_elem.attributes.push(Attribute {
+                                attrname,
+                                content: value,
+                            });
                         }
                     }
                 }
@@ -563,7 +597,12 @@ impl Element {
         false
     }
 
-    pub(crate) fn set_attribute_internal(&self, attrname: AttributeName, value: CharacterData, file_version: AutosarVersion) -> bool {
+    pub(crate) fn set_attribute_internal(
+        &self,
+        attrname: AttributeName,
+        value: CharacterData,
+        file_version: AutosarVersion,
+    ) -> bool {
         let attr_types = DATATYPES[self.type_id()].attributes;
         // find the attribute specification in the item type
         if let Some((_, spec, _, _)) = attr_types.iter().find(|(name, ..)| *name == attrname) {
@@ -631,20 +670,30 @@ impl PartialEq for WeakElement {
 
 #[cfg(test)]
 mod test {
-    use std::ffi::OsString;
     use crate::*;
+    use std::ffi::OsString;
 
     #[test]
     fn test_element_creation() {
         let autosar_data = AutosarData::new();
-        let file = autosar_data.create_file(OsString::from("test.arxml"), AutosarVersion::LATEST).unwrap();
+        let file = autosar_data
+            .create_file(OsString::from("test.arxml"), AutosarVersion::LATEST)
+            .unwrap();
         let el_autosar = file.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
-        let el_ar_package = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "TestPackage").unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "TestPackage")
+            .unwrap();
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
-        let el_compu_method = el_elements.create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod").unwrap();
-        el_elements.create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod2").unwrap();
-        el_elements.create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod3").unwrap();
+        let el_compu_method = el_elements
+            .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod")
+            .unwrap();
+        el_elements
+            .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod2")
+            .unwrap();
+        el_elements
+            .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod3")
+            .unwrap();
 
         // inserting another COMPU-METHOD into ELEMENTS hould be allowed at any position
         let (start_pos, end_pos) = el_elements.find_element_insert_pos(ElementName::CompuMethod).unwrap();
@@ -656,8 +705,12 @@ mod test {
         assert_eq!(el_compu_method, el_compu_method_test);
 
         // create more hierarchy
-        let el_compu_internal_to_phys = el_compu_method.create_sub_element(ElementName::CompuInternalToPhys).unwrap();
-        let el_compu_scales = el_compu_internal_to_phys.create_sub_element(ElementName::CompuScales).unwrap();
+        let el_compu_internal_to_phys = el_compu_method
+            .create_sub_element(ElementName::CompuInternalToPhys)
+            .unwrap();
+        let el_compu_scales = el_compu_internal_to_phys
+            .create_sub_element(ElementName::CompuScales)
+            .unwrap();
         let el_compu_scale = el_compu_scales.create_sub_element(ElementName::CompuScale).unwrap();
         el_compu_scale.create_sub_element(ElementName::Desc).unwrap();
 
@@ -672,7 +725,9 @@ mod test {
         assert_eq!(end_pos, 1);
 
         // create COMPU-RATIONAL-COEFFS in COMPU-SCALE. It's presence excludes COMPU-CONST from being inserted
-        el_compu_scale.create_sub_element(ElementName::CompuRationalCoeffs).unwrap();
+        el_compu_scale
+            .create_sub_element(ElementName::CompuRationalCoeffs)
+            .unwrap();
         // try to insert COMPU-CONST anyway
         let result = el_compu_scale.find_element_insert_pos(ElementName::CompuConst);
         assert!(result.is_err());

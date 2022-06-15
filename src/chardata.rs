@@ -1,10 +1,14 @@
-use std::str::FromStr;
 use std::fmt::Display;
+use std::str::FromStr;
 
 use super::*;
 
 impl CharacterData {
-    pub(crate) fn check_value(value: &CharacterData, spec: &specification::CharacterDataSpec, file_version: AutosarVersion) -> bool {
+    pub(crate) fn check_value(
+        value: &CharacterData,
+        spec: &specification::CharacterDataSpec,
+        file_version: AutosarVersion,
+    ) -> bool {
         match spec {
             // the specification must call for an enum
             specification::CharacterDataSpec::Enum { items } => {
@@ -19,9 +23,12 @@ impl CharacterData {
                     }
                 }
             }
-            specification::CharacterDataSpec::Pattern { check_fn, max_length, .. } => {
+            specification::CharacterDataSpec::Pattern {
+                check_fn, max_length, ..
+            } => {
                 if let CharacterData::String(stringval) = &value {
-                    if (max_length.is_none() || stringval.len() < max_length.unwrap()) && check_fn(stringval.as_bytes()) {
+                    if (max_length.is_none() || stringval.len() < max_length.unwrap()) && check_fn(stringval.as_bytes())
+                    {
                         return true;
                     }
                 }
@@ -31,7 +38,7 @@ impl CharacterData {
                     if max_length.is_none() || stringval.len() < max_length.unwrap() {
                         return true;
                     }
-                }                           
+                }
             }
             specification::CharacterDataSpec::UnsignedInteger => {
                 if let CharacterData::UnsignedInteger(_) = &value {
@@ -54,19 +61,21 @@ impl CharacterData {
                 if let Ok(enumitem) = specification::EnumItem::from_str(input) {
                     if let Some((_, version_mask)) = items.iter().find(|(item, _)| *item == enumitem) {
                         if version as u32 & version_mask != 0 {
-                            return Some(CharacterData::Enum(enumitem))
+                            return Some(CharacterData::Enum(enumitem));
                         }
                     }
                 }
             }
-            CharacterDataSpec::Pattern { check_fn, max_length, .. } => {
+            CharacterDataSpec::Pattern {
+                check_fn, max_length, ..
+            } => {
                 if (max_length.is_none() || input.len() < max_length.unwrap()) && check_fn(input.as_bytes()) {
-                    return Some(CharacterData::String(input.to_owned()))
+                    return Some(CharacterData::String(input.to_owned()));
                 }
-            },
+            }
             CharacterDataSpec::String { max_length, .. } => {
                 if max_length.is_none() || input.len() < max_length.unwrap() {
-                    return Some(CharacterData::String(input.to_owned()))
+                    return Some(CharacterData::String(input.to_owned()));
                 }
             }
             CharacterDataSpec::UnsignedInteger => {
