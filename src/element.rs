@@ -10,14 +10,11 @@ use super::*;
 #[derive(Debug, Error)]
 pub enum ElementActionError {}
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum ContentType {
-    Elements,
-    CharacterData,
-    Mixed,
-}
 
 impl Element {
+    /// get the parent element of the current element
+    /// 
+    /// Returns None if the current element is the root, or if it has been deleted from the element hierarchy
     pub fn parent(&self) -> Option<Element> {
         if let Ok(inner) = self.0.lock() {
             if let ElementOrFile::Element(parent) = &inner.parent {
@@ -35,12 +32,18 @@ impl Element {
     }
 
 
+    /// get the [ElementName] of the element
     pub fn element_name(&self) -> ElementName {
         let inner = self.0.lock().unwrap();
         inner.elemname
     }
 
 
+    /// get the name of an identifiable element
+    /// 
+    /// An identifiable element has a ```<SHORT-NAME>``` sub element and can be referenced using an autosar path.
+    /// 
+    /// If the element is not identifiable, this function returns None
     pub fn item_name(&self) -> Option<String> {
         let inner = self.0.lock().unwrap();
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
@@ -57,8 +60,8 @@ impl Element {
         None
     }
 
-
-    pub fn is_named(&self) -> bool {
+    /// returns true if the element is identifiable
+    pub fn is_identifiable(&self) -> bool {
         let inner = self.0.lock().unwrap();
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
         if DATATYPES[inner.type_id].is_named != 0 {
@@ -72,14 +75,18 @@ impl Element {
         false
     }
 
-
+    /// returns true if the element references another element
+    ///
+    /// The function does not check if the reference is valid
     pub fn is_reference(&self) -> bool {
         DATATYPES[self.type_id()].is_ref
     }
 
-
+    /// get the Autosar path of an identifiable element
+    ///
+    /// returns Some(path) if the element is identifiable, None otherwise
     pub fn path(&self) -> Option<String> {
-        if self.is_named() {
+        if self.is_identifiable() {
             let mut cur_elem_opt = Some(self.clone());
             let mut path_components = vec![];
             while let Some(cur_elem) = &cur_elem_opt {
@@ -91,13 +98,19 @@ impl Element {
             path_components.push(String::new());
             path_components.reverse();
 
-            Some(path_components.join("/"))
+            let path = path_components.join("/");
+            // enven if this element is identifiable, path might still be "" if the current element has been deleted from the element hierarchy
+            if !path.is_empty() {
+                Some(path)
+            } else {
+                None
+            }
         } else {
             None
         }
     }
 
-
+    /// get a reference to the [ArxmlFile] containing the current element
     pub fn containing_file(&self) -> Option<ArxmlFile> {
         let mut cur_elem = self.clone();
         loop {
@@ -116,6 +129,7 @@ impl Element {
         }
     }
 
+    /// get the [ContentType] of the current element
     pub fn get_content_type(&self) -> ContentType {
         let datatype = &DATATYPES[self.type_id()];
         match datatype.mode {
@@ -127,11 +141,20 @@ impl Element {
         }
     }
 
+    /// create a sub element at a suitable insertion position
+    /// 
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use create_named_sub_element() for that instead.
     pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, ()> {
         let (_start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         self.create_sub_element_inner(element_name, end_pos)
     }
 
+    /// create a sub element at the specified insertion position
+    /// 
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use create_named_sub_element_at() for that instead.
+    /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
     pub fn create_sub_element_at(&self, element_name: ElementName, position: usize) -> Result<Element, ()> {
         let (start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         if start_pos <= position && position <= end_pos {
@@ -141,6 +164,7 @@ impl Element {
         }
     }
 
+    /// helper function for create_sub_element and create_sub_element_at
     fn create_sub_element_inner(&self, element_name: ElementName, position: usize) -> Result<Element, ()> {
         let version = self.containing_file().map(|f| f.version()).ok_or(())?;
         let type_id = self.type_id();
@@ -168,11 +192,21 @@ impl Element {
         }
     }
 
+
+    /// create a named/identifiable sub element at a suitable insertion position
+    /// 
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// This method can only be used to create identifiable sub elements.
     pub fn create_named_sub_element(&self, element_name: ElementName, item_name: &str) -> Result<Element, ()> {
         let (_start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         self.create_named_sub_element_inner(element_name, item_name, end_pos)
     }
 
+    /// create a named/identifiable sub element at the specified insertion position
+    /// 
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
+    /// This method can only be used to create identifiable sub elements.
     pub fn create_named_sub_element_at(
         &self,
         element_name: ElementName,
@@ -187,6 +221,7 @@ impl Element {
         }
     }
 
+    /// helper function for create_named_sub_element and create_named_sub_element_at
     fn create_named_sub_element_inner(
         &self,
         element_name: ElementName,
@@ -230,7 +265,7 @@ impl Element {
         }
     }
 
-
+    /// find the upper and lower bound on the insert position for a sub element
     fn find_element_insert_pos(&self, element_name: ElementName) -> Result<(usize, usize), ()> {
         let version = self.containing_file().map(|f| f.version()).ok_or(())?;
         let type_id = self.type_id();
@@ -322,9 +357,12 @@ impl Element {
         }
     }
 
-
+    /// remove the sub element sub_element
+    ///
+    /// The sub_element will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
+    /// Since all elements are reference counted, they might not be deallocated immediately, however they do become invalid and unusable immediately.
     pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), ()> {
-        if self.is_named() && sub_element.element_name() == ElementName::ShortName {
+        if self.is_identifiable() && sub_element.element_name() == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
             return Err(());
         }
@@ -335,7 +373,7 @@ impl Element {
         }
 
         // if sub_element is a named element, then a reference to it exists in the autosar_data.identifiables HashMap
-        if sub_element.is_named() {
+        if sub_element.is_identifiable() {
             if let Some(data) = self.containing_file().and_then(|f| f.autosar_data()) {
                 if let Some(path) = sub_element.path() {
                     // remove the identifiables-reference (terminology???)
@@ -348,7 +386,7 @@ impl Element {
             if let Some(CharacterData::String(reference)) = sub_element.character_data() {
                 if let Some(data) = self.containing_file().and_then(|f| f.autosar_data()) {
                     // remove the references-reference (ugh. terminology???)
-                    data.remove_reference(&reference, sub_element.downgrade());
+                    data.remove_reference_origin(&reference, sub_element.downgrade());
                 }
             }
         }
@@ -376,7 +414,10 @@ impl Element {
         Ok(())
     }
 
-
+    /// Set the reference target for the element to target
+    /// 
+    /// When the reference is updated, the DEST attribute is also updated to match the referenced element.
+    /// The current element must be a reference element, otherwise the function fails.
     pub fn set_reference_target(&self, target: Element) {
         // the current element must be a reference
         if self.is_reference() {
@@ -388,10 +429,10 @@ impl Element {
                     if let Some(data) = self.containing_file().and_then(|f| f.autosar_data()) {
                         // if this reference previously referenced some other element, update
                         if let Some(CharacterData::String(old_ref)) = self.character_data() {
-                            data.fix_references(&old_ref, &new_ref, self.downgrade());
+                            data.fix_reference_origins(&old_ref, &new_ref, self.downgrade());
                         } else {
                             // else initialise the new reference
-                            data.add_reference(&new_ref, self.downgrade());
+                            data.add_reference_origin(&new_ref, self.downgrade());
                         }
                     }
                     let _ = self.set_character_data(CharacterData::String(new_ref));
@@ -453,7 +494,7 @@ impl Element {
                         if let Some(CharacterData::String(refval)) = self.character_data() {
                             if let Some(old_refval) = old_refval {
                                 if let Some(data) = self.containing_file().and_then(|file| file.autosar_data()) {
-                                    data.fix_references(&old_refval, &refval, self.downgrade());
+                                    data.fix_reference_origins(&old_refval, &refval, self.downgrade());
                                 }
                             }
                         }
@@ -522,27 +563,29 @@ impl Element {
         None
     }
 
-
+    /// create an iterator over all of the content of this element
+    /// 
+    /// The iterator can return both sub elements and character data, wrapped as ElementContent::Element and ElementContent::CharacterData
     pub fn content(&self) -> ElementContentIterator {
         ElementContentIterator::new(self)
     }
 
-
+    /// create a wea reference to this element
     pub fn downgrade(&self) -> WeakElement {
         WeakElement(Arc::downgrade(&self.0))
     }
 
-
+    /// create an iterator over all sub elements of this element
     pub fn sub_elements(&self) -> ElementsIterator {
         ElementsIterator::new(self.clone())
     }
 
-
+    /// create a depth first iterator over this element and all of its sub elements
     pub fn elements_dfs(&self) -> ElementsDfsIterator {
         ElementsDfsIterator::new(self)
     }
 
-
+    /// create an iterator over all the attributes in this element
     pub fn attributes(&self) -> AttributeIterator {
         AttributeIterator {
             element: self.clone(),
@@ -550,6 +593,7 @@ impl Element {
         }
     }
 
+    /// get a single attribute by name
     pub fn get_attribute(&self, attrname: AttributeName) -> Option<CharacterData> {
         if let Ok(inner) = self.0.lock() {
             if let Some(attr) = inner.attributes.iter().find(|attr| attr.attrname == attrname) {
@@ -559,6 +603,7 @@ impl Element {
         None
     }
 
+    /// get the content of a named attribute as a string
     pub fn get_attribute_string(&self, attrname: AttributeName) -> Option<String> {
         if let Some(chardata) = self.get_attribute(attrname) {
             match chardata {
@@ -569,6 +614,9 @@ impl Element {
         None
     }
 
+    /// set the value of a named attribute
+    /// 
+    /// If no attribute by that name exists, and the attribute is a valid attribute of the element, then the attribute will be created
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> bool {
         if let Some(version) = self.containing_file().map(|f| f.version()) {
             return self.set_attribute_internal(attrname, value, version);
@@ -576,6 +624,7 @@ impl Element {
         false
     }
 
+    /// set the value of a named attribute from a string
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> bool {
         if let Some(version) = self.containing_file().map(|f| f.version()) {
             if let Ok(mut locked_elem) = self.0.lock() {
@@ -629,7 +678,7 @@ impl Element {
         false
     }
 
-
+    /// remove an attribute from the element
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
         if let Ok(mut inner) = self.0.lock() {
             for idx in 0..inner.attributes.len() {
@@ -656,6 +705,7 @@ impl PartialEq for Element {
 
 
 impl WeakElement {
+    /// try to get a strong reference to the [Element]
     pub fn upgrade(&self) -> Option<Element> {
         Weak::upgrade(&self.0).map(Element)
     }
@@ -701,7 +751,7 @@ mod test {
         assert_eq!(end_pos, 3); // upper limit is 3 since there are currently 3 elements
 
         // check if create_named_sub_element correctly registered the element in the hashmap so that it can be found
-        let el_compu_method_test = autosar_data.get_named_element("/TestPackage/TestCompuMethod").unwrap();
+        let el_compu_method_test = autosar_data.get_element_by_path("/TestPackage/TestCompuMethod").unwrap();
         assert_eq!(el_compu_method, el_compu_method_test);
 
         // create more hierarchy

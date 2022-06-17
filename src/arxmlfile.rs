@@ -38,6 +38,7 @@ impl ArxmlFile {
         file
     }
 
+    /// get the filename of this ArxmnlFile
     pub fn filename(&self) -> OsString {
         if let Ok(inner) = self.0.lock() {
             inner.filename.clone()
@@ -46,12 +47,16 @@ impl ArxmlFile {
         }
     }
 
+    /// set the filename of this arxml filename
+    /// 
+    /// This will not rename any existing file on disk, but the new filename will be used when writing the data.
     pub fn set_filename(&self, new_filename: OsString) {
         if let Ok(mut inner) = self.0.lock() {
             inner.filename = new_filename;
         }
     }
 
+    /// get the [AutosarVersion] of the file
     pub fn version(&self) -> AutosarVersion {
         if let Ok(inner) = self.0.lock() {
             inner.version
@@ -61,6 +66,7 @@ impl ArxmlFile {
         }
     }
 
+    /// set the [AutosarVersion] of the file
     pub fn set_version(&self, new_ver: AutosarVersion) {
         if let Ok(inner) = self.0.lock() {
             let attributevalue =
@@ -71,6 +77,7 @@ impl ArxmlFile {
         }
     }
 
+    /// gt a reference to the [AutosarData] object that contains this file
     pub fn autosar_data(&self) -> Option<AutosarData> {
         if let Ok(locked_file) = self.0.lock() {
             locked_file.autosar_data.upgrade()
@@ -79,16 +86,19 @@ impl ArxmlFile {
         }
     }
 
+    /// get a referenct to the root ```<AUTOSAR ...>``` element of this file
     pub fn root_element(&self) -> Element {
         let inner = self.0.lock().unwrap();
         inner.root_element.clone()
     }
 
+    /// create a depth-first search iterator over all [Element]s in this file
     pub fn elements_dfs(&self) -> ElementsDfsIterator {
         let inner = self.0.lock().unwrap();
         inner.root_element.elements_dfs()
     }
 
+    /// create a weak reference to this ArxmlFile
     pub fn downgrade(&self) -> WeakArxmlFile {
         WeakArxmlFile(Arc::downgrade(&self.0))
     }
@@ -102,6 +112,9 @@ impl PartialEq for ArxmlFile {
 
 
 impl WeakArxmlFile {
+    /// try to get a strong reference to the [ArxmlFile]
+    /// 
+    /// This succeeds if the ArxmlFile still has any other strong reference to it, otherwise None is returned
     pub fn upgrade(&self) -> Option<ArxmlFile> {
         Weak::upgrade(&self.0).map(ArxmlFile)
     }
