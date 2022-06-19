@@ -231,7 +231,6 @@ impl AutosarData {
     ///  - buffer: The data inside the buffer must be valid utf-8. Optionally it may begin with a UTF-8-BOM, which will be silently ignored.
     ///  - filename: the original filename of the data, or a newly generated name that is unique within the AutosarData instance.
     ///  - strict: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
-    ///  - log_func: Optionally, a callback which receives the warnings that are generated when strict == false. Not used when strict == true.
     ///
     /// This method may be called concurrently on multiple threads to load different buffers
     pub fn load_named_arxml_buffer(
@@ -239,8 +238,7 @@ impl AutosarData {
         buffer: &[u8],
         filename: &OsStr,
         strict: bool,
-        log_func: Option<fn(AutosarDataError)>,
-    ) -> Result<ArxmlFile, AutosarDataError> {
+    ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
         if self.files().any(|file| file.filename() == filename) {
             return Err(AutosarDataError::DuplicateFilenameError {
                 verb: "load",
@@ -248,12 +246,7 @@ impl AutosarData {
             });
         }
 
-        let log_func = if let Some(log_func) = log_func {
-            log_func
-        } else {
-            |_| {}
-        };
-        let mut parser = ArxmlParser::new(filename.to_os_string(), buffer, log_func, strict);
+        let mut parser = ArxmlParser::new(filename.to_os_string(), buffer, strict);
         let root_element = parser.parse_arxml()?;
 
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
@@ -287,7 +280,7 @@ impl AutosarData {
         }
         inner.files.push(arxml_file.clone());
 
-        Ok(arxml_file)
+        Ok((arxml_file, parser.warnings))
     }
 
     /// Load an arxml file
@@ -297,13 +290,11 @@ impl AutosarData {
     /// Parameters:
     ///  - filename: the original filename of the data, or a newly generated name that is unique within the AutosarData instance.
     ///  - strict: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
-    ///  - log_func: Optionally, a callback which receives the warnings that are generated when strict == false. Not used when strict == true.
     pub fn load_arxml_file(
         &self,
         filename: &OsStr,
         strict: bool,
-        log_func: Option<fn(AutosarDataError)>,
-    ) -> Result<ArxmlFile, AutosarDataError> {
+    ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
         let mut file = match File::open(filename) {
             Ok(file) => file,
             Err(error) => {
@@ -322,7 +313,7 @@ impl AutosarData {
                 ioerror: err,
             })?;
 
-        self.load_named_arxml_buffer(&buffer, filename, strict, log_func)
+        self.load_named_arxml_buffer(&buffer, filename, strict)
     }
 
     pub fn write_arxml_buffers(&self) {}

@@ -43,12 +43,6 @@ pub enum ArxmlParserError {
         invalid_element: String,
     },
 
-    #[error("Sub element {sub_element} in {element} occurred out of order")]
-    ElementSequenceOutOfOrder {
-        element: ElementName,
-        sub_element: ElementName,
-    },
-
     #[error("Multiple conflicting sub elements have been added to element {element}. The latest was {sub_element}.")]
     ElementChoiceConflict {
         element: ElementName,
@@ -60,12 +54,6 @@ pub enum ArxmlParserError {
         element: ElementName,
         sub_element: ElementName,
         version: AutosarVersion,
-    },
-
-    #[error("Sub elements are not permitted inside {element}, but sub element {sub_element} was found")]
-    SubElementNotPermitted {
-        element: ElementName,
-        sub_element: ElementName,
     },
 
     #[error("Only one {sub_element} is allowed inside {element}, but another occurrence was found")]
@@ -131,26 +119,26 @@ pub(crate) struct ArxmlParser<'a> {
     buffer: &'a [u8],
     fileversion: AutosarVersion,
     current_element: ElementName,
-    log_func: fn(AutosarDataError),
     strict: bool,
     version_compatibility: u32,
     pub(crate) identifiables: Vec<(String, WeakElement)>,
     pub(crate) references: Vec<(String, WeakElement)>,
+    pub(crate) warnings: Vec<AutosarDataError>,
 }
 
 impl<'a> ArxmlParser<'a> {
-    pub(crate) fn new(filename: OsString, buffer: &'a [u8], log_func: fn(AutosarDataError), strict: bool) -> Self {
+    pub(crate) fn new(filename: OsString, buffer: &'a [u8], strict: bool) -> Self {
         Self {
             filename,
             line: 1,
             buffer,
             fileversion: AutosarVersion::Autosar_4_0_1, // this is temporary and gets replaced as soon as the xsd declaration in the top-level AUTOSAR element is read
             current_element: ElementName::Autosar,
-            log_func,
             strict,
             version_compatibility: u32::MAX,
             identifiables: Vec::new(),
             references: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -168,7 +156,7 @@ impl<'a> ArxmlParser<'a> {
         }
     }
 
-    pub(crate) fn optional_error(&self, err: ArxmlParserError) -> Result<(), AutosarDataError> {
+    pub(crate) fn optional_error(&mut self, err: ArxmlParserError) -> Result<(), AutosarDataError> {
         let wrapped_err = AutosarDataError::ParserError {
             filename: self.filename.clone(),
             line: self.line,
@@ -177,7 +165,7 @@ impl<'a> ArxmlParser<'a> {
         if self.strict {
             Err(wrapped_err)
         } else {
-            (self.log_func)(wrapped_err);
+            self.warnings.push(wrapped_err);
             Ok(())
         }
     }
@@ -449,12 +437,17 @@ impl<'a> ArxmlParser<'a> {
 
                 match mode {
                     ContentMode::Sequence => {
-                        if new_elem_indices[prefix_len] < elem_indices[prefix_len] {
-                            self.optional_error(ArxmlParserError::ElementSequenceOutOfOrder {
-                                element: self.current_element,
-                                sub_element: name,
-                            })?;
-                        }
+                        // We could check if the elements are in the specified order.
+                        // Unfortunaltely the tool used by the Autosar organisation to derive the xsd files from the meta model seems to be buggy.
+                        // For example, VARIATION-POINT should always be last according to the meta model, but some of the xsd files do not place it there.
+                        // Since other tools seem to skip this check, lets also ignore ordering.
+                        //
+                        // if new_elem_indices[prefix_len] < elem_indices[prefix_len] {
+                        //     self.optional_error(ArxmlParserError::ElementSequenceOutOfOrder {
+                        //         element: self.current_element,
+                        //         sub_element: name,
+                        //     })?;
+                        // }
                     }
                     ContentMode::Choice => {
                         return Err(self.error(ArxmlParserError::ElementChoiceConflict {
@@ -463,10 +456,8 @@ impl<'a> ArxmlParser<'a> {
                         }));
                     }
                     ContentMode::Characters => {
-                        return Err(self.error(ArxmlParserError::SubElementNotPermitted {
-                            element: self.current_element,
-                            sub_element: name,
-                        }))
+                        // an element with ContentMode::Characters has no sub elements, so the outer "if let Some(new_elem_indices)" is never true
+                        panic!("accepted a sub-element inside a character-only element");
                     }
                     _ => {}
                 }
@@ -688,9 +679,283 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
 
 #[cfg(test)]
 mod test {
-    use crate::ArxmlParser;
+    use crate::*;
     use std::ffi::OsString;
+    use crate::parser::*;
+
+    fn test_helper(buffer: &[u8], target_error: std::mem::Discriminant<ArxmlParserError>, optional: bool) {
+        let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), buffer, true);
+        let result = parser.parse_arxml();
+        println!("Result: {result:?}");
+        if let Err(AutosarDataError::ParserError { source, ..}) = result {
+            assert_eq!(std::mem::discriminant(&source), target_error, "Did not get the expected parser error");
+        } else {
+            assert!(false, "Did not get any parser error when one was expected");
+        }
+
+        if optional {
+            let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), buffer, false);
+            let result = parser.parse_arxml();
+            println!("Result: {result:?}");
+            if let Some(AutosarDataError::ParserError { source, ..}) = parser.warnings.get(0) {
+                assert_eq!(std::mem::discriminant(source), target_error, "Did not get the expected parser error");
+            } else {
+                assert!(false, "Did not get a parser warning");
+            }
+        }
+    }
+
+    const INVALID_HEADER_1: &str = "BLA BLA bla";
+    const INVALID_HEADER_2: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <something>"#;
+    const INVALID_HEADER_3: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="nonsense" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#;
 
     #[test]
-    fn test() {}
+    fn test_invalid_header() {
+        test_helper(INVALID_HEADER_1.as_bytes(), std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader), false);
+        test_helper(INVALID_HEADER_2.as_bytes(), std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader), false);
+        test_helper(INVALID_HEADER_3.as_bytes(), std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader), false);
+    }
+
+    const UNKNOWN_VERSION: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_something_else.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    </AUTOSAR>"#;
+
+    #[test]
+    fn test_unknown_version() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAutosarVersion{input_verstring: "".to_string()});
+        test_helper(UNKNOWN_VERSION.as_bytes(), discriminant, true);
+    }
+
+    const INCORRECT_BEGIN_ELEMENT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <ELEMENT>"#;
+
+    #[test]
+    fn test_incorrect_begin_element() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::IncorrectBeginElement{element: ElementName::Autosar, sub_element: ElementName::Autosar});
+        test_helper(INCORRECT_BEGIN_ELEMENT.as_bytes(), discriminant, false);
+    }
+
+    const INVALID_BEGIN_ELEMENT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <NOT_AN_AUTOSAR_ELEMENT>"#;
+
+    #[test]
+    fn test_invalid_begin_element() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidBeginElement{element: ElementName::Autosar, invalid_element: "".to_string()});
+        test_helper(INVALID_BEGIN_ELEMENT.as_bytes(), discriminant, false);
+    }
+
+    const INCORRECT_END_ELEMENT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <AR-PACKAGES></AUTOSAR>"#;
+
+    #[test]
+    fn test_incorrect_end_element() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::IncorrectEndElement{element: ElementName::Autosar, other_element: ElementName::Autosar});
+        test_helper(INCORRECT_END_ELEMENT.as_bytes(), discriminant, false);
+    }
+
+    const INVALID_END_ELEMENT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <AR-PACKAGES></NOT_AN_AUTOSAR_ELEMENT>"#;
+
+    #[test]
+    fn test_invalid_end_element() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEndElement{parent_element: ElementName::Autosar, invalid_element: "".to_string()});
+        test_helper(INVALID_END_ELEMENT.as_bytes(), discriminant, false);
+    }
+
+    const ELEMENT_VERSION_ERROR: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-0-1.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>TestPackage</SHORT-NAME><ELEMENTS><DIAGNOSTIC-ACCESS-PERMISSION>"#;
+
+    #[test]
+    fn test_element_version_error() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::ElementVersionError{element: ElementName::Autosar, sub_element: ElementName::Autosar, version: AutosarVersion::Autosar_00050});
+        test_helper(ELEMENT_VERSION_ERROR.as_bytes(), discriminant, false);
+    }
+
+    const CHOICE_CONFLICT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <ELEMENTS>
+                    <DIAGNOSTIC-CONTRIBUTION-SET>
+                        <SHORT-NAME>dcs</SHORT-NAME>
+                        <COMMON-PROPERTIES>
+                            <DIAGNOSTIC-COMMON-PROPS-VARIANTS>
+                                <DIAGNOSTIC-COMMON-PROPS-CONDITIONAL>
+                                    <DEBOUNCE-ALGORITHM-PROPSS>
+                                        <DIAGNOSTIC-DEBOUNCE-ALGORITHM-PROPS>
+                                            <SHORT-NAME>props</SHORT-NAME>
+                                            <DEBOUNCE-ALGORITHM>
+                                                <DIAG-EVENT-DEBOUNCE-COUNTER-BASED>
+                                                    <SHORT-NAME>abc</SHORT-NAME>
+                                                </DIAG-EVENT-DEBOUNCE-COUNTER-BASED>
+                                                <DIAG-EVENT-DEBOUNCE-TIME-BASED>
+                                                    <SHORT-NAME>def</SHORT-NAME>
+                                                </DIAG-EVENT-DEBOUNCE-TIME-BASED>"#;
+
+    
+    #[test]
+    fn test_choice_conflict() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::ElementChoiceConflict{element: ElementName::Autosar, sub_element: ElementName::Autosar});
+        test_helper(CHOICE_CONFLICT.as_bytes(), discriminant, false);
+    }
+
+    const TOO_MANY_SUBELEMENTS: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <SHORT-NAME>base</SHORT-NAME>"#;
+
+    #[test]
+    fn test_too_many_sub_elements() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::TooManySubElements{element: ElementName::Autosar, sub_element: ElementName::Autosar});
+        test_helper(TOO_MANY_SUBELEMENTS.as_bytes(), discriminant, false);
+    }
+
+    const REQUIRED_SUB_ELEMENT_MISSING: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE></AR-PACKAGE>"#;
+
+    #[test]
+    fn test_required_sub_element_missing() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::RequiredSubelementMissing{element: ElementName::Autosar, sub_element: ElementName::Autosar});
+        test_helper(REQUIRED_SUB_ELEMENT_MISSING.as_bytes(), discriminant, false);
+    }
+
+    const UNKNOWN_ATTRIBUTE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <AR-PACKAGES UnknownAttribute="value">
+    </AR-PACKAGES></AUTOSAR>"#;
+
+    #[test]
+    fn test_unknown_attribute() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAttributeError{element: ElementName::Autosar, attribute: "".to_string()});
+        test_helper(UNKNOWN_ATTRIBUTE.as_bytes(), discriminant, true);
+    }
+
+    const REQUIRED_ATTRIBUTE_MISSING: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0">
+    </AUTOSAR>"#;
+
+    #[test]
+    fn test_required_attribute_missing() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::RequiredAttributeMissing{element: ElementName::Autosar, attribute: AttributeName::Accesskey});
+        test_helper(REQUIRED_ATTRIBUTE_MISSING.as_bytes(), discriminant, true);
+    }
+
+    const CHARACTER_CONTENT_FORBIDDEN: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    abcdef"#;
+
+    #[test]
+    fn test_character_content_forbidden() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::CharacterContentForbidden{element: ElementName::Autosar});
+        test_helper(CHARACTER_CONTENT_FORBIDDEN.as_bytes(), discriminant, false);
+    }
+
+    const WRONG_ENUM_ITEM_VERSION: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00044.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <ELEMENTS>
+                    <SYSTEM>
+                        <SHORT-NAME>System</SHORT-NAME>
+                        <FIBEX-ELEMENTS>
+                            <FIBEX-ELEMENT-REF-CONDITIONAL>
+                                <FIBEX-ELEMENT-REF DEST="SERVICE-INSTANCE-COLLECTION-SET">"#;
+
+    #[test]
+    fn test_enum_item_version() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::EnumItemVersionError{element: ElementName::Autosar, enum_item: EnumItem::Aa, version: AutosarVersion::Autosar_00050});
+        test_helper(WRONG_ENUM_ITEM_VERSION.as_bytes(), discriminant, false);
+    }
+
+    const UNKNOWN_ENUM_ITEM: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <ELEMENTS>
+                    <SYSTEM>
+                        <SHORT-NAME>System</SHORT-NAME>
+                        <FIBEX-ELEMENTS>
+                            <FIBEX-ELEMENT-REF-CONDITIONAL>
+                                <FIBEX-ELEMENT-REF DEST="invalid_value_for_the_test">"#;
+
+    #[test]
+    fn test_unknown_enum_item() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownEnumItem{value: "".to_string()});
+        test_helper(UNKNOWN_ENUM_ITEM.as_bytes(), discriminant, false);
+    }
+
+    const INVALID_ENUM_ITEM: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <ELEMENTS>
+                    <SYSTEM>
+                        <SHORT-NAME>System</SHORT-NAME>
+                        <FIBEX-ELEMENTS>
+                            <FIBEX-ELEMENT-REF-CONDITIONAL>
+                                <FIBEX-ELEMENT-REF DEST="default">"#;
+
+    #[test]
+    fn test_invalid_enum_item() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEnumItem{value: "".to_string()});
+        test_helper(INVALID_ENUM_ITEM.as_bytes(), discriminant, false);
+    }
+
+    const STRING_VALUE_TOO_LONG: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE>
+            <SHORT-NAME>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</SHORT-NAME>
+        </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#;
+
+    #[test]
+    fn test_string_value_too_long() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::StringValueTooLong{value: "".to_string(), length: 1});
+        test_helper(STRING_VALUE_TOO_LONG.as_bytes(), discriminant, true);
+    }
+
+    const REGEX_MATCH_ERROR: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE>
+            <SHORT-NAME>0a</SHORT-NAME>
+        </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#;
+
+    #[test]
+    fn test_regex_match_error() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::RegexMatchError{value: "".to_string(), regex: "".to_string()});
+        test_helper(REGEX_MATCH_ERROR.as_bytes(), discriminant, true);
+    }
+
+    const UTF8_ERROR: &[u8] = b"<?xml version=\"1.0\" encoding=\"utf-8\"?>
+    <AUTOSAR xsi:schemaLocation=\"http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd\" xmlns=\"http://autosar.org/schema/r4.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">
+        <AR-PACKAGES><AR-PACKAGE S=\"\xff\xff\">";
+
+    #[test]
+    fn test_utf8_error() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::Utf8Error{source: std::str::from_utf8(b"\xff").unwrap_err()});
+        test_helper(UTF8_ERROR, discriminant, false);
+    }
+
+    const UNEXPECTED_END_OF_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#;
+
+    #[test]
+    fn test_unexpected_end_of_file() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnexpectedEndOfFile{element: ElementName::Autosar});
+        test_helper(UNEXPECTED_END_OF_FILE.as_bytes(), discriminant, false);
+    }
 }

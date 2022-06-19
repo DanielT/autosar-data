@@ -25,7 +25,7 @@ fn main() {
         }
     };
     let now = std::time::Instant::now();
-    let result = data.load_named_arxml_buffer(&buffer, &filename, true, Some(|err| println!("logged error: {err}")));
+    let result = data.load_named_arxml_buffer(&buffer, &filename, true);
     match result {
         Ok(_) => println!("parsing succeeded in {}ms", now.elapsed().as_micros() as f64 / 1000.0),
         Err(err) => println!("parsing failed: {err}"),
