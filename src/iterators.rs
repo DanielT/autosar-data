@@ -1,6 +1,5 @@
 use super::*;
 
-
 pub struct ArxmlFileIterator {
     data: AutosarData,
     index: usize,
@@ -11,7 +10,6 @@ impl ArxmlFileIterator {
         Self { data, index: 0 }
     }
 }
-
 
 impl Iterator for ArxmlFileIterator {
     type Item = ArxmlFile;
@@ -28,7 +26,6 @@ impl Iterator for ArxmlFileIterator {
     }
 }
 
-
 pub struct ElementsIterator {
     element: Element,
     index: usize,
@@ -39,7 +36,6 @@ impl ElementsIterator {
         Self { element, index: 0 }
     }
 }
-
 
 impl Iterator for ElementsIterator {
     type Item = Element;
@@ -57,7 +53,6 @@ impl Iterator for ElementsIterator {
         None
     }
 }
-
 
 pub struct ElementContentIterator {
     element: Element,
@@ -87,7 +82,6 @@ impl ElementContentIterator {
         }
     }
 }
-
 
 pub struct AutosarDataElementsDfsIterator {
     files_iter: ArxmlFileIterator,
@@ -120,7 +114,6 @@ impl Iterator for AutosarDataElementsDfsIterator {
         None
     }
 }
-
 
 pub struct ElementsDfsIterator {
     element: Element,
@@ -171,7 +164,6 @@ impl Iterator for ElementsDfsIterator {
     }
 }
 
-
 pub struct AttributeIterator {
     pub(crate) element: Element,
     pub(crate) index: usize,
@@ -191,7 +183,6 @@ impl Iterator for AttributeIterator {
         None
     }
 }
-
 
 #[test]
 fn test_elements_dfs_iterator() {

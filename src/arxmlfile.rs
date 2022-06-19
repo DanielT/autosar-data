@@ -48,7 +48,7 @@ impl ArxmlFile {
     }
 
     /// set the filename of this arxml filename
-    /// 
+    ///
     /// This will not rename any existing file on disk, but the new filename will be used when writing the data.
     pub fn set_filename(&self, new_filename: OsString) {
         if let Ok(mut inner) = self.0.lock() {
@@ -77,13 +77,11 @@ impl ArxmlFile {
         }
     }
 
-    /// gt a reference to the [AutosarData] object that contains this file
-    pub fn autosar_data(&self) -> Option<AutosarData> {
-        if let Ok(locked_file) = self.0.lock() {
-            locked_file.autosar_data.upgrade()
-        } else {
-            None
-        }
+    /// get a reference to the [AutosarData] object that contains this file
+    pub fn autosar_data(&self) -> Result<AutosarData, AutosarDataError> {
+        let locked_file = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+        // This reference must always be valid, so it is an error if upgrade() fails
+        locked_file.autosar_data.upgrade().ok_or(AutosarDataError::ItemDeleted)
     }
 
     /// get a referenct to the root ```<AUTOSAR ...>``` element of this file
@@ -110,16 +108,14 @@ impl PartialEq for ArxmlFile {
     }
 }
 
-
 impl WeakArxmlFile {
     /// try to get a strong reference to the [ArxmlFile]
-    /// 
+    ///
     /// This succeeds if the ArxmlFile still has any other strong reference to it, otherwise None is returned
     pub fn upgrade(&self) -> Option<ArxmlFile> {
         Weak::upgrade(&self.0).map(ArxmlFile)
     }
 }
-
 
 impl PartialEq for WeakArxmlFile {
     fn eq(&self, other: &Self) -> bool {

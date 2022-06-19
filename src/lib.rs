@@ -2,7 +2,6 @@
 //!
 //! This crate provides functionality to read, modify and write Autosar arxml files, bith separately and as collections.
 
-
 use element::ElementActionError;
 use iterators::*;
 use lexer::*;
@@ -43,10 +42,7 @@ pub enum AutosarDataError {
     },
     /// DuplicateFilenameError,
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
-    DuplicateFilenameError {
-        verb: &'static str,
-        filename: OsString
-    },
+    DuplicateFilenameError { verb: &'static str, filename: OsString },
     /// LexerError: An error originating in the lexer, such as unclodes strings, mismatched '<' and '>', etc
     #[error("Failed to tokenize {} on line {line}: {source}", .filename.to_string_lossy())]
     LexerError {
@@ -55,20 +51,23 @@ pub enum AutosarDataError {
         source: ArxmlLexerError,
     },
     /// ParserError: A parser error
-    #[error("failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
+    #[error("Failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
     ParserError {
         filename: OsString,
         line: usize,
         source: ArxmlParserError,
     },
-    #[error("element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
+    #[error("Loading failed: element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
     OverlappingDataError { filename: OsString, path: String },
 
-    #[error("element operation failed: {source}")]
+    #[error("Element operation failed: {source}")]
     ElementActionError { source: ElementActionError },
 
-    #[error("Mutex poisoned")]
+    #[error("Critical error: Mutex poisoned due to a previous fault")]
     MutexPoisoned,
+
+    #[error("Operation failed: the item has been deleted")]
+    ItemDeleted,
 }
 
 /// The enum CharacterData provides typed access to the content of elements and attributes
@@ -98,7 +97,7 @@ pub enum ContentType {
 }
 
 /// One content item inside an arxml element
-/// 
+///
 /// Elements may contain other elements, character data, or a mixture of both, depending on their type.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ElementContent {
@@ -169,7 +168,6 @@ pub struct ArxmlFile(Arc<Mutex<ArxmlFileRaw>>);
 #[derive(Debug, Clone)]
 pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 
-
 /// Data of an autosar project
 ///
 /// This data consists of a number auf arxml files, each of which contains a heirarchy of elements.
@@ -184,7 +182,7 @@ pub(crate) struct AutosarDataRaw {
 }
 
 /// AutosarData is the top level data type in the autosar-data crate.
-/// 
+///
 /// All manipulations of arxml files are performed through an instance of AutosarDatas
 #[derive(Debug, Clone)]
 pub struct AutosarData(Arc<Mutex<AutosarDataRaw>>);
@@ -193,10 +191,9 @@ pub struct AutosarData(Arc<Mutex<AutosarDataRaw>>);
 #[derive(Debug, Clone)]
 pub(crate) struct WeakAutosarData(Weak<Mutex<AutosarDataRaw>>);
 
-
 impl AutosarData {
     /// Create an instance of AutosarData
-    /// 
+    ///
     /// Initially it contains no arxml files
     pub fn new() -> AutosarData {
         AutosarData(Arc::new(Mutex::new(AutosarDataRaw {
@@ -215,7 +212,10 @@ impl AutosarData {
         let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
 
         if inner.files.iter().any(|af| af.filename() == filename) {
-            return Err(AutosarDataError::DuplicateFilenameError { verb: "create", filename: filename.to_owned() });
+            return Err(AutosarDataError::DuplicateFilenameError {
+                verb: "create",
+                filename,
+            });
         }
 
         let new_file = ArxmlFile::new(filename, version, self);
@@ -234,13 +234,26 @@ impl AutosarData {
     ///  - log_func: Optionally, a callback which receives the warnings that are generated when strict == false. Not used when strict == true.
     ///
     /// This method may be called concurrently on multiple threads to load different buffers
-    pub fn load_named_arxml_buffer(&self, buffer: &[u8], filename: &OsStr, strict: bool, log_func: Option<fn(AutosarDataError)>) -> Result<ArxmlFile, AutosarDataError> {
+    pub fn load_named_arxml_buffer(
+        &self,
+        buffer: &[u8],
+        filename: &OsStr,
+        strict: bool,
+        log_func: Option<fn(AutosarDataError)>,
+    ) -> Result<ArxmlFile, AutosarDataError> {
         if self.files().any(|file| file.filename() == filename) {
-            return Err(AutosarDataError::DuplicateFilenameError { verb: "load", filename: filename.to_owned() });
+            return Err(AutosarDataError::DuplicateFilenameError {
+                verb: "load",
+                filename: filename.to_owned(),
+            });
         }
 
-        let log_func = if let Some(log_func) = log_func {log_func} else {|_| {}};
-        let mut parser = parser::ArxmlParser::new(filename.to_os_string(), buffer, log_func, strict);
+        let log_func = if let Some(log_func) = log_func {
+            log_func
+        } else {
+            |_| {}
+        };
+        let mut parser = ArxmlParser::new(filename.to_os_string(), buffer, log_func, strict);
         let root_element = parser.parse_arxml()?;
 
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
@@ -260,7 +273,7 @@ impl AutosarData {
                 if let Some(element) = existing.upgrade() {
                     return Err(AutosarDataError::OverlappingDataError {
                         filename: filename.to_os_string(),
-                        path: element.path().unwrap_or_else(|| "".to_owned()),
+                        path: element.path().unwrap().unwrap_or_else(|| "".to_owned()),
                     });
                 }
             }
@@ -277,16 +290,20 @@ impl AutosarData {
         Ok(arxml_file)
     }
 
-
     /// Load an arxml file
     ///
     /// This function is a wrapper around load_named_arxml_buffer to make the common case of loading a file from disk more convenient
-    /// 
+    ///
     /// Parameters:
     ///  - filename: the original filename of the data, or a newly generated name that is unique within the AutosarData instance.
     ///  - strict: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
     ///  - log_func: Optionally, a callback which receives the warnings that are generated when strict == false. Not used when strict == true.
-    pub fn load_arxml_file(&self, filename: &OsStr, strict: bool, log_func: Option<fn(AutosarDataError)>) -> Result<ArxmlFile, AutosarDataError> {
+    pub fn load_arxml_file(
+        &self,
+        filename: &OsStr,
+        strict: bool,
+        log_func: Option<fn(AutosarDataError)>,
+    ) -> Result<ArxmlFile, AutosarDataError> {
         let mut file = match File::open(filename) {
             Ok(file) => file,
             Err(error) => {
@@ -296,44 +313,33 @@ impl AutosarData {
                 })
             }
         };
-    
+
         let filesize = file.metadata().unwrap().len();
         let mut buffer = Vec::with_capacity(filesize as usize);
-        file.read_to_end(&mut buffer).map_err(|err| AutosarDataError::IoErrorRead {
-            filename: filename.to_os_string(),
-            ioerror: err,
-        })?;
+        file.read_to_end(&mut buffer)
+            .map_err(|err| AutosarDataError::IoErrorRead {
+                filename: filename.to_os_string(),
+                ioerror: err,
+            })?;
 
         self.load_named_arxml_buffer(&buffer, filename, strict, log_func)
     }
 
-
     pub fn write_arxml_buffers(&self) {}
 
-
     pub fn write_arxml_files(&self) {}
-
 
     /// create an iterator over all [ArxmlFile]s in this AutosarData object
     pub fn files(&self) -> ArxmlFileIterator {
         ArxmlFileIterator::new(self.clone())
     }
 
-
     /// get a named element by its Autosar path
-    /// 
+    ///
     /// This is a lookup in a hash table and runs in O(1) time
-    pub fn get_element_by_path(&self, path: &str) -> Result<Element, ()> {
-        if let Ok(data) = self.0.lock() {
-            if let Some(weak_element) = data.identifiables.get(path) {
-                let element = weak_element.upgrade().ok_or(())?;
-                Ok(element)
-            } else {
-                Err(())
-            }
-        } else {
-            Err(())
-        }
+    pub fn get_element_by_path(&self, path: &str) -> Result<Option<Element>, AutosarDataError> {
+        let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+        Ok(inner.identifiables.get(path).and_then(|element| element.upgrade()))
     }
 
     /// create a depth-first iterator over all [Element]s in all [ArxmlFile]s
@@ -348,7 +354,10 @@ impl AutosarData {
 
     pub(crate) fn fix_identifiables(&self, old_path: Option<String>, element: Element) {
         if let Ok(mut data) = self.0.lock() {
-            let new_path = element.path().unwrap();
+            let new_path = match element.path() {
+                Ok(Some(path)) => path,
+                _ => return,
+            };
             if let Some(old_path) = old_path {
                 data.identifiables.remove(&old_path);
 
@@ -420,16 +429,23 @@ impl AutosarData {
     }
 }
 
-
 impl Default for AutosarData {
     fn default() -> Self {
         Self::new()
     }
 }
 
+impl PartialEq for AutosarData {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
+    }
+}
 
 impl WeakAutosarData {
     pub(crate) fn upgrade(&self) -> Option<AutosarData> {
         Weak::upgrade(&self.0).map(AutosarData)
     }
 }
+
+#[cfg(test)]
+mod test {}

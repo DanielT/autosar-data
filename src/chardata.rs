@@ -54,7 +54,6 @@ impl CharacterData {
         false
     }
 
-
     pub(crate) fn parse(input: &str, character_data_spec: &CharacterDataSpec, version: AutosarVersion) -> Option<Self> {
         match character_data_spec {
             CharacterDataSpec::Enum { items } => {

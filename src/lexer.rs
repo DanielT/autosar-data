@@ -29,7 +29,6 @@ pub(crate) enum ArxmlEvent<'a> {
     EndOfFile,
 }
 
-
 pub(crate) struct ArxmlLexer<'a> {
     buffer: &'a [u8],
     bufpos: usize,
@@ -37,7 +36,6 @@ pub(crate) struct ArxmlLexer<'a> {
     deferred_end: Option<(usize, usize)>,
     sourcefile: OsString,
 }
-
 
 impl<'a> ArxmlLexer<'a> {
     pub(crate) fn new(buffer: &'a [u8], name: OsString) -> Self {
@@ -56,7 +54,6 @@ impl<'a> ArxmlLexer<'a> {
         }
     }
 
-
     fn read_characters(&mut self) -> ArxmlEvent<'a> {
         debug_assert!(self.bufpos < self.buffer.len());
 
@@ -72,7 +69,6 @@ impl<'a> ArxmlLexer<'a> {
         self.bufpos = endpos;
         ArxmlEvent::Characters(text)
     }
-
 
     fn read_element_start(&mut self, endpos: usize) -> ArxmlEvent<'a> {
         debug_assert!(self.bufpos < self.buffer.len());
@@ -107,7 +103,6 @@ impl<'a> ArxmlLexer<'a> {
         ArxmlEvent::BeginElement(elemname, attributes)
     }
 
-
     fn read_element_end(&mut self, endpos: usize) -> ArxmlEvent<'a> {
         debug_assert!(self.bufpos < self.buffer.len());
         debug_assert!(endpos > self.bufpos + 1);
@@ -119,7 +114,6 @@ impl<'a> ArxmlLexer<'a> {
 
         ArxmlEvent::EndElement(text)
     }
-
 
     fn read_xml_header(&mut self, endpos: usize) -> Option<Result<ArxmlEvent<'a>, AutosarDataError>> {
         debug_assert!(self.bufpos < self.buffer.len());
@@ -176,7 +170,6 @@ impl<'a> ArxmlLexer<'a> {
         result
     }
 
-
     fn read_comment(&mut self, endpos: usize) -> Result<(), AutosarDataError> {
         debug_assert!(self.bufpos < self.buffer.len());
         debug_assert!(endpos > self.bufpos + 1);
@@ -195,7 +188,6 @@ impl<'a> ArxmlLexer<'a> {
         Ok(())
     }
 }
-
 
 impl<'a> ArxmlLexer<'a> {
     pub(crate) fn next(&mut self) -> Result<(usize, ArxmlEvent), AutosarDataError> {
@@ -252,11 +244,9 @@ impl<'a> ArxmlLexer<'a> {
     }
 }
 
-
 fn count_lines(text: &[u8]) -> usize {
     text.iter().filter(|c| **c == b'\n').count()
 }
-
 
 #[test]
 fn test_buffer_parser() {

@@ -8,22 +8,51 @@ use crate::specification::*;
 use super::*;
 
 #[derive(Debug, Error)]
-pub enum ElementActionError {}
+pub enum ElementActionError {
+    #[error("Invalid position for an element of this kind")]
+    InvalidElementPosition,
 
+    #[error("Version is not compatible")]
+    VersionIncompatible,
+
+    #[error("The Element is not identifiable")]
+    ElementNotIdentifiable,
+
+    #[error("An item name is required")]
+    ItemNameRequired,
+
+    #[error("Incorrect content type")]
+    IncorrectContentType,
+
+    #[error("Element insertion conflict")]
+    ElementInsertionConflict,
+
+    #[error("Invalid sub element")]
+    InvalidSubElement,
+
+    #[error("element not found")]
+    ElementNotFound,
+
+    #[error("the SHORT-NAME sub element may not be removed")]
+    ShortNameRemovalForbidden,
+}
 
 impl Element {
     /// get the parent element of the current element
-    /// 
+    ///
     /// Returns None if the current element is the root, or if it has been deleted from the element hierarchy
-    pub fn parent(&self) -> Option<Element> {
-        if let Ok(inner) = self.0.lock() {
-            if let ElementOrFile::Element(parent) = &inner.parent {
-                return parent.upgrade();
+    pub fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
+        let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+        match &inner.parent {
+            ElementOrFile::Element(parent) => {
+                // for items that should have a parent, getting it is not allowed to return None
+                let parent = parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
+                Ok(Some(parent))
             }
+            ElementOrFile::File(_) => Ok(None),
+            ElementOrFile::None => Err(AutosarDataError::ItemDeleted),
         }
-        None
     }
-
 
     pub(crate) fn set_parent(&self, new_parent: ElementOrFile) {
         if let Ok(mut inner) = self.0.lock() {
@@ -31,18 +60,16 @@ impl Element {
         }
     }
 
-
     /// get the [ElementName] of the element
     pub fn element_name(&self) -> ElementName {
         let inner = self.0.lock().unwrap();
         inner.elemname
     }
 
-
     /// get the name of an identifiable element
-    /// 
+    ///
     /// An identifiable element has a ```<SHORT-NAME>``` sub element and can be referenced using an autosar path.
-    /// 
+    ///
     /// If the element is not identifiable, this function returns None
     pub fn item_name(&self) -> Option<String> {
         let inner = self.0.lock().unwrap();
@@ -85,7 +112,7 @@ impl Element {
     /// get the Autosar path of an identifiable element
     ///
     /// returns Some(path) if the element is identifiable, None otherwise
-    pub fn path(&self) -> Option<String> {
+    pub fn path(&self) -> Result<Option<String>, AutosarDataError> {
         if self.is_identifiable() {
             let mut cur_elem_opt = Some(self.clone());
             let mut path_components = vec![];
@@ -93,37 +120,38 @@ impl Element {
                 if let Some(name) = cur_elem.item_name() {
                     path_components.push(name);
                 }
-                cur_elem_opt = cur_elem.parent();
+                cur_elem_opt = cur_elem.parent()?;
             }
             path_components.push(String::new());
             path_components.reverse();
 
             let path = path_components.join("/");
-            // enven if this element is identifiable, path might still be "" if the current element has been deleted from the element hierarchy
+            // even if this element is identifiable, path might still be "" if the current element has been deleted from the element hierarchy
             if !path.is_empty() {
-                Some(path)
+                Ok(Some(path))
             } else {
-                None
+                Ok(None)
             }
         } else {
-            None
+            Err(Element::error(ElementActionError::ElementNotIdentifiable))
         }
     }
 
     /// get a reference to the [ArxmlFile] containing the current element
-    pub fn containing_file(&self) -> Option<ArxmlFile> {
+    pub fn containing_file(&self) -> Result<ArxmlFile, AutosarDataError> {
         let mut cur_elem = self.clone();
         loop {
-            let parent = if let Ok(inner) = cur_elem.0.lock() {
+            let parent = {
+                let inner = cur_elem.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
                 match &inner.parent {
-                    ElementOrFile::Element(weak_parent) => weak_parent.upgrade()?,
-                    ElementOrFile::File(weak_arxmlfile) => {
-                        return weak_arxmlfile.upgrade();
+                    ElementOrFile::Element(weak_parent) => {
+                        weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?
                     }
-                    ElementOrFile::None => return None,
+                    ElementOrFile::File(weak_arxmlfile) => {
+                        return weak_arxmlfile.upgrade().ok_or(AutosarDataError::ItemDeleted)
+                    }
+                    ElementOrFile::None => return Err(AutosarDataError::ItemDeleted),
                 }
-            } else {
-                return None;
             };
             cur_elem = parent;
         }
@@ -142,37 +170,45 @@ impl Element {
     }
 
     /// create a sub element at a suitable insertion position
-    /// 
+    ///
     /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// It is not possible to create named sub elements with this function; use create_named_sub_element() for that instead.
-    pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, ()> {
+    pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, AutosarDataError> {
         let (_start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         self.create_sub_element_inner(element_name, end_pos)
     }
 
     /// create a sub element at the specified insertion position
-    /// 
+    ///
     /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// It is not possible to create named sub elements with this function; use create_named_sub_element_at() for that instead.
     /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
-    pub fn create_sub_element_at(&self, element_name: ElementName, position: usize) -> Result<Element, ()> {
+    pub fn create_sub_element_at(
+        &self,
+        element_name: ElementName,
+        position: usize,
+    ) -> Result<Element, AutosarDataError> {
         let (start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         if start_pos <= position && position <= end_pos {
             self.create_sub_element_inner(element_name, position)
         } else {
-            Err(())
+            Err(Element::error(ElementActionError::InvalidElementPosition))
         }
     }
 
     /// helper function for create_sub_element and create_sub_element_at
-    fn create_sub_element_inner(&self, element_name: ElementName, position: usize) -> Result<Element, ()> {
-        let version = self.containing_file().map(|f| f.version()).ok_or(())?;
+    fn create_sub_element_inner(
+        &self,
+        element_name: ElementName,
+        position: usize,
+    ) -> Result<Element, AutosarDataError> {
+        let version = self.containing_file().map(|f| f.version())?;
         let type_id = self.type_id();
         let element_indices = find_sub_element(element_name, type_id, version as u32).unwrap();
         let sub_element_spec = get_sub_element_spec(DATATYPES[type_id].sub_elements, &element_indices).unwrap();
         if let SubElement::Element { elemtype, .. } = sub_element_spec {
             if DATATYPES[*elemtype].is_named & version as u32 != 0 {
-                Err(())
+                Err(Element::error(ElementActionError::VersionIncompatible))
             } else {
                 let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
                     parent: ElementOrFile::Element(self.downgrade()),
@@ -192,18 +228,21 @@ impl Element {
         }
     }
 
-
     /// create a named/identifiable sub element at a suitable insertion position
-    /// 
+    ///
     /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// This method can only be used to create identifiable sub elements.
-    pub fn create_named_sub_element(&self, element_name: ElementName, item_name: &str) -> Result<Element, ()> {
+    pub fn create_named_sub_element(
+        &self,
+        element_name: ElementName,
+        item_name: &str,
+    ) -> Result<Element, AutosarDataError> {
         let (_start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         self.create_named_sub_element_inner(element_name, item_name, end_pos)
     }
 
     /// create a named/identifiable sub element at the specified insertion position
-    /// 
+    ///
     /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
     /// This method can only be used to create identifiable sub elements.
@@ -212,12 +251,12 @@ impl Element {
         element_name: ElementName,
         item_name: &str,
         position: usize,
-    ) -> Result<Element, ()> {
+    ) -> Result<Element, AutosarDataError> {
         let (start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
         if start_pos <= position && position <= end_pos {
             self.create_named_sub_element_inner(element_name, item_name, position)
         } else {
-            Err(())
+            Err(Element::error(ElementActionError::InvalidElementPosition))
         }
     }
 
@@ -227,52 +266,54 @@ impl Element {
         element_name: ElementName,
         item_name: &str,
         position: usize,
-    ) -> Result<Element, ()> {
-        if !item_name.is_empty() {
-            let file = self.containing_file().ok_or(())?;
-            let type_id = self.type_id();
-            let element_indices = find_sub_element(element_name, type_id, file.version() as u32).unwrap();
-            let sub_element_spec = get_sub_element_spec(DATATYPES[type_id].sub_elements, &element_indices).unwrap();
-            if let SubElement::Element { elemtype, .. } = sub_element_spec {
-                if DATATYPES[*elemtype].is_named & file.version() as u32 != 0 {
-                    let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                        parent: ElementOrFile::Element(self.downgrade()),
-                        elemname: element_name,
-                        type_id: *elemtype,
-                        content: smallvec![],
-                        attributes: smallvec![],
-                    })));
-                    {
-                        // separate scope to limit the lifetime of the mutex
-                        let mut inner = self.0.lock().map_err(|_| ())?;
-                        inner
-                            .content
-                            .insert(position, ElementContent::Element(sub_element.clone()));
-                    }
-                    let shortname_element = sub_element.create_sub_element(ElementName::ShortName)?;
-                    shortname_element
-                        .set_character_data(CharacterData::String(item_name.to_owned()))
-                        .unwrap();
-                    Ok(sub_element)
-                } else {
-                    Err(())
+    ) -> Result<Element, AutosarDataError> {
+        if item_name.is_empty() {
+            return Err(Element::error(ElementActionError::ItemNameRequired));
+        }
+
+        let file = self.containing_file()?;
+        let type_id = self.type_id();
+        let element_indices = find_sub_element(element_name, type_id, file.version() as u32).unwrap();
+        let sub_element_spec = get_sub_element_spec(DATATYPES[type_id].sub_elements, &element_indices).unwrap();
+        if let SubElement::Element { elemtype, .. } = sub_element_spec {
+            if DATATYPES[*elemtype].is_named & file.version() as u32 != 0 {
+                let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+                    parent: ElementOrFile::Element(self.downgrade()),
+                    elemname: element_name,
+                    type_id: *elemtype,
+                    content: smallvec![],
+                    attributes: smallvec![],
+                })));
+                // insert the new sub element
+                {
+                    // separate scope to limit the lifetime of the mutex
+                    let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+                    inner
+                        .content
+                        .insert(position, ElementContent::Element(sub_element.clone()));
                 }
+                // create a SHORT-NAME for the sub element
+                let shortname_element = sub_element.create_sub_element(ElementName::ShortName)?;
+                shortname_element
+                    .set_character_data(CharacterData::String(item_name.to_owned()))
+                    .unwrap();
+                Ok(sub_element)
             } else {
-                panic!(); // impossible
+                Err(Element::error(ElementActionError::VersionIncompatible))
             }
         } else {
-            Err(())
+            panic!(); // impossible
         }
     }
 
     /// find the upper and lower bound on the insert position for a sub element
-    fn find_element_insert_pos(&self, element_name: ElementName) -> Result<(usize, usize), ()> {
-        let version = self.containing_file().map(|f| f.version()).ok_or(())?;
+    fn find_element_insert_pos(&self, element_name: ElementName) -> Result<(usize, usize), AutosarDataError> {
+        let version = self.containing_file().map(|f| f.version())?;
         let type_id = self.type_id();
         let datatype = &DATATYPES[type_id];
         if datatype.mode == ContentMode::Characters {
             // cant't insert at all, only character data is permitted
-            return Err(());
+            return Err(Element::error(ElementActionError::IncorrectContentType));
         }
 
         if let Some(new_element_indices) = find_sub_element(element_name, type_id, version as u32) {
@@ -303,7 +344,7 @@ impl Element {
                                     if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
                                         if *multiplicity != ElementMultiplicity::Any {
                                             // the new element is identical to an existing one, but repetitions are not allowed
-                                            return Err(());
+                                            return Err(Element::error(ElementActionError::ElementInsertionConflict));
                                         }
                                     }
                                 }
@@ -325,7 +366,7 @@ impl Element {
                                 if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
                                     if *multiplicity != ElementMultiplicity::Any {
                                         // the new element is identical to an existing one, but repetitions are not allowed
-                                        return Err(());
+                                        return Err(Element::error(ElementActionError::ElementInsertionConflict));
                                     }
                                 } else {
                                     panic!(); // can't happen
@@ -335,7 +376,7 @@ impl Element {
                                 // end_pos is increased to allow inserting before or after this element
                                 end_pos = idx + 1;
                             } else {
-                                return Err(());
+                                return Err(Element::error(ElementActionError::ElementInsertionConflict));
                             }
                         }
                         ContentMode::Bag | ContentMode::Mixed => {
@@ -353,7 +394,7 @@ impl Element {
 
             Ok((start_pos, end_pos))
         } else {
-            Err(())
+            Err(Element::error(ElementActionError::InvalidSubElement))
         }
     }
 
@@ -361,10 +402,29 @@ impl Element {
     ///
     /// The sub_element will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
     /// Since all elements are reference counted, they might not be deallocated immediately, however they do become invalid and unusable immediately.
-    pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), ()> {
+    pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), AutosarDataError> {
+        // find the position of sub_element in the parent element first to verify that sub_element actuall *is* a sub element
+        let pos = {
+            // lock the mutext inside this scope, so that the lock gets dropped again after the position has been found
+            let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+            inner
+                .content
+                .iter()
+                .enumerate()
+                .find(|(_, item)| {
+                    if let ElementContent::Element(elem) = item {
+                        *elem == sub_element
+                    } else {
+                        false
+                    }
+                })
+                .map(|(idx, _)| idx)
+                .ok_or_else(|| Element::error(ElementActionError::ElementNotFound))?
+        };
+        let autosar_data = self.containing_file().and_then(|f| f.autosar_data())?;
         if self.is_identifiable() && sub_element.element_name() == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
-            return Err(());
+            return Err(Element::error(ElementActionError::ShortNameRemovalForbidden));
         }
         // remove all the sub-sub-elements. This needs to be done explicitly so that any related cached paths and references can be found and removed
         for sub_sub_element in sub_element.sub_elements() {
@@ -374,20 +434,16 @@ impl Element {
 
         // if sub_element is a named element, then a reference to it exists in the autosar_data.identifiables HashMap
         if sub_element.is_identifiable() {
-            if let Some(data) = self.containing_file().and_then(|f| f.autosar_data()) {
-                if let Some(path) = sub_element.path() {
-                    // remove the identifiables-reference (terminology???)
-                    data.remove_identifiable(&path);
-                }
+            if let Some(path) = sub_element.path()? {
+                // remove the identifiables-reference (terminology???)
+                autosar_data.remove_identifiable(&path);
             }
         }
         // if the sub_element is a reference, then autosar_data.references caches this relation
         if sub_element.is_reference() {
             if let Some(CharacterData::String(reference)) = sub_element.character_data() {
-                if let Some(data) = self.containing_file().and_then(|f| f.autosar_data()) {
-                    // remove the references-reference (ugh. terminology???)
-                    data.remove_reference_origin(&reference, sub_element.downgrade());
-                }
+                // remove the references-reference (ugh. terminology???)
+                autosar_data.remove_reference_origin(&reference, sub_element.downgrade());
             }
         }
 
@@ -397,36 +453,24 @@ impl Element {
             sub_element_inner.parent = ElementOrFile::None;
             sub_element_inner.content.truncate(0);
         }
-        let mut inner = self.0.lock().map_err(|_| ())?;
-        let (pos, _) = inner
-            .content
-            .iter()
-            .enumerate()
-            .find(|(_, item)| {
-                if let ElementContent::Element(elem) = item {
-                    *elem == sub_element
-                } else {
-                    false
-                }
-            })
-            .ok_or(())?;
+        let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
         inner.content.remove(pos);
         Ok(())
     }
 
     /// Set the reference target for the element to target
-    /// 
+    ///
     /// When the reference is updated, the DEST attribute is also updated to match the referenced element.
     /// The current element must be a reference element, otherwise the function fails.
     pub fn set_reference_target(&self, target: Element) {
         // the current element must be a reference
         if self.is_reference() {
             // the target element must be identifiable, i.e. it has an autosar path
-            if let Some(new_ref) = target.path() {
+            if let Ok(Some(new_ref)) = target.path() {
                 // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
                 if let Ok(enum_item) = EnumItem::from_str(target.element_name().to_str()) {
                     // need a reference to the AutosarData struct all this is part of - shouldn't ever fail
-                    if let Some(data) = self.containing_file().and_then(|f| f.autosar_data()) {
+                    if let Ok(data) = self.containing_file().and_then(|f| f.autosar_data()) {
                         // if this reference previously referenced some other element, update
                         if let Some(CharacterData::String(old_ref)) = self.character_data() {
                             data.fix_reference_origins(&old_ref, &new_ref, self.downgrade());
@@ -442,22 +486,26 @@ impl Element {
         }
     }
 
-
     /// set the character data of this element
     ///
     /// This method only applies to elements which contain character data, i.e. element.get_content_type == CharacterData
-    pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), ()> {
+    pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), AutosarDataError> {
         let type_id = self.type_id();
         let datatype = &DATATYPES[type_id];
         if datatype.mode == ContentMode::Characters {
             if let Some(cdata_spec) = datatype.character_data {
-                let version = self.containing_file().map(|f| f.version()).ok_or(())?;
+                let autosar_data = self.containing_file().and_then(|file| file.autosar_data())?;
+                let version = self.containing_file().map(|f| f.version())?;
                 if CharacterData::check_value(&chardata, cdata_spec, version) {
                     // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
-                    let prev_path = if self.element_name() == ElementName::ShortName {
-                        self.path()
-                    } else {
-                        None
+                    let mut prev_path = None;
+                    if self.element_name() == ElementName::ShortName {
+                        // this SHORT-NAME element might be newly created, in which case there is no previous path
+                        if self.character_data().is_some() {
+                            if let Some(parent) = self.parent()? {
+                                prev_path = parent.path()?;
+                            }
+                        }
                     };
 
                     // if this is a reference, then some extra effort is needed there too
@@ -482,10 +530,8 @@ impl Element {
 
                     // short-name: make sure the hashmap in the top-level AutosarData struct is updated so that this element can still be found
                     if self.element_name() == ElementName::ShortName {
-                        if let Some(data) = self.containing_file().and_then(|file| file.autosar_data()) {
-                            if let Some(parent) = self.parent() {
-                                data.fix_identifiables(prev_path, parent);
-                            }
+                        if let Some(parent) = self.parent()? {
+                            autosar_data.fix_identifiables(prev_path, parent);
                         }
                     }
 
@@ -493,9 +539,7 @@ impl Element {
                     if datatype.is_ref {
                         if let Some(CharacterData::String(refval)) = self.character_data() {
                             if let Some(old_refval) = old_refval {
-                                if let Some(data) = self.containing_file().and_then(|file| file.autosar_data()) {
-                                    data.fix_reference_origins(&old_refval, &refval, self.downgrade());
-                                }
+                                autosar_data.fix_reference_origins(&old_refval, &refval, self.downgrade());
                             }
                         }
                     }
@@ -504,9 +548,8 @@ impl Element {
                 }
             }
         }
-        Err(())
+        Err(Element::error(ElementActionError::IncorrectContentType))
     }
-
 
     /// insert a character data item into the content of this element
     ///
@@ -548,7 +591,6 @@ impl Element {
         false
     }
 
-
     /// get the character content of the element
     ///
     /// This method only applies to elements which contain character data, i.e. element.get_content_type == CharacterData
@@ -564,7 +606,7 @@ impl Element {
     }
 
     /// create an iterator over all of the content of this element
-    /// 
+    ///
     /// The iterator can return both sub elements and character data, wrapped as ElementContent::Element and ElementContent::CharacterData
     pub fn content(&self) -> ElementContentIterator {
         ElementContentIterator::new(self)
@@ -615,10 +657,10 @@ impl Element {
     }
 
     /// set the value of a named attribute
-    /// 
+    ///
     /// If no attribute by that name exists, and the attribute is a valid attribute of the element, then the attribute will be created
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> bool {
-        if let Some(version) = self.containing_file().map(|f| f.version()) {
+        if let Ok(version) = self.containing_file().map(|f| f.version()) {
             return self.set_attribute_internal(attrname, value, version);
         }
         false
@@ -626,7 +668,7 @@ impl Element {
 
     /// set the value of a named attribute from a string
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> bool {
-        if let Some(version) = self.containing_file().map(|f| f.version()) {
+        if let Ok(version) = self.containing_file().map(|f| f.version()) {
             if let Ok(mut locked_elem) = self.0.lock() {
                 let attr_types = DATATYPES[locked_elem.type_id].attributes;
                 if let Some((_, character_data_spec, _, _)) = attr_types.iter().find(|(name, ..)| *name == attrname) {
@@ -694,15 +736,17 @@ impl Element {
     pub(crate) fn type_id(&self) -> usize {
         self.0.lock().unwrap().type_id
     }
-}
 
+    fn error(err: ElementActionError) -> AutosarDataError {
+        AutosarDataError::ElementActionError { source: err }
+    }
+}
 
 impl PartialEq for Element {
     fn eq(&self, other: &Self) -> bool {
         Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
     }
 }
-
 
 impl WeakElement {
     /// try to get a strong reference to the [Element]
@@ -717,7 +761,6 @@ impl PartialEq for WeakElement {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::*;
@@ -729,6 +772,8 @@ mod test {
         let file = autosar_data
             .create_file(OsString::from("test.arxml"), AutosarVersion::LATEST)
             .unwrap();
+        let autosar_data2 = file.autosar_data().unwrap();
+        assert_eq!(autosar_data, autosar_data2);
         let el_autosar = file.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_ar_package = el_ar_packages
@@ -751,7 +796,10 @@ mod test {
         assert_eq!(end_pos, 3); // upper limit is 3 since there are currently 3 elements
 
         // check if create_named_sub_element correctly registered the element in the hashmap so that it can be found
-        let el_compu_method_test = autosar_data.get_element_by_path("/TestPackage/TestCompuMethod").unwrap();
+        let el_compu_method_test = autosar_data
+            .get_element_by_path("/TestPackage/TestCompuMethod")
+            .unwrap()
+            .unwrap();
         assert_eq!(el_compu_method, el_compu_method_test);
 
         // create more hierarchy

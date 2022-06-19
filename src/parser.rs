@@ -125,7 +125,6 @@ pub enum ArxmlParserError {
     UnexpectedEndOfFile { element: ElementName },
 }
 
-
 pub(crate) struct ArxmlParser<'a> {
     filename: OsString,
     line: usize,
@@ -265,7 +264,6 @@ impl<'a> ArxmlParser<'a> {
         Err(self.error(ArxmlParserError::InvalidArxmlFileHeader))
     }
 
-
     fn parse_element(
         &mut self,
         parent: ElementOrFile,
@@ -283,7 +281,6 @@ impl<'a> ArxmlParser<'a> {
             type_id: datatype_id,
         })));
         let mut element = wrapped_element.0.lock().unwrap();
-
 
         let datatype = &specification::DATATYPES[datatype_id];
         let mut elem_idx: Vec<usize> = Vec::new();
@@ -483,7 +480,6 @@ impl<'a> ArxmlParser<'a> {
         }
     }
 
-
     fn check_multiplicity(
         &mut self,
         name: ElementName,
@@ -585,7 +581,6 @@ impl<'a> ArxmlParser<'a> {
         Ok(attributes)
     }
 
-
     fn parse_character_data(
         &mut self,
         input: &[u8],
@@ -678,7 +673,6 @@ impl<'a> ArxmlParser<'a> {
     }
 }
 
-
 fn trim_byte_string(input: &[u8]) -> &[u8] {
     let mut len = input.len();
     while input[len - 1].is_ascii_whitespace() {
@@ -692,9 +686,11 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
     &input[start..len]
 }
 
-
 #[cfg(test)]
 mod test {
+    use crate::ArxmlParser;
+    use std::ffi::OsString;
+
     #[test]
     fn test() {}
 }

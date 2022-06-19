@@ -1,6 +1,5 @@
 use crate::specification::*;
 
-
 pub(crate) fn get_sub_element_spec<'a>(spec: &'a [SubElement], element_indices: &[usize]) -> Option<&'a SubElement> {
     if !element_indices.is_empty() {
         let mut current_spec = spec;
@@ -81,7 +80,6 @@ pub(crate) fn find_sub_element(target_name: ElementName, type_id: usize, version
     None
 }
 
-
 pub(crate) fn find_common_group(
     type_id: usize,
     element_indices: &[usize],
@@ -105,7 +103,6 @@ pub(crate) fn find_common_group(
 
     result
 }
-
 
 #[cfg(test)]
 mod test {

@@ -1,7 +1,11 @@
-use std::{env, ffi::{OsString, OsStr}, fs::File, io::Read};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    fs::File,
+    io::Read,
+};
 
 use autosar_data::AutosarData;
-
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -32,7 +36,6 @@ fn main() {
     }
 }
 
-
 fn load_file_data(filename: &OsStr) -> Result<Vec<u8>, std::io::Error> {
     let mut file = File::open(filename)?;
 
@@ -42,4 +45,3 @@ fn load_file_data(filename: &OsStr) -> Result<Vec<u8>, std::io::Error> {
 
     Ok(buffer)
 }
-
