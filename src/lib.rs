@@ -439,4 +439,32 @@ impl WeakAutosarData {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+
+    #[test]
+    fn create_file() {
+        let data = AutosarData::new();
+        let file = data.create_file(OsString::from("test"), AutosarVersion::Autosar_00050);
+        assert!(file.is_ok());
+    }
+
+    #[test]
+    fn load_buffer() {
+        const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES></AR-PACKAGES></AUTOSAR>"#;
+        let data = AutosarData::new();
+        let result = data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn references() {
+        let data = AutosarData::new();
+        let weak = data.downgrade();
+        let data2 = weak.upgrade();
+        assert_eq!(Arc::strong_count(&data.0), 2);
+        assert_eq!(data, data2.unwrap());
+    }
+}

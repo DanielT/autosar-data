@@ -68,7 +68,8 @@ impl ArxmlFile {
 
     /// set the [AutosarVersion] of the file
     pub fn set_version(&self, new_ver: AutosarVersion) {
-        if let Ok(inner) = self.0.lock() {
+        if let Ok(mut inner) = self.0.lock() {
+            inner.version = new_ver;
             let attributevalue =
                 CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
             inner
@@ -120,5 +121,47 @@ impl WeakArxmlFile {
 impl PartialEq for WeakArxmlFile {
     fn eq(&self, other: &Self) -> bool {
         Weak::as_ptr(&self.0) == Weak::as_ptr(&other.0)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn create() {
+        let data = AutosarData::new();
+        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn filename() {
+        let data = AutosarData::new();
+        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let file = result.unwrap();
+        let filename = OsString::from("newname.arxml");
+        file.set_filename(filename.clone());
+        assert_eq!(file.filename(), filename);
+    }
+
+    #[test]
+    fn version() {
+        let data = AutosarData::new();
+        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let file = result.unwrap();
+        file.set_version(AutosarVersion::Autosar_00050);
+        assert_eq!(file.version(), AutosarVersion::Autosar_00050);
+    }
+
+    #[test]
+    fn references() {
+        let data = AutosarData::new();
+        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let file = result.unwrap();
+        let weak_file = file.downgrade();
+        let file2 = weak_file.upgrade().unwrap();
+        assert_eq!(Arc::strong_count(&file.0), 3); // 3 references are: AutosarData, file, file2
+        assert_eq!(file, file2);
     }
 }

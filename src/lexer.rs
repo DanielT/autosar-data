@@ -2,7 +2,7 @@ use super::AutosarDataError;
 use std::ffi::OsString;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Eq, PartialEq, Clone, Copy)]
 pub enum ArxmlLexerError {
     #[error("Incomplete data, closing '>' was not found")]
     IncompleteData,
@@ -121,11 +121,7 @@ impl<'a> ArxmlLexer<'a> {
         debug_assert!(self.buffer[self.bufpos] == b'<');
 
         if self.buffer[endpos - 1] != b'?' {
-            return Some(Err(AutosarDataError::LexerError {
-                filename: self.sourcefile.clone(),
-                line: self.line,
-                source: ArxmlLexerError::InvalidProcessingInstruction,
-            }));
+            return Some(Err(self.error(ArxmlLexerError::InvalidProcessingInstruction)));
         }
 
         let text = &self.buffer[self.bufpos + 2..endpos - 1];
@@ -154,11 +150,7 @@ impl<'a> ArxmlLexer<'a> {
             if ver != b"1.0"
                 || (encoding != b"utf-8" && encoding != b"UTF-8" && encoding != b"utf8" && encoding != b"UTF8")
             {
-                Some(Err(AutosarDataError::LexerError {
-                    filename: self.sourcefile.clone(),
-                    line: self.line,
-                    source: ArxmlLexerError::InvalidXmlHeader,
-                }))
+                Some(Err(self.error(ArxmlLexerError::InvalidXmlHeader)))
             } else {
                 Some(Ok(ArxmlEvent::ArxmlHeader))
             }
@@ -202,32 +194,40 @@ impl<'a> ArxmlLexer<'a> {
                 } else if self.buffer[self.bufpos] == b'<' {
                     // start of an <element> or </element> or <!--comment-->
                     let mut endpos = self.bufpos;
+                    // find a '>' character
                     while endpos < self.buffer.len() && self.buffer[endpos] != b'>' {
                         endpos += 1;
                     }
+
                     if endpos == self.buffer.len() {
-                        // not found
-                        break Err(AutosarDataError::LexerError {
-                            filename: self.sourcefile.clone(),
-                            line: self.line,
-                            source: ArxmlLexerError::IncompleteData,
-                        });
+                        // '>' not found
+                        return Err(self.error(ArxmlLexerError::IncompleteData));
                     } else if endpos <= self.bufpos + 1 {
-                        break Err(AutosarDataError::LexerError {
-                            filename: self.sourcefile.clone(),
-                            line: self.line,
-                            source: ArxmlLexerError::InvalidElement,
-                        });
-                    } else if self.buffer[self.bufpos + 1] == b'/' {
-                        break Ok((self.line, self.read_element_end(endpos)));
-                    } else if self.buffer[self.bufpos + 1] == b'?' {
-                        if let Some(result) = self.read_xml_header(endpos) {
-                            break Ok((self.line, result?));
+                        // string is "<" or "<>"
+                        return Err(self.error(ArxmlLexerError::InvalidElement));
+                    }
+
+                    // got a non-empty sequence of characters that starts with '<' and ends with '>'
+                    match self.buffer[self.bufpos + 1] {
+                        b'/' => {
+                            // second char is '/' -> EndElement
+                            return Ok((self.line, self.read_element_end(endpos)));
                         }
-                    } else if self.buffer[self.bufpos + 1] == b'!' {
-                        self.read_comment(endpos)?;
-                    } else {
-                        break Ok((self.line, self.read_element_start(endpos)));
+                        b'?' => {
+                            // second char is '?' -> xml header or processing instruction
+                            // processing instructions are ignored, read_xml_header returns None
+                            if let Some(result) = self.read_xml_header(endpos) {
+                                return Ok((self.line, result?));
+                            }
+                        }
+                        b'!' => {
+                            // second char is '!' -> parse and ignore a comment
+                            self.read_comment(endpos)?;
+                        }
+                        _ => {
+                            // any other second char -> BeginElement
+                            return Ok((self.line, self.read_element_start(endpos)));
+                        }
                     }
                 } else {
                     // start of characters or whitespace
@@ -235,11 +235,23 @@ impl<'a> ArxmlLexer<'a> {
                         let is_whitespace = text.iter().all(|c| c.is_ascii_whitespace());
                         // only break and return a value if the text is not empty
                         if !is_whitespace {
-                            break Ok((self.line, ArxmlEvent::Characters(text)));
+                            return Ok((self.line, ArxmlEvent::Characters(text)));
                         }
                     }
                 }
+                // loop if:
+                // - a comment was ignored
+                // - a processing instruction was ignored
+                // - empty character data found (whitespace only)
             }
+        }
+    }
+
+    fn error(&self, err: ArxmlLexerError) -> AutosarDataError {
+        AutosarDataError::LexerError {
+            filename: self.sourcefile.clone(),
+            line: self.line,
+            source: err,
         }
     }
 }
@@ -248,31 +260,124 @@ fn count_lines(text: &[u8]) -> usize {
     text.iter().filter(|c| **c == b'\n').count()
 }
 
-#[test]
-fn test_buffer_parser() {
-    let data = b"<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
-    let mut parser = ArxmlLexer::new(data, OsString::from("(buffer)"));
-    match parser.next() {
-        Ok((_, ArxmlEvent::ArxmlHeader)) => {}
-        _ => assert!(false),
-    }
-    match parser.next() {
-        Ok((_, ArxmlEvent::BeginElement(elem, attrs))) => {
-            assert_eq!(elem, b"element");
-            assert_eq!(attrs.len(), 17)
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_basic_functionality() {
+        let data =
+            b"<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
+        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        match lexer.next() {
+            Ok((_, ArxmlEvent::ArxmlHeader)) => {}
+            _ => panic!("got an error instead of ArxmlHeader"),
         }
-        _ => assert!(false),
-    }
-    match parser.next() {
-        Ok((_, ArxmlEvent::Characters(text))) => {
-            assert_eq!(text, b"contained characters")
+        match lexer.next() {
+            Ok((_, ArxmlEvent::BeginElement(elem, attrs))) => {
+                assert_eq!(elem, b"element");
+                assert_eq!(attrs.len(), 17)
+            }
+            _ => panic!("got an error instead of BeginElement"),
         }
-        _ => assert!(false),
-    }
-    match parser.next() {
-        Ok((_, ArxmlEvent::EndElement(elem))) => {
-            assert_eq!(elem, b"element");
+        match lexer.next() {
+            Ok((_, ArxmlEvent::Characters(text))) => {
+                assert_eq!(text, b"contained characters")
+            }
+            _ => panic!("got an error instead of Characters"),
         }
-        _ => assert!(false),
+        match lexer.next() {
+            Ok((_, ArxmlEvent::EndElement(elem))) => {
+                assert_eq!(elem, b"element");
+            }
+            _ => panic!("got an error instead of EndElement"),
+        }
+        match lexer.next() {
+            Ok((_, ArxmlEvent::EndOfFile)) => {}
+            _ => panic!("got an error instead of EndOfFile"),
+        }
+    }
+
+    #[test]
+    fn test_incomplete_data() {
+        let data = b"<element";
+        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        match lexer.next() {
+            Ok(_) => panic!("expected error, got OK"),
+            Err(AutosarDataError::LexerError {
+                source: ArxmlLexerError::IncompleteData,
+                ..
+            }) => {
+                // OK
+            }
+            Err(_) => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_element() {
+        let data = b"<element><>";
+        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        assert!(lexer.next().is_ok());
+        match lexer.next() {
+            Ok(_) => panic!("expected error, got OK"),
+            Err(AutosarDataError::LexerError {
+                source: ArxmlLexerError::InvalidElement,
+                ..
+            }) => {
+                // OK
+            }
+            Err(_) => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_processing_instruction() {
+        let data = b"<element><?what>";
+        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        assert!(lexer.next().is_ok());
+        match lexer.next() {
+            Ok(_) => panic!("expected error, got OK"),
+            Err(AutosarDataError::LexerError {
+                source: ArxmlLexerError::InvalidProcessingInstruction,
+                ..
+            }) => {
+                // OK
+            }
+            Err(_) => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_comment() {
+        let data = b"<element><!-- foo>";
+        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        assert!(lexer.next().is_ok());
+        match lexer.next() {
+            Ok(_) => panic!("expected error, got OK"),
+            Err(AutosarDataError::LexerError {
+                source: ArxmlLexerError::InvalidComment,
+                ..
+            }) => {
+                // OK
+            }
+            Err(e) => panic!("unexpected error, {e}"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_xml_header() {
+        let data = br#"<?xml version="1.0" encoding="cp1252"?>"#;
+        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        match lexer.next() {
+            Ok(_) => panic!("expected error, got OK"),
+            Err(AutosarDataError::LexerError {
+                source: ArxmlLexerError::InvalidXmlHeader,
+                ..
+            }) => {
+                // OK
+            }
+            Err(e) => panic!("unexpected error, {e}"),
+        }
     }
 }

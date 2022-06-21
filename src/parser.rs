@@ -111,6 +111,12 @@ pub enum ArxmlParserError {
 
     #[error("Unexpected end of file while parsing element {element}")]
     UnexpectedEndOfFile { element: ElementName },
+
+    #[error("Failed to parse {input} as a number")]
+    InvalidNumber { input: String },
+
+    #[error("Additional data found in the input after the final </AUTOSAR> element")]
+    AdditionalDataError,
 }
 
 pub(crate) struct ArxmlParser<'a> {
@@ -242,6 +248,7 @@ impl<'a> ArxmlParser<'a> {
                         path,
                         &mut lexer,
                     )?;
+                    self.verify_end_of_input(&mut lexer)?;
 
                     return Ok(autosar_root_element);
                 } else {
@@ -450,10 +457,10 @@ impl<'a> ArxmlParser<'a> {
                         // }
                     }
                     ContentMode::Choice => {
-                        return Err(self.error(ArxmlParserError::ElementChoiceConflict {
+                        self.optional_error(ArxmlParserError::ElementChoiceConflict {
                             element: self.current_element,
                             sub_element: name,
-                        }));
+                        })?;
                     }
                     ContentMode::Characters => {
                         // an element with ContentMode::Characters has no sub elements, so the outer "if let Some(new_elem_indices)" is never true
@@ -619,7 +626,12 @@ impl<'a> ArxmlParser<'a> {
                 }
                 match std::str::from_utf8(trimmed_input) {
                     Ok(utf8string) => Ok(CharacterData::String(utf8string.to_owned())),
-                    Err(err) => Err(self.error(ArxmlParserError::Utf8Error { source: err })),
+                    Err(err) => {
+                        self.optional_error(ArxmlParserError::Utf8Error { source: err })?;
+                        Ok(CharacterData::String(
+                            String::from_utf8_lossy(trimmed_input).into_owned(),
+                        ))
+                    }
                 }
             }
             CharacterDataSpec::String {
@@ -635,25 +647,38 @@ impl<'a> ArxmlParser<'a> {
                 }
                 match std::str::from_utf8(text) {
                     Ok(utf8string) => Ok(CharacterData::String(utf8string.to_owned())),
-                    Err(err) => Err(self.error(ArxmlParserError::Utf8Error { source: err })),
+                    Err(err) => {
+                        self.optional_error(ArxmlParserError::Utf8Error { source: err })?;
+                        Ok(CharacterData::String(String::from_utf8_lossy(text).into_owned()))
+                    }
                 }
             }
             CharacterDataSpec::UnsignedInteger => {
                 let strval = std::str::from_utf8(trimmed_input)
                     .map_err(|err| self.error(ArxmlParserError::Utf8Error { source: err }))?;
-                let value = strval
-                    .parse()
-                    .map_err(|_| self.error(ArxmlParserError::InvalidArxmlFileHeader))?;
-
+                let value = match strval.parse::<usize>() {
+                    Ok(parsed) => parsed,
+                    Err(_) => {
+                        self.optional_error(ArxmlParserError::InvalidNumber {
+                            input: strval.to_owned(),
+                        })?;
+                        0
+                    }
+                };
                 Ok(CharacterData::UnsignedInteger(value))
             }
             CharacterDataSpec::Double => {
                 let strval = std::str::from_utf8(trimmed_input)
                     .map_err(|err| self.error(ArxmlParserError::Utf8Error { source: err }))?;
-                let value = strval
-                    .parse()
-                    .map_err(|_| self.error(ArxmlParserError::InvalidArxmlFileHeader))?;
-
+                let value = match strval.parse::<f64>() {
+                    Ok(parsed) => parsed,
+                    Err(_) => {
+                        self.optional_error(ArxmlParserError::InvalidNumber {
+                            input: strval.to_owned(),
+                        })?;
+                        0.0
+                    }
+                };
                 Ok(CharacterData::Double(value))
             }
         }
@@ -661,6 +686,16 @@ impl<'a> ArxmlParser<'a> {
 
     pub(crate) fn get_fileversion(&self) -> AutosarVersion {
         self.fileversion
+    }
+
+    fn verify_end_of_input(&mut self, lexer: &mut ArxmlLexer) -> Result<(), AutosarDataError> {
+        let (_, next_event) = lexer.next()?;
+        if let ArxmlEvent::EndOfFile = next_event {
+            Ok(())
+        } else {
+            self.optional_error(ArxmlParserError::AdditionalDataError)?;
+            Ok(())
+        }
     }
 }
 
@@ -679,16 +714,20 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
 
 #[cfg(test)]
 mod test {
+    use crate::parser::*;
     use crate::*;
     use std::ffi::OsString;
-    use crate::parser::*;
 
     fn test_helper(buffer: &[u8], target_error: std::mem::Discriminant<ArxmlParserError>, optional: bool) {
         let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), buffer, true);
         let result = parser.parse_arxml();
         println!("Result: {result:?}");
-        if let Err(AutosarDataError::ParserError { source, ..}) = result {
-            assert_eq!(std::mem::discriminant(&source), target_error, "Did not get the expected parser error");
+        if let Err(AutosarDataError::ParserError { source, .. }) = result {
+            assert_eq!(
+                std::mem::discriminant(&source),
+                target_error,
+                "Did not get the expected parser error"
+            );
         } else {
             assert!(false, "Did not get any parser error when one was expected");
         }
@@ -697,8 +736,12 @@ mod test {
             let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), buffer, false);
             let result = parser.parse_arxml();
             println!("Result: {result:?}");
-            if let Some(AutosarDataError::ParserError { source, ..}) = parser.warnings.get(0) {
-                assert_eq!(std::mem::discriminant(source), target_error, "Did not get the expected parser error");
+            if let Some(AutosarDataError::ParserError { source, .. }) = parser.warnings.get(0) {
+                assert_eq!(
+                    std::mem::discriminant(source),
+                    target_error,
+                    "Did not get the expected parser error"
+                );
             } else {
                 assert!(false, "Did not get a parser warning");
             }
@@ -713,9 +756,21 @@ mod test {
 
     #[test]
     fn test_invalid_header() {
-        test_helper(INVALID_HEADER_1.as_bytes(), std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader), false);
-        test_helper(INVALID_HEADER_2.as_bytes(), std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader), false);
-        test_helper(INVALID_HEADER_3.as_bytes(), std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader), false);
+        test_helper(
+            INVALID_HEADER_1.as_bytes(),
+            std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader),
+            false,
+        );
+        test_helper(
+            INVALID_HEADER_2.as_bytes(),
+            std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader),
+            false,
+        );
+        test_helper(
+            INVALID_HEADER_3.as_bytes(),
+            std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader),
+            false,
+        );
     }
 
     const UNKNOWN_VERSION: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -724,7 +779,9 @@ mod test {
 
     #[test]
     fn test_unknown_version() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAutosarVersion{input_verstring: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAutosarVersion {
+            input_verstring: "".to_string(),
+        });
         test_helper(UNKNOWN_VERSION.as_bytes(), discriminant, true);
     }
 
@@ -734,7 +791,10 @@ mod test {
 
     #[test]
     fn test_incorrect_begin_element() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::IncorrectBeginElement{element: ElementName::Autosar, sub_element: ElementName::Autosar});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::IncorrectBeginElement {
+            element: ElementName::Autosar,
+            sub_element: ElementName::Autosar,
+        });
         test_helper(INCORRECT_BEGIN_ELEMENT.as_bytes(), discriminant, false);
     }
 
@@ -744,7 +804,10 @@ mod test {
 
     #[test]
     fn test_invalid_begin_element() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidBeginElement{element: ElementName::Autosar, invalid_element: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidBeginElement {
+            element: ElementName::Autosar,
+            invalid_element: "".to_string(),
+        });
         test_helper(INVALID_BEGIN_ELEMENT.as_bytes(), discriminant, false);
     }
 
@@ -754,7 +817,10 @@ mod test {
 
     #[test]
     fn test_incorrect_end_element() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::IncorrectEndElement{element: ElementName::Autosar, other_element: ElementName::Autosar});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::IncorrectEndElement {
+            element: ElementName::Autosar,
+            other_element: ElementName::Autosar,
+        });
         test_helper(INCORRECT_END_ELEMENT.as_bytes(), discriminant, false);
     }
 
@@ -764,7 +830,10 @@ mod test {
 
     #[test]
     fn test_invalid_end_element() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEndElement{parent_element: ElementName::Autosar, invalid_element: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEndElement {
+            parent_element: ElementName::Autosar,
+            invalid_element: "".to_string(),
+        });
         test_helper(INVALID_END_ELEMENT.as_bytes(), discriminant, false);
     }
 
@@ -774,7 +843,11 @@ mod test {
 
     #[test]
     fn test_element_version_error() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::ElementVersionError{element: ElementName::Autosar, sub_element: ElementName::Autosar, version: AutosarVersion::Autosar_00050});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::ElementVersionError {
+            element: ElementName::Autosar,
+            sub_element: ElementName::Autosar,
+            version: AutosarVersion::Autosar_00050,
+        });
         test_helper(ELEMENT_VERSION_ERROR.as_bytes(), discriminant, false);
     }
 
@@ -800,11 +873,13 @@ mod test {
                                                     <SHORT-NAME>def</SHORT-NAME>
                                                 </DIAG-EVENT-DEBOUNCE-TIME-BASED>"#;
 
-    
     #[test]
     fn test_choice_conflict() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::ElementChoiceConflict{element: ElementName::Autosar, sub_element: ElementName::Autosar});
-        test_helper(CHOICE_CONFLICT.as_bytes(), discriminant, false);
+        let discriminant = std::mem::discriminant(&ArxmlParserError::ElementChoiceConflict {
+            element: ElementName::Autosar,
+            sub_element: ElementName::Autosar,
+        });
+        test_helper(CHOICE_CONFLICT.as_bytes(), discriminant, true);
     }
 
     const TOO_MANY_SUBELEMENTS: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -816,8 +891,11 @@ mod test {
 
     #[test]
     fn test_too_many_sub_elements() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::TooManySubElements{element: ElementName::Autosar, sub_element: ElementName::Autosar});
-        test_helper(TOO_MANY_SUBELEMENTS.as_bytes(), discriminant, false);
+        let discriminant = std::mem::discriminant(&ArxmlParserError::TooManySubElements {
+            element: ElementName::Autosar,
+            sub_element: ElementName::Autosar,
+        });
+        test_helper(TOO_MANY_SUBELEMENTS.as_bytes(), discriminant, true);
     }
 
     const REQUIRED_SUB_ELEMENT_MISSING: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -827,7 +905,10 @@ mod test {
 
     #[test]
     fn test_required_sub_element_missing() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::RequiredSubelementMissing{element: ElementName::Autosar, sub_element: ElementName::Autosar});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::RequiredSubelementMissing {
+            element: ElementName::Autosar,
+            sub_element: ElementName::Autosar,
+        });
         test_helper(REQUIRED_SUB_ELEMENT_MISSING.as_bytes(), discriminant, false);
     }
 
@@ -838,7 +919,10 @@ mod test {
 
     #[test]
     fn test_unknown_attribute() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAttributeError{element: ElementName::Autosar, attribute: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAttributeError {
+            element: ElementName::Autosar,
+            attribute: "".to_string(),
+        });
         test_helper(UNKNOWN_ATTRIBUTE.as_bytes(), discriminant, true);
     }
 
@@ -848,7 +932,10 @@ mod test {
 
     #[test]
     fn test_required_attribute_missing() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::RequiredAttributeMissing{element: ElementName::Autosar, attribute: AttributeName::Accesskey});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::RequiredAttributeMissing {
+            element: ElementName::Autosar,
+            attribute: AttributeName::Accesskey,
+        });
         test_helper(REQUIRED_ATTRIBUTE_MISSING.as_bytes(), discriminant, true);
     }
 
@@ -858,7 +945,9 @@ mod test {
 
     #[test]
     fn test_character_content_forbidden() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::CharacterContentForbidden{element: ElementName::Autosar});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::CharacterContentForbidden {
+            element: ElementName::Autosar,
+        });
         test_helper(CHARACTER_CONTENT_FORBIDDEN.as_bytes(), discriminant, false);
     }
 
@@ -876,7 +965,11 @@ mod test {
 
     #[test]
     fn test_enum_item_version() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::EnumItemVersionError{element: ElementName::Autosar, enum_item: EnumItem::Aa, version: AutosarVersion::Autosar_00050});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::EnumItemVersionError {
+            element: ElementName::Autosar,
+            enum_item: EnumItem::Aa,
+            version: AutosarVersion::Autosar_00050,
+        });
         test_helper(WRONG_ENUM_ITEM_VERSION.as_bytes(), discriminant, false);
     }
 
@@ -894,7 +987,7 @@ mod test {
 
     #[test]
     fn test_unknown_enum_item() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownEnumItem{value: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownEnumItem { value: "".to_string() });
         test_helper(UNKNOWN_ENUM_ITEM.as_bytes(), discriminant, false);
     }
 
@@ -912,7 +1005,7 @@ mod test {
 
     #[test]
     fn test_invalid_enum_item() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEnumItem{value: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEnumItem { value: "".to_string() });
         test_helper(INVALID_ENUM_ITEM.as_bytes(), discriminant, false);
     }
 
@@ -924,7 +1017,10 @@ mod test {
 
     #[test]
     fn test_string_value_too_long() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::StringValueTooLong{value: "".to_string(), length: 1});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::StringValueTooLong {
+            value: "".to_string(),
+            length: 1,
+        });
         test_helper(STRING_VALUE_TOO_LONG.as_bytes(), discriminant, true);
     }
 
@@ -936,7 +1032,10 @@ mod test {
 
     #[test]
     fn test_regex_match_error() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::RegexMatchError{value: "".to_string(), regex: "".to_string()});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::RegexMatchError {
+            value: "".to_string(),
+            regex: "".to_string(),
+        });
         test_helper(REGEX_MATCH_ERROR.as_bytes(), discriminant, true);
     }
 
@@ -946,8 +1045,10 @@ mod test {
 
     #[test]
     fn test_utf8_error() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::Utf8Error{source: std::str::from_utf8(b"\xff").unwrap_err()});
-        test_helper(UTF8_ERROR, discriminant, false);
+        let discriminant = std::mem::discriminant(&ArxmlParserError::Utf8Error {
+            source: std::str::from_utf8(b"\xff").unwrap_err(),
+        });
+        test_helper(UTF8_ERROR, discriminant, true);
     }
 
     const UNEXPECTED_END_OF_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -955,7 +1056,82 @@ mod test {
 
     #[test]
     fn test_unexpected_end_of_file() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::UnexpectedEndOfFile{element: ElementName::Autosar});
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnexpectedEndOfFile {
+            element: ElementName::Autosar,
+        });
         test_helper(UNEXPECTED_END_OF_FILE.as_bytes(), discriminant, false);
+    }
+
+    const INVALID_NUMBER: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <AR-PACKAGES><AR-PACKAGE>
+        <SHORT-NAME>base</SHORT-NAME>
+        <ELEMENTS><I-SIGNAL-I-PDU>
+            <SHORT-NAME>Pdu</SHORT-NAME>
+            <I-PDU-TIMING-SPECIFICATIONS><I-PDU-TIMING><TRANSMISSION-MODE-DECLARATION><TRANSMISSION-MODE-TRUE-TIMING><CYCLIC-TIMING>
+            <TIME-PERIOD><TOLERANCE><ABSOLUTE-TOLERANCE><ABSOLUTE>not a number</ABSOLUTE>"#;
+
+    #[test]
+    fn test_invalid_number() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidNumber { input: "".to_string() });
+        test_helper(INVALID_NUMBER.as_bytes(), discriminant, true);
+    }
+
+    const ADDITIONAL_DATA: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    </AUTOSAR>
+    <extra>"#;
+
+    #[test]
+    fn test_additional_data_error() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::AdditionalDataError);
+        test_helper(ADDITIONAL_DATA.as_bytes(), discriminant, true);
+    }
+
+    const PARSER_TEST_DATA: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <ELEMENTS>
+                    <SYSTEM UUID="12345678" S="some string" T="2022-01-31T13:00:59Z">
+                        <SHORT-NAME>System</SHORT-NAME>
+                        <FIBEX-ELEMENTS>
+                            <FIBEX-ELEMENT-REF-CONDITIONAL>
+                                <FIBEX-ELEMENT-REF DEST="I-SIGNAL-I-PDU">/base/Pdu</FIBEX-ELEMENT-REF>
+                            </FIBEX-ELEMENT-REF-CONDITIONAL>
+                        </FIBEX-ELEMENTS>
+                    </SYSTEM>
+                    <I-SIGNAL-I-PDU>
+                        <SHORT-NAME>Pdu</SHORT-NAME>
+                        <I-PDU-TIMING-SPECIFICATIONS>
+                            <I-PDU-TIMING>
+                                <TRANSMISSION-MODE-DECLARATION>
+                                    <TRANSMISSION-MODE-TRUE-TIMING>
+                                        <CYCLIC-TIMING>
+                                            <TIME-PERIOD>
+                                                <TOLERANCE>
+                                                    <ABSOLUTE-TOLERANCE>
+                                                        <ABSOLUTE>1.0</ABSOLUTE>
+                                                    </ABSOLUTE-TOLERANCE>
+                                                </TOLERANCE>
+                                            </TIME-PERIOD>
+                                        </CYCLIC-TIMING>
+                                    </TRANSMISSION-MODE-TRUE-TIMING>
+                                </TRANSMISSION-MODE-DECLARATION>
+                            </I-PDU-TIMING>
+                        </I-PDU-TIMING-SPECIFICATIONS>
+                    </I-SIGNAL-I-PDU>
+                </ELEMENTS>
+            </AR-PACKAGE>
+        </AR-PACKAGES>
+    </AUTOSAR>
+    "#;
+
+    #[test]
+    fn test_basic_functionality() {
+        let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), PARSER_TEST_DATA.as_bytes(), true);
+        let result = parser.parse_arxml();
+        assert!(result.is_ok());
     }
 }

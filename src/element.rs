@@ -681,6 +681,7 @@ impl Element {
                                 content: value,
                             });
                         }
+                        return true;
                     }
                 }
             }
@@ -723,10 +724,18 @@ impl Element {
     /// remove an attribute from the element
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
         if let Ok(mut inner) = self.0.lock() {
+            let attrspec = DATATYPES[inner.type_id].attributes;
+            // find the index of the attribute in the attribute list of the element
             for idx in 0..inner.attributes.len() {
                 if inner.attributes[idx].attrname == attrname {
-                    inner.attributes.remove(idx);
-                    return true;
+                    // find the definition of this attribute in the specification
+                    if let Some((_, _, required, _)) = attrspec.iter().find(|(name, ..)| *name == attrname) {
+                        // the attribute can only be removed if it is optional
+                        if !required {
+                            inner.attributes.remove(idx);
+                            return true;
+                        }
+                    }
                 }
             }
         }
@@ -766,19 +775,23 @@ mod test {
     use crate::*;
     use std::ffi::OsString;
 
+    const BASIC_AUTOSAR_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>TestPackage</SHORT-NAME>
+            </AR-PACKAGE>
+        </AR-PACKAGES>
+    </AUTOSAR>"#;
+
     #[test]
-    fn test_element_creation() {
+    fn element_creation() {
         let autosar_data = AutosarData::new();
-        let file = autosar_data
-            .create_file(OsString::from("test.arxml"), AutosarVersion::LATEST)
+        autosar_data
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let autosar_data2 = file.autosar_data().unwrap();
-        assert_eq!(autosar_data, autosar_data2);
-        let el_autosar = file.root_element();
-        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
-        let el_ar_package = el_ar_packages
-            .create_named_sub_element(ElementName::ArPackage, "TestPackage")
-            .unwrap();
+        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
         let el_compu_method = el_elements
             .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod")
@@ -789,6 +802,9 @@ mod test {
         el_elements
             .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod3")
             .unwrap();
+
+        let count = el_elements.sub_elements().count();
+        assert_eq!(count, 3);
 
         // inserting another COMPU-METHOD into ELEMENTS hould be allowed at any position
         let (start_pos, end_pos) = el_elements.find_element_insert_pos(ElementName::CompuMethod).unwrap();
@@ -829,5 +845,97 @@ mod test {
         // try to insert COMPU-CONST anyway
         let result = el_compu_scale.find_element_insert_pos(ElementName::CompuConst);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn element_deletion() {
+        let autosar_data = AutosarData::new();
+        autosar_data
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .unwrap();
+        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_short_name = el_ar_package.sub_elements().next().unwrap();
+        // removing the SHORT-NAME of an identifiable element is formbidden
+        let result = el_ar_package.remove_sub_element(el_short_name);
+        if let Err(AutosarDataError::ElementActionError {
+            source: ElementActionError::ShortNameRemovalForbidden,
+        }) = result
+        {
+            // correct
+        } else {
+            panic!("Removing the SHORT-NAME was not prohibited");
+        }
+        let el_ar_packages = el_ar_package.parent().unwrap().unwrap();
+        let result = el_ar_packages.remove_sub_element(el_ar_package);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn attributes() {
+        let autosar_data = AutosarData::new();
+        let (file, _) = autosar_data
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .unwrap();
+        let el_autosar = file.root_element();
+
+        let count = el_autosar.attributes().count();
+        assert_eq!(count, 3);
+
+        // set the attribute S on the element AUTOSAR
+        let result = el_autosar.set_attribute(AttributeName::S, CharacterData::String(String::from("something")));
+        assert_eq!(result, true);
+
+        // AUTOSAR has no DEST attribute, so this should fail
+        let result = el_autosar.set_attribute(AttributeName::Dest, CharacterData::String(String::from("something")));
+        assert_eq!(result, false);
+
+        // The attribute S exists and is optional, so it can be removed
+        let result = el_autosar.remove_attribute(AttributeName::S);
+        assert_eq!(result, true);
+
+        // the attribute xmlns is required and cannot be removed
+        let result = el_autosar.remove_attribute(AttributeName::xmlns);
+        assert_eq!(result, false);
+
+        // the attribute ACCESSKEY does not exist in the element AUTOSAR and cannot be removed
+        let result = el_autosar.remove_attribute(AttributeName::Accesskey);
+        assert_eq!(result, false);
+
+        // the attribute T is permitted on AUTOSAR and the string is a valid value
+        let result = el_autosar.set_attribute_string(AttributeName::T, "2022-01-31T13:00:59Z");
+        assert_eq!(result, true);
+
+        let xmlns = el_autosar.get_attribute_string(AttributeName::xmlns).unwrap();
+        assert_eq!(xmlns, "http://autosar.org/schema/r4.0".to_string());
+    }
+
+    #[test]
+    fn mixed_content() {
+        let autosar_data = AutosarData::new();
+        autosar_data
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .unwrap();
+        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_long_name = el_ar_package.create_sub_element(ElementName::LongName).unwrap();
+        assert_eq!(el_long_name.get_content_type(), ContentType::Elements);
+        let el_l_4 = el_long_name.create_sub_element(ElementName::L4).unwrap();
+        assert_eq!(el_l_4.get_content_type(), ContentType::Mixed);
+
+        el_l_4.create_sub_element(ElementName::E).unwrap();
+        el_l_4.insert_character_content_item("foo", 1);
+        el_l_4.create_sub_element(ElementName::Sup).unwrap();
+        el_l_4.insert_character_content_item("bar", 0);
+        assert_eq!(el_l_4.content().count(), 4);
+
+        // character data item "foo" is now in position 2 and gets removed
+        assert_eq!(el_l_4.remove_content_item(2), true);
+        assert_eq!(el_l_4.content().count(), 3);
+        // character data item "bar" should be in postion 0
+        let item = el_l_4.content().next().unwrap();
+        if let ElementContent::CharacterData(CharacterData::String(content)) = item {
+            assert_eq!(content, "bar");
+        } else {
+            panic!("unexpected content in <L-4>: {item:?}");
+        }
     }
 }
