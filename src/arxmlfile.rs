@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use crate::*;
 
 impl ArxmlFile {
@@ -97,6 +99,16 @@ impl ArxmlFile {
         inner.root_element.elements_dfs()
     }
 
+    /// serialize the content of the file to a String
+    pub fn serialize(&self) -> String {
+        let mut outstring = String::with_capacity(1024 * 1024);
+
+        outstring.write_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>").unwrap();
+        self.root_element().serialize_internal(&mut outstring, 0, false);
+
+        outstring
+    }
+
     /// create a weak reference to this ArxmlFile
     pub fn downgrade(&self) -> WeakArxmlFile {
         WeakArxmlFile(Arc::downgrade(&self.0))
@@ -163,5 +175,15 @@ mod test {
         let file2 = weak_file.upgrade().unwrap();
         assert_eq!(Arc::strong_count(&file.0), 3); // 3 references are: AutosarData, file, file2
         assert_eq!(file, file2);
+    }
+
+    #[test]
+    fn serialize() {
+        let data = AutosarData::new();
+        let file = data.create_file(OsString::from("test"), AutosarVersion::Autosar_00050).unwrap();
+        let text = file.serialize();
+        assert_eq!(text, r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+</AUTOSAR>"#);
     }
 }

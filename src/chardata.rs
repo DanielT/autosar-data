@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 use std::str::FromStr;
 
 use super::*;
@@ -89,6 +89,15 @@ impl CharacterData {
             }
         }
         None
+    }
+
+    pub(crate) fn serialize_internal(&self, outstring: &mut String) {
+        match self {
+            CharacterData::Enum(enumval) => outstring.write_str(enumval.to_str()).unwrap(),
+            CharacterData::String(strval) => outstring.write_str(strval).unwrap(),
+            CharacterData::UnsignedInteger(intval) => outstring.write_str(&intval.to_string()).unwrap(),
+            CharacterData::Double(doubleval) => outstring.write_str(&doubleval.to_string()).unwrap(),
+        }
     }
 }
 

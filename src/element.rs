@@ -1,4 +1,5 @@
 use smallvec::smallvec;
+use std::fmt::Write;
 use std::str::FromStr;
 
 use crate::iterators::*;
@@ -158,7 +159,7 @@ impl Element {
     }
 
     /// get the [ContentType] of the current element
-    pub fn get_content_type(&self) -> ContentType {
+    pub fn content_type(&self) -> ContentType {
         let datatype = &DATATYPES[self.type_id()];
         match datatype.mode {
             ContentMode::Sequence => ContentType::Elements,
@@ -488,7 +489,7 @@ impl Element {
 
     /// set the character data of this element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.get_content_type == CharacterData
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
     pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), AutosarDataError> {
         let type_id = self.type_id();
         let datatype = &DATATYPES[type_id];
@@ -553,7 +554,7 @@ impl Element {
 
     /// insert a character data item into the content of this element
     ///
-    /// This method only applies to elements which contain mixed data, i.e. element.get_content_type == Mixed.
+    /// This method only applies to elements which contain mixed data, i.e. element.content_type == Mixed.
     /// Use create_sub_element_at to add an element instead of a character data item
     ///
     /// return true if the data was added
@@ -574,7 +575,7 @@ impl Element {
 
     /// remove a character data item from the content of this element
     ///
-    /// This method only applies to elements which contain mixed data, i.e. element.get_content_type == Mixed
+    /// This method only applies to elements which contain mixed data, i.e. element.content_type == Mixed
     ///
     /// returns true if data was removed
     pub fn remove_content_item(&self, position: usize) -> bool {
@@ -593,7 +594,7 @@ impl Element {
 
     /// get the character content of the element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.get_content_type == CharacterData
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
     pub fn character_data(&self) -> Option<CharacterData> {
         if let Ok(inner) = self.0.lock() {
             if let ContentMode::Characters = &DATATYPES[inner.type_id].mode {
@@ -740,6 +741,88 @@ impl Element {
             }
         }
         false
+    }
+
+    pub(crate) fn serialize_internal(&self, outstring: &mut String, indent: usize, inline: bool) {
+        let element_name = self.element_name().to_str();
+
+        // write the opening tag on a new line and indent it
+        if !inline {
+            self.serialize_newline_indent(outstring, indent);
+        }
+        outstring.write_char('<').unwrap();
+        outstring.write_str(element_name).unwrap();
+        self.serialize_attributes(outstring);
+        outstring.write_char('>').unwrap();
+
+        match self.content_type() {
+            ContentType::Elements => {
+                // serialize each sub-element
+                for subelem in self.sub_elements() {
+                    subelem.serialize_internal(outstring, indent + 1, false);
+                }
+                // put the closing tag on a new line and indent it
+                self.serialize_newline_indent(outstring, indent);
+                outstring.write_str("</").unwrap();
+                outstring.write_str(element_name).unwrap();
+                outstring.write_char('>').unwrap();
+            }
+            ContentType::CharacterData => {
+                // write the character data on the same line as the opening tag
+                if let Ok(inner) = self.0.lock() {
+                    if let Some(content) = inner.content.get(0) {
+                        match content {
+                            ElementContent::Element(_) => panic!("Forbidden: Element in CharacterData"),
+                            ElementContent::CharacterData(chardata) => {
+                                chardata.serialize_internal(outstring);
+                            }
+                        }
+                    }
+                }
+
+                // write the closing tag on the same line
+                outstring.write_str("</").unwrap();
+                outstring.write_str(element_name).unwrap();
+                outstring.write_char('>').unwrap();
+            }
+            ContentType::Mixed => {
+                for item in self.content() {
+                    match item {
+                        ElementContent::Element(subelem) => {
+                            subelem.serialize_internal(outstring, indent+1, true);
+                        }
+                        ElementContent::CharacterData(chardata) => {
+                            chardata.serialize_internal(outstring);
+                        }
+                    }
+                }
+                // write the closing tag on the same line
+                outstring.write_str("</").unwrap();
+                outstring.write_str(element_name).unwrap();
+                outstring.write_char('>').unwrap();
+            }
+        }
+    }
+
+    fn serialize_newline_indent(&self, outstring: &mut String, indent: usize) {
+        outstring.write_char('\n').unwrap();
+        for _ in 0..indent {
+            outstring.write_str("  ").unwrap();
+        }
+    }
+
+    fn serialize_attributes(&self, outstring: &mut String) {
+        if let Ok(inner) = self.0.lock() {
+            if !inner.attributes.is_empty() {
+                for attribute in &inner.attributes {
+                    outstring.write_char(' ').unwrap();
+                    outstring.write_str(attribute.attrname.to_str()).unwrap();
+                    outstring.write_str("=\"").unwrap();
+                    attribute.content.serialize_internal(outstring);
+                    outstring.write_char('"').unwrap();
+                }
+            }
+        }
     }
 
     pub(crate) fn type_id(&self) -> usize {
@@ -917,9 +1000,9 @@ mod test {
             .unwrap();
         let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
         let el_long_name = el_ar_package.create_sub_element(ElementName::LongName).unwrap();
-        assert_eq!(el_long_name.get_content_type(), ContentType::Elements);
+        assert_eq!(el_long_name.content_type(), ContentType::Elements);
         let el_l_4 = el_long_name.create_sub_element(ElementName::L4).unwrap();
-        assert_eq!(el_l_4.get_content_type(), ContentType::Mixed);
+        assert_eq!(el_l_4.content_type(), ContentType::Mixed);
 
         el_l_4.create_sub_element(ElementName::E).unwrap();
         el_l_4.insert_character_content_item("foo", 1);

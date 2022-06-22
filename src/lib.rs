@@ -316,9 +316,17 @@ impl AutosarData {
         self.load_named_arxml_buffer(&buffer, filename, strict)
     }
 
-    pub fn write_arxml_buffers(&self) {}
-
-    pub fn write_arxml_files(&self) {}
+    /// serialize each of the files in the data set
+    ///
+    /// returns the result in a HashMap of <file_name, file_content>
+    pub fn serialize_files(&self) -> HashMap<OsString, String> {
+        let mut result = HashMap::new();
+        for file in self.files() {
+            let data = file.serialize();
+            result.insert(file.filename(), data);
+        }
+        result
+    }
 
     /// create an iterator over all [ArxmlFile]s in this AutosarData object
     pub fn files(&self) -> ArxmlFileIterator {
