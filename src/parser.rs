@@ -117,6 +117,9 @@ pub enum ArxmlParserError {
 
     #[error("Additional data found in the input after the final </AUTOSAR> element")]
     AdditionalDataError,
+
+    #[error("Invalid XML entity in {input}")]
+    InvalidXmlEntity { input: String },
 }
 
 pub(crate) struct ArxmlParser<'a> {
@@ -624,6 +627,7 @@ impl<'a> ArxmlParser<'a> {
                         regex: regex.to_string(),
                     })?;
                 }
+                // text with regex pattern validation doesn't need unescaping - none of the regexes will allow any of the the escaped chars
                 match std::str::from_utf8(trimmed_input) {
                     Ok(utf8string) => Ok(CharacterData::String(utf8string.to_owned())),
                     Err(err) => {
@@ -638,20 +642,22 @@ impl<'a> ArxmlParser<'a> {
                 preserve_whitespace,
                 max_length,
             } => {
-                let text = if *preserve_whitespace { input } else { trimmed_input };
-                if max_length.is_some() && text.len() > max_length.unwrap() {
+                let raw_text = if *preserve_whitespace { input } else { trimmed_input };
+                if max_length.is_some() && raw_text.len() > max_length.unwrap() {
                     self.optional_error(ArxmlParserError::StringValueTooLong {
                         value: String::from_utf8_lossy(trimmed_input).to_string(),
                         length: max_length.unwrap(),
                     })?;
                 }
-                match std::str::from_utf8(text) {
-                    Ok(utf8string) => Ok(CharacterData::String(utf8string.to_owned())),
+                let text = match std::str::from_utf8(raw_text) {
+                    Ok(utf8string) => Cow::from(utf8string),
                     Err(err) => {
                         self.optional_error(ArxmlParserError::Utf8Error { source: err })?;
-                        Ok(CharacterData::String(String::from_utf8_lossy(text).into_owned()))
+                        String::from_utf8_lossy(raw_text)
                     }
-                }
+                };
+                let unescaped_text = self.unescape_string(&text)?.into_owned();
+                Ok(CharacterData::String(unescaped_text))
             }
             CharacterDataSpec::UnsignedInteger => {
                 let strval = std::str::from_utf8(trimmed_input)
@@ -681,6 +687,42 @@ impl<'a> ArxmlParser<'a> {
                 };
                 Ok(CharacterData::Double(value))
             }
+        }
+    }
+
+    fn unescape_string<'b>(&mut self, input: &'b str) -> Result<Cow<'b, str>, AutosarDataError> {
+        if input.contains('&') {
+            let mut unescaped = String::with_capacity(input.len());
+            let mut rem = input;
+            while let Some(pos) = rem.find('&') {
+                unescaped.push_str(&rem[..pos]);
+                rem = &rem[pos..];
+                if rem.starts_with("&lt;") {
+                    unescaped.push('<');
+                    rem = &rem[4..];
+                } else if rem.starts_with("&gt;") {
+                    unescaped.push('>');
+                    rem = &rem[4..];
+                } else if rem.starts_with("&amp;") {
+                    unescaped.push('&');
+                    rem = &rem[5..];
+                } else if rem.starts_with("&apos;") {
+                    unescaped.push('\'');
+                    rem = &rem[6..];
+                } else if rem.starts_with("&quot;") {
+                    unescaped.push('"');
+                    rem = &rem[6..];
+                } else {
+                    self.optional_error(ArxmlParserError::InvalidXmlEntity { input: input.to_owned() })?;
+                    unescaped.push('&');
+                    rem = &rem[1..];
+                }
+            }
+            unescaped.push_str(rem);
+
+            Ok(Cow::Owned(unescaped))
+        } else {
+            Ok(Cow::Borrowed(input))
         }
     }
 
@@ -1086,6 +1128,15 @@ mod test {
     fn test_additional_data_error() {
         let discriminant = std::mem::discriminant(&ArxmlParserError::AdditionalDataError);
         test_helper(ADDITIONAL_DATA.as_bytes(), discriminant, true);
+    }
+
+    #[test]
+    fn unescape_entities() {
+        let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), &[], true);
+        let result = parser.unescape_string("&amp;&amp;&lt;FOO&gt;&quot;&quot;&apos;end").unwrap();
+        assert_eq!(&result, r#"&&<FOO>""'end"#);
+        let result = parser.unescape_string("&amp;&amp;&gt;FOO&lt;&quot&quot;&apos;end");
+        assert!(result.is_err());
     }
 
     const PARSER_TEST_DATA: &str = r#"<?xml version="1.0" encoding="utf-8"?>

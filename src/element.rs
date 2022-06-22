@@ -1,5 +1,4 @@
 use smallvec::smallvec;
-use std::fmt::Write;
 use std::str::FromStr;
 
 use crate::iterators::*;
@@ -750,10 +749,10 @@ impl Element {
         if !inline {
             self.serialize_newline_indent(outstring, indent);
         }
-        outstring.write_char('<').unwrap();
-        outstring.write_str(element_name).unwrap();
+        outstring.push('<');
+        outstring.push_str(element_name);
         self.serialize_attributes(outstring);
-        outstring.write_char('>').unwrap();
+        outstring.push('>');
 
         match self.content_type() {
             ContentType::Elements => {
@@ -763,9 +762,9 @@ impl Element {
                 }
                 // put the closing tag on a new line and indent it
                 self.serialize_newline_indent(outstring, indent);
-                outstring.write_str("</").unwrap();
-                outstring.write_str(element_name).unwrap();
-                outstring.write_char('>').unwrap();
+                outstring.push_str("</");
+                outstring.push_str(element_name);
+                outstring.push('>');
             }
             ContentType::CharacterData => {
                 // write the character data on the same line as the opening tag
@@ -781,9 +780,9 @@ impl Element {
                 }
 
                 // write the closing tag on the same line
-                outstring.write_str("</").unwrap();
-                outstring.write_str(element_name).unwrap();
-                outstring.write_char('>').unwrap();
+                outstring.push_str("</");
+                outstring.push_str(element_name);
+                outstring.push('>');
             }
             ContentType::Mixed => {
                 for item in self.content() {
@@ -797,17 +796,17 @@ impl Element {
                     }
                 }
                 // write the closing tag on the same line
-                outstring.write_str("</").unwrap();
-                outstring.write_str(element_name).unwrap();
-                outstring.write_char('>').unwrap();
+                outstring.push_str("</");
+                outstring.push_str(element_name);
+                outstring.push('>');
             }
         }
     }
 
     fn serialize_newline_indent(&self, outstring: &mut String, indent: usize) {
-        outstring.write_char('\n').unwrap();
+        outstring.push('\n');
         for _ in 0..indent {
-            outstring.write_str("  ").unwrap();
+            outstring.push_str("  ");
         }
     }
 
@@ -815,11 +814,11 @@ impl Element {
         if let Ok(inner) = self.0.lock() {
             if !inner.attributes.is_empty() {
                 for attribute in &inner.attributes {
-                    outstring.write_char(' ').unwrap();
-                    outstring.write_str(attribute.attrname.to_str()).unwrap();
-                    outstring.write_str("=\"").unwrap();
+                    outstring.push(' ');
+                    outstring.push_str(attribute.attrname.to_str());
+                    outstring.push_str("=\"");
                     attribute.content.serialize_internal(outstring);
-                    outstring.write_char('"').unwrap();
+                    outstring.push('"');
                 }
             }
         }

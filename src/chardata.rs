@@ -1,4 +1,5 @@
-use std::fmt::{Display, Write};
+use std::borrow::Cow;
+use std::fmt::Display;
 use std::str::FromStr;
 
 use super::*;
@@ -93,10 +94,10 @@ impl CharacterData {
 
     pub(crate) fn serialize_internal(&self, outstring: &mut String) {
         match self {
-            CharacterData::Enum(enumval) => outstring.write_str(enumval.to_str()).unwrap(),
-            CharacterData::String(strval) => outstring.write_str(strval).unwrap(),
-            CharacterData::UnsignedInteger(intval) => outstring.write_str(&intval.to_string()).unwrap(),
-            CharacterData::Double(doubleval) => outstring.write_str(&doubleval.to_string()).unwrap(),
+            CharacterData::Enum(enumval) => outstring.push_str(enumval.to_str()),
+            CharacterData::String(strval) => outstring.push_str(&escape_text(strval)),
+            CharacterData::UnsignedInteger(intval) => outstring.push_str(&intval.to_string()),
+            CharacterData::Double(doubleval) => outstring.push_str(&doubleval.to_string()),
         }
     }
 }
@@ -109,5 +110,26 @@ impl Display for CharacterData {
             CharacterData::UnsignedInteger(uintval) => f.write_str(&*uintval.to_string()),
             CharacterData::Double(f64val) => f.write_str(&*f64val.to_string()),
         }
+    }
+}
+
+fn escape_text(input: &str) -> Cow<str> {
+    if input.contains(&['&', '>', '<', '\'', '"']) {
+        let mut escaped = String::with_capacity(input.len() + 6);
+
+        for c in input.chars() {
+            match c {
+                '<' => escaped.push_str("&lt;"),
+                '>' => escaped.push_str("&gt;"),
+                '&' => escaped.push_str("&amp;"),
+                '"' => escaped.push_str("&quot;"),
+                '\'' => escaped.push_str("&apos;"),
+                other => escaped.push(other),
+            }
+        }
+
+        Cow::Owned(escaped)
+    } else {
+        Cow::Borrowed(input)
     }
 }
