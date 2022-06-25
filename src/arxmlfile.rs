@@ -80,6 +80,14 @@ impl ArxmlFile {
         }
     }
 
+    /// check if the elements and attributes in this file are compatible with some target_version
+    ///
+    /// All elements and their attributes will be evaluated against the target version according to the specification.
+    /// The output is a list of incompatible elements
+    pub fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
+        self.root_element().check_version_compatibility(target_version)
+    }
+
     /// get a reference to the [AutosarData] object that contains this file
     pub fn autosar_data(&self) -> Result<AutosarData, AutosarDataError> {
         let locked_file = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
@@ -103,7 +111,9 @@ impl ArxmlFile {
     pub fn serialize(&self) -> String {
         let mut outstring = String::with_capacity(1024 * 1024);
 
-        outstring.write_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>").unwrap();
+        outstring
+            .write_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+            .unwrap();
         self.root_element().serialize_internal(&mut outstring, 0, false);
 
         outstring
@@ -180,10 +190,15 @@ mod test {
     #[test]
     fn serialize() {
         let data = AutosarData::new();
-        let file = data.create_file(OsString::from("test"), AutosarVersion::Autosar_00050).unwrap();
+        let file = data
+            .create_file(OsString::from("test"), AutosarVersion::Autosar_00050)
+            .unwrap();
         let text = file.serialize();
-        assert_eq!(text, r#"<?xml version="1.0" encoding="utf-8"?>
+        assert_eq!(
+            text,
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-</AUTOSAR>"#);
+</AUTOSAR>"#
+        );
     }
 }

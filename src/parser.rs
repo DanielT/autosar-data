@@ -713,7 +713,9 @@ impl<'a> ArxmlParser<'a> {
                     unescaped.push('"');
                     rem = &rem[6..];
                 } else {
-                    self.optional_error(ArxmlParserError::InvalidXmlEntity { input: input.to_owned() })?;
+                    self.optional_error(ArxmlParserError::InvalidXmlEntity {
+                        input: input.to_owned(),
+                    })?;
                     unescaped.push('&');
                     rem = &rem[1..];
                 }
@@ -1133,7 +1135,9 @@ mod test {
     #[test]
     fn unescape_entities() {
         let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), &[], true);
-        let result = parser.unescape_string("&amp;&amp;&lt;FOO&gt;&quot;&quot;&apos;end").unwrap();
+        let result = parser
+            .unescape_string("&amp;&amp;&lt;FOO&gt;&quot;&quot;&apos;end")
+            .unwrap();
         assert_eq!(&result, r#"&&<FOO>""'end"#);
         let result = parser.unescape_string("&amp;&amp;&gt;FOO&lt;&quot&quot;&apos;end");
         assert!(result.is_err());

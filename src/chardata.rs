@@ -55,6 +55,31 @@ impl CharacterData {
         false
     }
 
+    pub(crate) fn check_version_compatibility(
+        &self,
+        data_spec: &CharacterDataSpec,
+        target_version: AutosarVersion,
+    ) -> (bool, u32) {
+        if let CharacterDataSpec::Enum { items } = data_spec {
+            if let CharacterData::Enum(attrval) = self {
+                if let Some((_, enumitem_version_mask)) = items.iter().find(|(item, _)| *item == *attrval) {
+                    if target_version.compatible(*enumitem_version_mask) {
+                        return (true, *enumitem_version_mask);
+                    } else {
+                        return (false, *enumitem_version_mask);
+                    }
+                } else {
+                    // no spec for this item -> not allowed in any version
+                    return (false, 0);
+                }
+            } else {
+                // content is not an enum item, but an enum item is expected? shouldn't be possible, maybe panic?
+                return (false, u32::MAX);
+            }
+        }
+        (true, u32::MAX)
+    }
+
     pub(crate) fn parse(input: &str, character_data_spec: &CharacterDataSpec, version: AutosarVersion) -> Option<Self> {
         match character_data_spec {
             CharacterDataSpec::Enum { items } => {

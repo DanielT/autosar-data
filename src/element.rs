@@ -306,6 +306,178 @@ impl Element {
         }
     }
 
+    /// create a deep copy of the given element and insert it as a sub-element
+    ///
+    /// The other element must be a permissible sub-element in this element and not conflict with any existing sub element.
+    /// The other element can originate from any loaded [AutosarData], it does not have to originate from the same project or file as the current element.
+    ///
+    /// The [AutosarVersion] of the other element might differ from the version of the current file;
+    /// in this case a partial copy will be performed that omits all incompatible elements.
+    ///
+    /// If the copied element is identifiable, then the item name might be extended with a numerical suffix, if one is required in order to make the name unique.
+    /// For example: An identifiable element "Foo" already exists at the same path; the copied identifiable element will be renamed to "Foo_1".
+    ///
+    /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
+    pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
+        let other_elemname = {
+            let other_inner = other.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+            other_inner.elemname
+        };
+        let (_, end) = self.find_element_insert_pos(other_elemname)?;
+        self.create_copied_sub_element_inner(other, end)
+    }
+
+    /// create a deep copy of the given element and insert it as a sub-element at the given position
+    ///
+    /// The other element must be a permissible sub-element in this element and not conflict with any existing sub element.
+    /// The other element can originate from any loaded [AutosarData], it does not have to originate from the same project or file as the current element.
+    ///
+    /// The [AutosarVersion] of the other element might differ from the version of the current file;
+    /// in this case a partial copy will be performed that omits all incompatible elements.
+    ///
+    /// If the copied element is identifiable, then the item name might be extended with a numerical suffix, if one is required in order to make the name unique.
+    /// For example: An identifiable element "Foo" already exists at the same path; the copied identifiable element will be renamed to "Foo_1".
+    ///
+    /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
+    pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        let other_elemname = {
+            let other_inner = other.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+            other_inner.elemname
+        };
+        let (start_pos, end_pos) = self.find_element_insert_pos(other_elemname)?;
+        if start_pos <= position && position <= end_pos {
+            self.create_copied_sub_element_inner(other, position)
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    fn create_copied_sub_element_inner(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        let version = self.containing_file().map(|f| f.version())?;
+        let autosar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+
+        // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
+        // Additionally, implementing this manually provides the opportunity to filter out
+        // elements that ae not compatible with the version of the current file.
+        let newelem = other.deep_copy(version)?;
+
+        // set the parent of the newelem - the methods path(), containing_file(), etc become available on newelem
+        newelem.set_parent(ElementOrFile::Element(self.downgrade()));
+        if newelem.is_identifiable() {
+            newelem.make_unique_item_name()?;
+        }
+
+        for (_, sub_elem) in newelem.elements_dfs() {
+            // add all identifiable sub elements to the identifiables hashmap
+            if sub_elem.is_identifiable() {
+                autosar_data.fix_identifiables(None, &sub_elem);
+            }
+            // add all references to the reference_origins hashmap
+            if sub_elem.is_reference() {
+                if let Some(CharacterData::String(reference)) = sub_elem.character_data() {
+                    autosar_data.add_reference_origin(&reference, sub_elem.downgrade())
+                }
+            }
+        }
+
+        if let Ok(mut inner) = self.0.lock() {
+            inner.content.insert(position, ElementContent::Element(newelem.clone()));
+        }
+
+        Ok(newelem)
+    }
+
+    /// make_unique_item_name ensures that a copied element has a unique name
+    fn make_unique_item_name(&self) -> Result<(), AutosarDataError> {
+        let autosar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+        let orig_name = self.item_name().unwrap();
+        let mut path = self.path()?.unwrap();
+        let mut counter = 1;
+
+        while autosar_data.get_element_by_path(&path)?.is_some() {
+            let name = format!("{orig_name}_{counter}");
+            counter += 1;
+            if let Ok(inner) = self.0.lock() {
+                // set the name directly by modifying the character content of the short name element
+                // note: the method set_character_data is not suitable here, because it updates the identifiables hashmap
+                if let Some(ElementContent::Element(short_name_elem)) = inner.content.get(0) {
+                    if let Ok(mut sn_inner) = short_name_elem.0.lock() {
+                        if sn_inner.elemname != ElementName::ShortName {
+                            return Err(Element::error(ElementActionError::InvalidSubElement));
+                        }
+                        sn_inner.content.truncate(0);
+                        sn_inner
+                            .content
+                            .push(ElementContent::CharacterData(CharacterData::String(name)));
+                    }
+                }
+            }
+            path = self.path()?.unwrap();
+        }
+
+        Ok(())
+    }
+
+    /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with target_version
+    fn deep_copy(&self, target_version: AutosarVersion) -> Result<Element, AutosarDataError> {
+        let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+
+        let copy_wrapped = Element(Arc::new(Mutex::new(ElementRaw {
+            elemname: inner.elemname,
+            type_id: inner.type_id,
+            content: SmallVec::with_capacity(inner.content.len()),
+            attributes: SmallVec::with_capacity(inner.attributes.len()),
+            parent: ElementOrFile::None,
+        })));
+
+        if let Ok(mut copy) = copy_wrapped.0.lock() {
+            let datatype = &DATATYPES[inner.type_id];
+            for attribute in &inner.attributes {
+                // get the specification of the attribute
+                let (_, cdataspec, required, attr_version_mask) = datatype
+                    .attributes
+                    .iter()
+                    .find(|(name, ..)| *name == attribute.attrname)
+                    .ok_or_else(|| Element::error(ElementActionError::VersionIncompatible))?;
+                // check if the attribute is compatible with the target version
+                if target_version.compatible(*attr_version_mask)
+                    && attribute
+                        .content
+                        .check_version_compatibility(cdataspec, target_version)
+                        .0
+                {
+                    copy.attributes.push(attribute.clone());
+                } else if *required {
+                    return Err(Element::error(ElementActionError::VersionIncompatible));
+                } else {
+                    // no action, the attribute is not compatible, but it's not required either
+                }
+            }
+
+            for content_item in &inner.content {
+                match content_item {
+                    ElementContent::Element(sub_elem) => {
+                        let sub_elem_name = sub_elem.element_name();
+                        // since find_sub_element already considers the version, finding the element also means it's valid in the target_version
+                        if find_sub_element(sub_elem_name, inner.type_id, target_version as u32).is_some() {
+                            if let Ok(copied_sub_elem) = sub_elem.deep_copy(target_version) {
+                                if let Ok(mut cse_inner) = copied_sub_elem.0.lock() {
+                                    cse_inner.parent = ElementOrFile::Element(copy_wrapped.downgrade());
+                                }
+                                copy.content.push(ElementContent::Element(copied_sub_elem));
+                            }
+                        }
+                    }
+                    ElementContent::CharacterData(cdata) => {
+                        copy.content.push(ElementContent::CharacterData(cdata.clone()));
+                    }
+                }
+            }
+        }
+
+        Ok(copy_wrapped)
+    }
+
     /// find the upper and lower bound on the insert position for a sub element
     fn find_element_insert_pos(&self, element_name: ElementName) -> Result<(usize, usize), AutosarDataError> {
         let version = self.containing_file().map(|f| f.version())?;
@@ -531,7 +703,7 @@ impl Element {
                     // short-name: make sure the hashmap in the top-level AutosarData struct is updated so that this element can still be found
                     if self.element_name() == ElementName::ShortName {
                         if let Some(parent) = self.parent()? {
-                            autosar_data.fix_identifiables(prev_path, parent);
+                            autosar_data.fix_identifiables(prev_path, &parent);
                         }
                     }
 
@@ -742,6 +914,15 @@ impl Element {
         false
     }
 
+    /// serialize the element and all of its content to a string
+    pub fn serialize(&self) -> String {
+        let mut outstring = String::new();
+
+        self.serialize_internal(&mut outstring, 0, false);
+
+        outstring
+    }
+
     pub(crate) fn serialize_internal(&self, outstring: &mut String, indent: usize, inline: bool) {
         let element_name = self.element_name().to_str();
 
@@ -788,7 +969,7 @@ impl Element {
                 for item in self.content() {
                     match item {
                         ElementContent::Element(subelem) => {
-                            subelem.serialize_internal(outstring, indent+1, true);
+                            subelem.serialize_internal(outstring, indent + 1, true);
                         }
                         ElementContent::CharacterData(chardata) => {
                             chardata.serialize_internal(outstring);
@@ -826,6 +1007,56 @@ impl Element {
 
     pub(crate) fn type_id(&self) -> usize {
         self.0.lock().unwrap().type_id
+    }
+
+    /// check if the sub elements and attributes of this element are compatible with some target_version
+    pub fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
+        let mut compat_errors = Vec::new();
+        let mut overall_version_mask = u32::MAX;
+
+        // check the compatibility of all the attributes in this element
+        if let Ok(inner) = self.0.lock() {
+            let datatype = &DATATYPES[inner.type_id];
+            for attribute in &inner.attributes {
+                // find the specification for the current attribute
+                if let Some((_, value_spec, _, version_mask)) = datatype
+                    .attributes
+                    .iter()
+                    .find(|(name, ..)| *name == attribute.attrname)
+                {
+                    overall_version_mask &= *version_mask;
+                    // check if the attribute is allowed at all
+                    if !target_version.compatible(*version_mask) {
+                        compat_errors.push(CompatibilityError::IncompatibleAttribute {
+                            element: self.clone(),
+                            attribute: attribute.attrname,
+                            version_mask: *version_mask,
+                        });
+                    } else {
+                        let (is_compatible, value_version_mask) = attribute
+                            .content
+                            .check_version_compatibility(value_spec, target_version);
+                        if !is_compatible {
+                            compat_errors.push(CompatibilityError::IncompatibleAttributeValue {
+                                element: self.clone(),
+                                attribute: attribute.attrname,
+                                version_mask: value_version_mask,
+                            });
+                        }
+                        overall_version_mask &= value_version_mask;
+                    }
+                }
+            }
+        }
+
+        // check the compatibility of all sub-elements
+        for sub_element in self.sub_elements() {
+            let (mut sub_element_errors, sub_element_mask) = sub_element.check_version_compatibility(target_version);
+            compat_errors.append(&mut sub_element_errors);
+            overall_version_mask &= sub_element_mask;
+        }
+
+        (compat_errors, overall_version_mask)
     }
 
     fn error(err: ElementActionError) -> AutosarDataError {
@@ -927,6 +1158,52 @@ mod test {
         // try to insert COMPU-CONST anyway
         let result = el_compu_scale.find_element_insert_pos(ElementName::CompuConst);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn element_copy() {
+        let autosar_data = AutosarData::new();
+        autosar_data
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .unwrap();
+        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
+        let el_compu_method = el_elements
+            .create_named_sub_element(ElementName::CompuMethod, "CompuMethod")
+            .unwrap();
+        el_elements
+            .create_named_sub_element(ElementName::DdsServiceInstanceToMachineMapping, "ApItem")
+            .unwrap();
+
+        let autosar_data2 = AutosarData::new();
+        let file = autosar_data2
+            .create_file(OsString::from("test.arxml"), AutosarVersion::Autosar_00044)
+            .unwrap();
+
+        // it should not be possible to create an AR-PACKAGE element directly in the AUTOSAR element by copying data
+        let result = file.root_element().create_copied_sub_element(&el_ar_package);
+        assert!(result.is_err());
+
+        // create an AR-PACKAGES element and copy the data there. This should succeed.
+        // the copied data shoud contain the COMPU-METHOD, but not the DDS-SERVICE-INSTANCE-TO-MACHINE-MAPPING
+        // because the latter was specified in Adaptive 18-03 (Autosar_00045) and is not valid in Autosar_00044
+        let el_ar_packages2 = file.root_element().create_sub_element(ElementName::ArPackages).unwrap();
+        el_ar_packages2.create_copied_sub_element(&el_ar_package).unwrap();
+
+        // it should be possible to look up the copied compu method by its path
+        let el_compu_method_2 = autosar_data2
+            .get_element_by_path("/TestPackage/CompuMethod")
+            .unwrap()
+            .unwrap();
+
+        // the copy should not refer to the same memory as the original
+        assert_ne!(el_compu_method, el_compu_method_2);
+        // the copy should serialize to exactly the same string as the original
+        assert_eq!(el_compu_method.serialize(), el_compu_method_2.serialize());
+
+        // verify that the DDS-SERVICE-INSTANCE-TO-MACHINE-MAPPING element was not copied
+        let result = autosar_data2.get_element_by_path("/TestPackage/ApItem").unwrap();
+        assert!(result.is_none());
     }
 
     #[test]

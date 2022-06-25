@@ -1,5 +1,11 @@
 use crate::specification::*;
 
+impl AutosarVersion {
+    pub fn compatible(&self, version_mask: u32) -> bool {
+        version_mask & *self as u32 != 0
+    }
+}
+
 pub(crate) fn get_sub_element_spec<'a>(spec: &'a [SubElement], element_indices: &[usize]) -> Option<&'a SubElement> {
     if !element_indices.is_empty() {
         let mut current_spec = spec;
