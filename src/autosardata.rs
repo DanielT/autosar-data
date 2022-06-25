@@ -155,6 +155,12 @@ impl AutosarData {
         AutosarDataElementsDfsIterator::new(self.files())
     }
 
+    /// create an iterator over all identifiable elements
+    pub fn identifiable_elements(&self) -> AutosarDataIdentElementsIterator {
+        let inner = self.0.lock().unwrap();
+        AutosarDataIdentElementsIterator::new(&inner.identifiables)
+    }
+
     /// create a weak reference to this data
     pub(crate) fn downgrade(&self) -> WeakAutosarData {
         WeakAutosarData(Arc::downgrade(&self.0))
@@ -283,5 +289,34 @@ mod test {
         let data2 = weak.upgrade();
         assert_eq!(Arc::strong_count(&data.0), 2);
         assert_eq!(data, data2.unwrap());
+    }
+
+    #[test]
+    fn identifiables_iterator() {
+        const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+        <AR-PACKAGE><SHORT-NAME>OuterPackage1</SHORT-NAME>
+            <AR-PACKAGES>
+                <AR-PACKAGE><SHORT-NAME>InnerPackage1</SHORT-NAME></AR-PACKAGE>
+                <AR-PACKAGE><SHORT-NAME>InnerPackage2</SHORT-NAME></AR-PACKAGE>
+            </AR-PACKAGES>
+        </AR-PACKAGE>
+        <AR-PACKAGE><SHORT-NAME>OuterPackage2</SHORT-NAME>
+            <AR-PACKAGES>
+                <AR-PACKAGE><SHORT-NAME>InnerPackage1</SHORT-NAME></AR-PACKAGE>
+                <AR-PACKAGE><SHORT-NAME>InnerPackage2</SHORT-NAME></AR-PACKAGE>
+            </AR-PACKAGES>
+        </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        let data = AutosarData::new();
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true).unwrap();
+        let mut iter = data.identifiable_elements();
+        assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
+        assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
+        assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage2");
+        assert_eq!(iter.next().unwrap().0, "/OuterPackage2");
+        assert_eq!(iter.next().unwrap().0, "/OuterPackage2/InnerPackage1");
+        assert_eq!(iter.next().unwrap().0, "/OuterPackage2/InnerPackage2");
     }
 }

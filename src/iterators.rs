@@ -184,6 +184,43 @@ impl Iterator for AttributeIterator {
     }
 }
 
+/// An iterator over all identifiable elements in the [AutosarData]
+pub struct AutosarDataIdentElementsIterator {
+    // The implementation of this iterator has two problems:
+    // 1) it's not possible to return references to data protected by a mutex, which makes sense (we would be bypassing the mutex to read through the references)
+    //    solution: make a copy
+    // 2) As far as I know it's not possible to return references to data contained inside the iterator. It seems GATs would be required for this.
+    //    solution: make another copy
+    // Overall: not ideal
+    identifiables_list: Vec<(String, WeakElement)>,
+    position: usize,
+}
+
+impl AutosarDataIdentElementsIterator {
+    pub(crate) fn new(identifiables: &HashMap<String, WeakElement>) -> Self {
+        let mut identifiables_list: Vec<(String, WeakElement)> = identifiables
+            .iter()
+            .map(|(path, elementref)| (path.to_owned(), elementref.clone()))
+            .collect();
+        // since we've already copied the data, we can at least sort it
+        identifiables_list.sort_by(|(path1, _), (path2, _)| path1.cmp(path2));
+        Self {
+            identifiables_list,
+            position: 0,
+        }
+    }
+}
+
+impl Iterator for AutosarDataIdentElementsIterator {
+    type Item = (String, WeakElement);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = self.identifiables_list.get(self.position).cloned();
+        self.position += 1;
+        result
+    }
+}
+
 #[test]
 fn test_elements_dfs_iterator() {
     let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
