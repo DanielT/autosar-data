@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::*;
 
 impl AutosarData {
@@ -161,6 +163,57 @@ impl AutosarData {
         AutosarDataIdentElementsIterator::new(&inner.identifiables)
     }
 
+    /// check all Autosar path references and return a list of elements with invalid references
+    ///
+    /// For each reference: The target must exist and the DEST attribute must correctly specify the type of the target
+    ///
+    /// If no references are invalid, then the return value is an empty list
+    pub fn check_references(&self) -> Vec<WeakElement> {
+        let mut broken_refs = Vec::new();
+
+        let data = self.0.lock().unwrap();
+        for (path, element_list) in &data.reference_origins {
+            if let Some(target_elem_weak) = data.identifiables.get(path) {
+                // reference target exists
+                if let Some(target_elem) = target_elem_weak.upgrade() {
+                    // the target of the reference exists, but the reference can still be technically invalid
+                    // if the content of the DEST attribute on the reference is wrong
+                    let target_elemname = target_elem.element_name();
+                    // e.g. if the target is a <SYSTEM>, then the reference must have the attribute DEST="SYSTEM".
+                    // Converting the ElementName of the target_elem to an EnumItem for use in the DEST attribute
+                    // is done by converting ElementName -> str -> EnumItem
+                    let required_reftype = EnumItem::from_str(target_elemname.to_str()).unwrap();
+
+                    for referring_elem_weak in element_list {
+                        if let Some(referring_elem) = referring_elem_weak.upgrade() {
+                            if let Some(CharacterData::Enum(reftype)) =
+                                referring_elem.get_attribute(AttributeName::Dest)
+                            {
+                                if reftype != required_reftype {
+                                    // wrong reference type in the DEST attribute
+                                    broken_refs.push(referring_elem_weak.clone());
+                                }
+                            } else {
+                                // DEST attribute does not exist - can only happen if broken data was loaded with strict == false
+                                broken_refs.push(referring_elem_weak.clone());
+                            }
+                        }
+                    }
+                } else {
+                    // This case should never happen, possibly panic?
+                    // The strong ref count of target_elem can only go to zero if the element is removed,
+                    // but remove_element() should also update data.identifiables and data.reference_origins.
+                    broken_refs.extend(element_list.iter().cloned());
+                }
+            } else {
+                // reference target does not exist
+                broken_refs.extend(element_list.iter().cloned());
+            }
+        }
+
+        broken_refs
+    }
+
     /// create a weak reference to this data
     pub(crate) fn downgrade(&self) -> WeakAutosarData {
         WeakAutosarData(Arc::downgrade(&self.0))
@@ -310,7 +363,8 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true).unwrap();
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+            .unwrap();
         let mut iter = data.identifiable_elements();
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
@@ -318,5 +372,44 @@ mod test {
         assert_eq!(iter.next().unwrap().0, "/OuterPackage2");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage2/InnerPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage2/InnerPackage2");
+    }
+
+    #[test]
+    fn check_references() {
+        const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+                <SYSTEM><SHORT-NAME>System</SHORT-NAME>
+                    <FIBEX-ELEMENTS>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE">/Pkg/EcuInstance</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="I-SIGNAL-I-PDU">/Some/Invalid/Path</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="I-SIGNAL">/Pkg/System</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                    </FIBEX-ELEMENTS>
+                </SYSTEM>
+                <ECU-INSTANCE><SHORT-NAME>EcuInstance</SHORT-NAME></ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        let data = AutosarData::new();
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+            .unwrap();
+        let invalid_refs = data.check_references();
+        assert_eq!(invalid_refs.len(), 2);
+        let ref0 = invalid_refs[0].upgrade().unwrap();
+        assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
+        if let CharacterData::String(refpath) = ref0.character_data().unwrap() {
+            if refpath != "/Pkg/System<" && refpath != "/Some/Invalid/Path" {
+                panic!("unexpected path");
+            }
+        } else {
+            panic!("did not get a reference path where it was expected")
+        }
     }
 }
