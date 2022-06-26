@@ -42,42 +42,28 @@ impl ArxmlFile {
 
     /// get the filename of this ArxmnlFile
     pub fn filename(&self) -> OsString {
-        if let Ok(inner) = self.0.lock() {
-            inner.filename.clone()
-        } else {
-            OsString::new()
-        }
+        self.0.lock().filename.clone()
     }
 
     /// set the filename of this arxml filename
     ///
     /// This will not rename any existing file on disk, but the new filename will be used when writing the data.
     pub fn set_filename(&self, new_filename: OsString) {
-        if let Ok(mut inner) = self.0.lock() {
-            inner.filename = new_filename;
-        }
+        self.0.lock().filename = new_filename;
     }
 
     /// get the [AutosarVersion] of the file
     pub fn version(&self) -> AutosarVersion {
-        if let Ok(inner) = self.0.lock() {
-            inner.version
-        } else {
-            // don't expect to ever hit this case, so here's a dummy value
-            AutosarVersion::LATEST
-        }
+        self.0.lock().version
     }
 
     /// set the [AutosarVersion] of the file
     pub fn set_version(&self, new_ver: AutosarVersion) {
-        if let Ok(mut inner) = self.0.lock() {
-            inner.version = new_ver;
-            let attributevalue =
-                CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
-            inner
-                .root_element
-                .set_attribute_internal(AttributeName::xsiSchemalocation, attributevalue, new_ver);
-        }
+        let mut file = self.0.lock();
+        file.version = new_ver;
+        let attribute_value = CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
+        file.root_element
+            .set_attribute_internal(AttributeName::xsiSchemalocation, attribute_value, new_ver);
     }
 
     /// check if the elements and attributes in this file are compatible with some target_version
@@ -90,21 +76,21 @@ impl ArxmlFile {
 
     /// get a reference to the [AutosarData] object that contains this file
     pub fn autosar_data(&self) -> Result<AutosarData, AutosarDataError> {
-        let locked_file = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+        let locked_file = self.0.lock();
         // This reference must always be valid, so it is an error if upgrade() fails
         locked_file.autosar_data.upgrade().ok_or(AutosarDataError::ItemDeleted)
     }
 
     /// get a referenct to the root ```<AUTOSAR ...>``` element of this file
     pub fn root_element(&self) -> Element {
-        let inner = self.0.lock().unwrap();
-        inner.root_element.clone()
+        let file = self.0.lock();
+        file.root_element.clone()
     }
 
     /// create a depth-first search iterator over all [Element]s in this file
     pub fn elements_dfs(&self) -> ElementsDfsIterator {
-        let inner = self.0.lock().unwrap();
-        inner.root_element.elements_dfs()
+        let file = self.0.lock();
+        file.root_element.elements_dfs()
     }
 
     /// serialize the content of the file to a String

@@ -42,8 +42,8 @@ impl Element {
     ///
     /// Returns None if the current element is the root, or if it has been deleted from the element hierarchy
     pub fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
-        let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-        match &inner.parent {
+        let element = self.0.lock();
+        match &element.parent {
             ElementOrFile::Element(parent) => {
                 // for items that should have a parent, getting it is not allowed to return None
                 let parent = parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
@@ -55,15 +55,13 @@ impl Element {
     }
 
     pub(crate) fn set_parent(&self, new_parent: ElementOrFile) {
-        if let Ok(mut inner) = self.0.lock() {
-            inner.parent = new_parent;
-        }
+        let mut element = self.0.lock();
+        element.parent = new_parent;
     }
 
     /// get the [ElementName] of the element
     pub fn element_name(&self) -> ElementName {
-        let inner = self.0.lock().unwrap();
-        inner.elemname
+        self.0.lock().elemname
     }
 
     /// get the name of an identifiable element
@@ -72,11 +70,11 @@ impl Element {
     ///
     /// If the element is not identifiable, this function returns None
     pub fn item_name(&self) -> Option<String> {
-        let inner = self.0.lock().unwrap();
+        let element = self.0.lock();
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
-        if DATATYPES[inner.type_id].is_named != 0 {
+        if DATATYPES[element.type_id].is_named != 0 {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = inner.content.get(0) {
+            if let Some(ElementContent::Element(subelem)) = element.content.get(0) {
                 if subelem.element_name() == ElementName::ShortName {
                     if let Some(CharacterData::String(name)) = subelem.character_data() {
                         return Some(name);
@@ -89,11 +87,11 @@ impl Element {
 
     /// returns true if the element is identifiable
     pub fn is_identifiable(&self) -> bool {
-        let inner = self.0.lock().unwrap();
+        let element = self.0.lock();
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
-        if DATATYPES[inner.type_id].is_named != 0 {
+        if DATATYPES[element.type_id].is_named != 0 {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = inner.content.get(0) {
+            if let Some(ElementContent::Element(subelem)) = element.content.get(0) {
                 if subelem.element_name() == ElementName::ShortName {
                     return true;
                 }
@@ -142,8 +140,8 @@ impl Element {
         let mut cur_elem = self.clone();
         loop {
             let parent = {
-                let inner = cur_elem.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-                match &inner.parent {
+                let element = cur_elem.0.lock();
+                match &element.parent {
                     ElementOrFile::Element(weak_parent) => {
                         weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?
                     }
@@ -217,8 +215,8 @@ impl Element {
                     content: smallvec![],
                     attributes: smallvec![],
                 })));
-                let mut inner = self.0.lock().unwrap();
-                inner
+                let mut element = self.0.lock();
+                element
                     .content
                     .insert(position, ElementContent::Element(sub_element.clone()));
                 Ok(sub_element)
@@ -287,8 +285,8 @@ impl Element {
                 // insert the new sub element
                 {
                     // separate scope to limit the lifetime of the mutex
-                    let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-                    inner
+                    let mut element = self.0.lock();
+                    element
                         .content
                         .insert(position, ElementContent::Element(sub_element.clone()));
                 }
@@ -320,8 +318,9 @@ impl Element {
     /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
         let other_elemname = {
-            let other_inner = other.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-            other_inner.elemname
+            // need to do this inside its own scope to limit the lifetime of the mutex
+            let other_element = other.0.lock();
+            other_element.elemname
         };
         let (_, end) = self.find_element_insert_pos(other_elemname)?;
         self.create_copied_sub_element_inner(other, end)
@@ -341,8 +340,9 @@ impl Element {
     /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
         let other_elemname = {
-            let other_inner = other.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-            other_inner.elemname
+            // need to do this inside its own scope to limit the lifetime of the mutex
+            let other_element = other.0.lock();
+            other_element.elemname
         };
         let (start_pos, end_pos) = self.find_element_insert_pos(other_elemname)?;
         if start_pos <= position && position <= end_pos {
@@ -380,9 +380,10 @@ impl Element {
             }
         }
 
-        if let Ok(mut inner) = self.0.lock() {
-            inner.content.insert(position, ElementContent::Element(newelem.clone()));
-        }
+        self.0
+            .lock()
+            .content
+            .insert(position, ElementContent::Element(newelem.clone()));
 
         Ok(newelem)
     }
@@ -397,19 +398,19 @@ impl Element {
         while autosar_data.get_element_by_path(&path)?.is_some() {
             let name = format!("{orig_name}_{counter}");
             counter += 1;
-            if let Ok(inner) = self.0.lock() {
+            {
+                let element = self.0.lock();
                 // set the name directly by modifying the character content of the short name element
                 // note: the method set_character_data is not suitable here, because it updates the identifiables hashmap
-                if let Some(ElementContent::Element(short_name_elem)) = inner.content.get(0) {
-                    if let Ok(mut sn_inner) = short_name_elem.0.lock() {
-                        if sn_inner.elemname != ElementName::ShortName {
-                            return Err(Element::error(ElementActionError::InvalidSubElement));
-                        }
-                        sn_inner.content.truncate(0);
-                        sn_inner
-                            .content
-                            .push(ElementContent::CharacterData(CharacterData::String(name)));
+                if let Some(ElementContent::Element(short_name_elem)) = element.content.get(0) {
+                    let mut sn_element = short_name_elem.0.lock();
+                    if sn_element.elemname != ElementName::ShortName {
+                        return Err(Element::error(ElementActionError::InvalidSubElement));
                     }
+                    sn_element.content.truncate(0);
+                    sn_element
+                        .content
+                        .push(ElementContent::CharacterData(CharacterData::String(name)));
                 }
             }
             path = self.path()?.unwrap();
@@ -420,19 +421,20 @@ impl Element {
 
     /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with target_version
     fn deep_copy(&self, target_version: AutosarVersion) -> Result<Element, AutosarDataError> {
-        let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+        let element = self.0.lock();
 
         let copy_wrapped = Element(Arc::new(Mutex::new(ElementRaw {
-            elemname: inner.elemname,
-            type_id: inner.type_id,
-            content: SmallVec::with_capacity(inner.content.len()),
-            attributes: SmallVec::with_capacity(inner.attributes.len()),
+            elemname: element.elemname,
+            type_id: element.type_id,
+            content: SmallVec::with_capacity(element.content.len()),
+            attributes: SmallVec::with_capacity(element.attributes.len()),
             parent: ElementOrFile::None,
         })));
 
-        if let Ok(mut copy) = copy_wrapped.0.lock() {
-            let datatype = &DATATYPES[inner.type_id];
-            for attribute in &inner.attributes {
+        {
+            let mut copy = copy_wrapped.0.lock();
+            let datatype = &DATATYPES[element.type_id];
+            for attribute in &element.attributes {
                 // get the specification of the attribute
                 let (_, cdataspec, required, attr_version_mask) = datatype
                     .attributes
@@ -454,16 +456,14 @@ impl Element {
                 }
             }
 
-            for content_item in &inner.content {
+            for content_item in &element.content {
                 match content_item {
                     ElementContent::Element(sub_elem) => {
                         let sub_elem_name = sub_elem.element_name();
                         // since find_sub_element already considers the version, finding the element also means it's valid in the target_version
-                        if find_sub_element(sub_elem_name, inner.type_id, target_version as u32).is_some() {
+                        if find_sub_element(sub_elem_name, element.type_id, target_version as u32).is_some() {
                             if let Ok(copied_sub_elem) = sub_elem.deep_copy(target_version) {
-                                if let Ok(mut cse_inner) = copied_sub_elem.0.lock() {
-                                    cse_inner.parent = ElementOrFile::Element(copy_wrapped.downgrade());
-                                }
+                                copied_sub_elem.0.lock().parent = ElementOrFile::Element(copy_wrapped.downgrade());
                                 copy.content.push(ElementContent::Element(copied_sub_elem));
                             }
                         }
@@ -489,10 +489,10 @@ impl Element {
         }
 
         if let Some(new_element_indices) = find_sub_element(element_name, type_id, version as u32) {
-            let inner = self.0.lock().unwrap();
+            let element = self.0.lock();
             let mut start_pos = 0;
             let mut end_pos = 0;
-            for (idx, content_item) in inner.content.iter().enumerate() {
+            for (idx, content_item) in element.content.iter().enumerate() {
                 if let ElementContent::Element(subelement) = content_item {
                     let existing_element_indices =
                         find_sub_element(subelement.element_name(), type_id, version as u32).unwrap();
@@ -578,8 +578,8 @@ impl Element {
         // find the position of sub_element in the parent element first to verify that sub_element actuall *is* a sub element
         let pos = {
             // lock the mutext inside this scope, so that the lock gets dropped again after the position has been found
-            let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-            inner
+            let element = self.0.lock();
+            element
                 .content
                 .iter()
                 .enumerate()
@@ -621,12 +621,11 @@ impl Element {
 
         // remove the back-reference to the parent inside the sub_element.
         // This matters if other references to the sub_element exist, causing it to remain alive
-        if let Ok(mut sub_element_inner) = sub_element.0.lock() {
-            sub_element_inner.parent = ElementOrFile::None;
-            sub_element_inner.content.truncate(0);
-        }
-        let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-        inner.content.remove(pos);
+        let mut sub_element_inner = sub_element.0.lock();
+        sub_element_inner.parent = ElementOrFile::None;
+        sub_element_inner.content.truncate(0);
+
+        self.0.lock().content.remove(pos);
         Ok(())
     }
 
@@ -692,11 +691,12 @@ impl Element {
                     };
 
                     // update the character data
-                    if let Ok(mut inner) = self.0.lock() {
-                        if inner.content.is_empty() {
-                            inner.content.push(ElementContent::CharacterData(chardata));
+                    {
+                        let mut element = self.0.lock();
+                        if element.content.is_empty() {
+                            element.content.push(ElementContent::CharacterData(chardata));
                         } else {
-                            inner.content[0] = ElementContent::CharacterData(chardata);
+                            element.content[0] = ElementContent::CharacterData(chardata);
                         }
                     }
 
@@ -730,15 +730,14 @@ impl Element {
     ///
     /// return true if the data was added
     pub fn insert_character_content_item(&self, chardata: &str, position: usize) -> bool {
-        if let Ok(mut inner) = self.0.lock() {
-            if let ContentMode::Mixed = &DATATYPES[inner.type_id].mode {
-                if position <= inner.content.len() {
-                    inner.content.insert(
-                        position,
-                        ElementContent::CharacterData(CharacterData::String(chardata.to_owned())),
-                    );
-                    return true;
-                }
+        let mut element = self.0.lock();
+        if let ContentMode::Mixed = &DATATYPES[element.type_id].mode {
+            if position <= element.content.len() {
+                element.content.insert(
+                    position,
+                    ElementContent::CharacterData(CharacterData::String(chardata.to_owned())),
+                );
+                return true;
             }
         }
         false
@@ -750,13 +749,12 @@ impl Element {
     ///
     /// returns true if data was removed
     pub fn remove_content_item(&self, position: usize) -> bool {
-        if let Ok(mut inner) = self.0.lock() {
-            if let ContentMode::Mixed = &DATATYPES[inner.type_id].mode {
-                if position < inner.content.len() {
-                    if let ElementContent::CharacterData(_) = inner.content[position] {
-                        inner.content.remove(position);
-                        return true;
-                    }
+        let mut element = self.0.lock();
+        if let ContentMode::Mixed = &DATATYPES[element.type_id].mode {
+            if position < element.content.len() {
+                if let ElementContent::CharacterData(_) = element.content[position] {
+                    element.content.remove(position);
+                    return true;
                 }
             }
         }
@@ -767,11 +765,10 @@ impl Element {
     ///
     /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
     pub fn character_data(&self) -> Option<CharacterData> {
-        if let Ok(inner) = self.0.lock() {
-            if let ContentMode::Characters = &DATATYPES[inner.type_id].mode {
-                if let Some(ElementContent::CharacterData(cdata)) = inner.content.get(0) {
-                    return Some(cdata.clone());
-                }
+        let element = self.0.lock();
+        if let ContentMode::Characters = &DATATYPES[element.type_id].mode {
+            if let Some(ElementContent::CharacterData(cdata)) = element.content.get(0) {
+                return Some(cdata.clone());
             }
         }
         None
@@ -809,10 +806,9 @@ impl Element {
 
     /// get a single attribute by name
     pub fn get_attribute(&self, attrname: AttributeName) -> Option<CharacterData> {
-        if let Ok(inner) = self.0.lock() {
-            if let Some(attr) = inner.attributes.iter().find(|attr| attr.attrname == attrname) {
-                return Some(attr.content.clone());
-            }
+        let element = self.0.lock();
+        if let Some(attr) = element.attributes.iter().find(|attr| attr.attrname == attrname) {
+            return Some(attr.content.clone());
         }
         None
     }
@@ -841,20 +837,19 @@ impl Element {
     /// set the value of a named attribute from a string
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> bool {
         if let Ok(version) = self.containing_file().map(|f| f.version()) {
-            if let Ok(mut locked_elem) = self.0.lock() {
-                let attr_types = DATATYPES[locked_elem.type_id].attributes;
-                if let Some((_, character_data_spec, _, _)) = attr_types.iter().find(|(name, ..)| *name == attrname) {
-                    if let Some(value) = CharacterData::parse(stringvalue, character_data_spec, version) {
-                        if let Some(attr) = locked_elem.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
-                            attr.content = value;
-                        } else {
-                            locked_elem.attributes.push(Attribute {
-                                attrname,
-                                content: value,
-                            });
-                        }
-                        return true;
+            let mut locked_elem = self.0.lock();
+            let attr_types = DATATYPES[locked_elem.type_id].attributes;
+            if let Some((_, character_data_spec, _, _)) = attr_types.iter().find(|(name, ..)| *name == attrname) {
+                if let Some(value) = CharacterData::parse(stringvalue, character_data_spec, version) {
+                    if let Some(attr) = locked_elem.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
+                        attr.content = value;
+                    } else {
+                        locked_elem.attributes.push(Attribute {
+                            attrname,
+                            content: value,
+                        });
                     }
+                    return true;
                 }
             }
         }
@@ -871,22 +866,21 @@ impl Element {
         // find the attribute specification in the item type
         if let Some((_, spec, _, _)) = attr_types.iter().find(|(name, ..)| *name == attrname) {
             // find the attribute the element's attribute list
-            if let Ok(mut inner) = self.0.lock() {
-                if let Some(attr) = inner.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
-                    // the existing attribute gets updated
-                    if CharacterData::check_value(&value, spec, file_version) {
-                        attr.content = value;
-                        return true;
-                    }
-                } else {
-                    // the attribute didn't exist yet, so it is created here
-                    if CharacterData::check_value(&value, spec, file_version) {
-                        inner.attributes.push(Attribute {
-                            attrname,
-                            content: value,
-                        });
-                        return true;
-                    }
+            let mut element = self.0.lock();
+            if let Some(attr) = element.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
+                // the existing attribute gets updated
+                if CharacterData::check_value(&value, spec, file_version) {
+                    attr.content = value;
+                    return true;
+                }
+            } else {
+                // the attribute didn't exist yet, so it is created here
+                if CharacterData::check_value(&value, spec, file_version) {
+                    element.attributes.push(Attribute {
+                        attrname,
+                        content: value,
+                    });
+                    return true;
                 }
             }
         }
@@ -895,18 +889,17 @@ impl Element {
 
     /// remove an attribute from the element
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
-        if let Ok(mut inner) = self.0.lock() {
-            let attrspec = DATATYPES[inner.type_id].attributes;
-            // find the index of the attribute in the attribute list of the element
-            for idx in 0..inner.attributes.len() {
-                if inner.attributes[idx].attrname == attrname {
-                    // find the definition of this attribute in the specification
-                    if let Some((_, _, required, _)) = attrspec.iter().find(|(name, ..)| *name == attrname) {
-                        // the attribute can only be removed if it is optional
-                        if !required {
-                            inner.attributes.remove(idx);
-                            return true;
-                        }
+        let mut element = self.0.lock();
+        let attrspec = DATATYPES[element.type_id].attributes;
+        // find the index of the attribute in the attribute list of the element
+        for idx in 0..element.attributes.len() {
+            if element.attributes[idx].attrname == attrname {
+                // find the definition of this attribute in the specification
+                if let Some((_, _, required, _)) = attrspec.iter().find(|(name, ..)| *name == attrname) {
+                    // the attribute can only be removed if it is optional
+                    if !required {
+                        element.attributes.remove(idx);
+                        return true;
                     }
                 }
             }
@@ -949,13 +942,12 @@ impl Element {
             }
             ContentType::CharacterData => {
                 // write the character data on the same line as the opening tag
-                if let Ok(inner) = self.0.lock() {
-                    if let Some(content) = inner.content.get(0) {
-                        match content {
-                            ElementContent::Element(_) => panic!("Forbidden: Element in CharacterData"),
-                            ElementContent::CharacterData(chardata) => {
-                                chardata.serialize_internal(outstring);
-                            }
+                let element = self.0.lock();
+                if let Some(content) = element.content.get(0) {
+                    match content {
+                        ElementContent::Element(_) => panic!("Forbidden: Element in CharacterData"),
+                        ElementContent::CharacterData(chardata) => {
+                            chardata.serialize_internal(outstring);
                         }
                     }
                 }
@@ -992,21 +984,20 @@ impl Element {
     }
 
     fn serialize_attributes(&self, outstring: &mut String) {
-        if let Ok(inner) = self.0.lock() {
-            if !inner.attributes.is_empty() {
-                for attribute in &inner.attributes {
-                    outstring.push(' ');
-                    outstring.push_str(attribute.attrname.to_str());
-                    outstring.push_str("=\"");
-                    attribute.content.serialize_internal(outstring);
-                    outstring.push('"');
-                }
+        let element = self.0.lock();
+        if !element.attributes.is_empty() {
+            for attribute in &element.attributes {
+                outstring.push(' ');
+                outstring.push_str(attribute.attrname.to_str());
+                outstring.push_str("=\"");
+                attribute.content.serialize_internal(outstring);
+                outstring.push('"');
             }
         }
     }
 
     pub(crate) fn type_id(&self) -> usize {
-        self.0.lock().unwrap().type_id
+        self.0.lock().type_id
     }
 
     /// check if the sub elements and attributes of this element are compatible with some target_version
@@ -1015,9 +1006,10 @@ impl Element {
         let mut overall_version_mask = u32::MAX;
 
         // check the compatibility of all the attributes in this element
-        if let Ok(inner) = self.0.lock() {
-            let datatype = &DATATYPES[inner.type_id];
-            for attribute in &inner.attributes {
+        {
+            let element = self.0.lock();
+            let datatype = &DATATYPES[element.type_id];
+            for attribute in &element.attributes {
                 // find the specification for the current attribute
                 if let Some((_, value_spec, _, version_mask)) = datatype
                     .attributes

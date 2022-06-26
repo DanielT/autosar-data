@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 thiserror = "~1.0"
 smallvec = { version = "~1.8.0", features = ["union", "const_generics"]}
+parking_lot = "0.12"
 
 # [dev-dependencies]
 # criterion = "0.3"

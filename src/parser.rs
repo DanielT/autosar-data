@@ -278,7 +278,7 @@ impl<'a> ArxmlParser<'a> {
             content: SmallVec::new(),
             type_id: datatype_id,
         })));
-        let mut element = wrapped_element.0.lock().unwrap();
+        let mut element = wrapped_element.0.lock();
 
         let datatype = &specification::DATATYPES[datatype_id];
         let mut elem_idx: Vec<usize> = Vec::new();
@@ -321,7 +321,7 @@ impl<'a> ArxmlParser<'a> {
                             )?;
                             if name == ElementName::ShortName {
                                 short_name_found = true;
-                                let sub_element_inner = sub_element.0.lock().unwrap();
+                                let sub_element_inner = sub_element.0.lock();
                                 if let Some(ElementContent::CharacterData(CharacterData::String(name_string))) =
                                     sub_element_inner.content.get(0)
                                 {

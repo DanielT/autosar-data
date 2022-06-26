@@ -15,12 +15,11 @@ impl Iterator for ArxmlFileIterator {
     type Item = ArxmlFile;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Ok(inner) = self.data.0.lock() {
-            if self.index < inner.files.len() {
-                let result = inner.files[self.index].clone();
-                self.index += 1;
-                return Some(result);
-            }
+        let data = self.data.0.lock();
+        if self.index < data.files.len() {
+            let result = data.files[self.index].clone();
+            self.index += 1;
+            return Some(result);
         }
         None
     }
@@ -41,13 +40,12 @@ impl Iterator for ElementsIterator {
     type Item = Element;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Ok(inner) = self.element.0.lock() {
-            while self.index < inner.content.len() {
-                let ec = &inner.content[self.index];
-                self.index += 1;
-                if let ElementContent::Element(sub_element) = ec {
-                    return Some(sub_element.clone());
-                }
+        let element = self.element.0.lock();
+        while self.index < element.content.len() {
+            let ec = &element.content[self.index];
+            self.index += 1;
+            if let ElementContent::Element(sub_element) = ec {
+                return Some(sub_element.clone());
             }
         }
         None
@@ -63,12 +61,11 @@ impl Iterator for ElementContentIterator {
     type Item = ElementContent;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Ok(inner) = self.element.0.lock() {
-            if self.index < inner.content.len() {
-                let ec = &inner.content[self.index];
-                self.index += 1;
-                return Some(ec.clone());
-            }
+        let element = self.element.0.lock();
+        if self.index < element.content.len() {
+            let ec = &element.content[self.index];
+            self.index += 1;
+            return Some(ec.clone());
         }
         None
     }
@@ -173,12 +170,11 @@ impl Iterator for AttributeIterator {
     type Item = Attribute;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Ok(inner) = self.element.0.lock() {
-            if self.index < inner.attributes.len() {
-                let value = inner.attributes[self.index].clone();
-                self.index += 1;
-                return Some(value);
-            }
+        let element = self.element.0.lock();
+        if self.index < element.attributes.len() {
+            let value = element.attributes[self.index].clone();
+            self.index += 1;
+            return Some(value);
         }
         None
     }
@@ -221,35 +217,40 @@ impl Iterator for AutosarDataIdentElementsIterator {
     }
 }
 
-#[test]
-fn test_elements_dfs_iterator() {
-    let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-        parent: ElementOrFile::None,
-        elemname: specification::ElementName::ArPackage, // doesn't matter for this test
-        type_id: 0,                                      // doesn't matter for this test
-        attributes: SmallVec::new(),
-        content: SmallVec::new(),
-    })));
-    let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-        parent: ElementOrFile::None,
-        elemname: specification::ElementName::ArPackages, // doesn't matter for this test
-        type_id: 0,                                       // doesn't matter for this test
-        attributes: SmallVec::new(),
-        content: smallvec::smallvec![
-            ElementContent::Element(sub_sub_element.clone()),
-            ElementContent::Element(sub_sub_element.clone())
-        ],
-    })));
-    let element = Element(Arc::new(Mutex::new(ElementRaw {
-        parent: ElementOrFile::None,
-        elemname: specification::ElementName::Autosar, // doesn't matter for this test
-        type_id: 0,                                    // doesn't matter for this test
-        attributes: SmallVec::new(),
-        content: smallvec::smallvec![
-            ElementContent::Element(sub_element.clone()),
-            ElementContent::Element(sub_element.clone())
-        ],
-    })));
-    let dfs_iter = element.elements_dfs();
-    assert_eq!(dfs_iter.count(), 7);
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_elements_dfs_iterator() {
+        let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+            parent: ElementOrFile::None,
+            elemname: specification::ElementName::ArPackage, // doesn't matter for this test
+            type_id: 0,                                      // doesn't matter for this test
+            attributes: SmallVec::new(),
+            content: SmallVec::new(),
+        })));
+        let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+            parent: ElementOrFile::None,
+            elemname: specification::ElementName::ArPackages, // doesn't matter for this test
+            type_id: 0,                                       // doesn't matter for this test
+            attributes: SmallVec::new(),
+            content: smallvec::smallvec![
+                ElementContent::Element(sub_sub_element.clone()),
+                ElementContent::Element(sub_sub_element.clone())
+            ],
+        })));
+        let element = Element(Arc::new(Mutex::new(ElementRaw {
+            parent: ElementOrFile::None,
+            elemname: specification::ElementName::Autosar, // doesn't matter for this test
+            type_id: 0,                                    // doesn't matter for this test
+            attributes: SmallVec::new(),
+            content: smallvec::smallvec![
+                ElementContent::Element(sub_element.clone()),
+                ElementContent::Element(sub_element.clone())
+            ],
+        })));
+        let dfs_iter = element.elements_dfs();
+        assert_eq!(dfs_iter.count(), 7);
+    }
 }

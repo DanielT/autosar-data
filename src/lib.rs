@@ -5,13 +5,14 @@
 use element::ElementActionError;
 use iterators::*;
 use lexer::*;
+use parking_lot::Mutex;
 use parser::*;
 use smallvec::SmallVec;
 use specification::*;
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
 };
 use std::{fs::File, io::Read};
 use thiserror::Error;
@@ -86,9 +87,6 @@ pub enum AutosarDataError {
 
     #[error("Element operation failed: {source}")]
     ElementActionError { source: ElementActionError },
-
-    #[error("Critical error: Mutex poisoned due to a previous fault")]
-    MutexPoisoned,
 
     #[error("Operation failed: the item has been deleted")]
     ItemDeleted,
@@ -192,6 +190,7 @@ pub(crate) enum ElementOrFile {
     None, // needed while constructing the data trees, otherwise there's a chicken vs. egg problem
 }
 
+/// Possible kinds of compatibility errors that can be found by `ArxmlFile::check_version_compatibility()`
 pub enum CompatibilityError {
     IncompatibleElement {
         element: Element,

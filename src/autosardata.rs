@@ -20,9 +20,9 @@ impl AutosarData {
     /// You must also specify an [AutosarVersion]. All methods manipulation the data insdie the file will ensure conformity with the version specified here.
     /// The newly created ArxmlFile will be created with a root AUTOSAR element.
     pub fn create_file(&self, filename: OsString, version: AutosarVersion) -> Result<ArxmlFile, AutosarDataError> {
-        let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
+        let mut data = self.0.lock();
 
-        if inner.files.iter().any(|af| af.filename() == filename) {
+        if data.files.iter().any(|af| af.filename() == filename) {
             return Err(AutosarDataError::DuplicateFilenameError {
                 verb: "create",
                 filename,
@@ -30,7 +30,7 @@ impl AutosarData {
         }
 
         let new_file = ArxmlFile::new(filename, version, self);
-        inner.files.push(new_file.clone());
+        data.files.push(new_file.clone());
         Ok(new_file)
     }
 
@@ -70,10 +70,10 @@ impl AutosarData {
         let new_parent = ElementOrFile::File(arxml_file.downgrade());
         arxml_file.root_element().set_parent(new_parent);
 
-        let mut inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-        inner.identifiables.reserve(parser.identifiables.len());
+        let mut data = self.0.lock();
+        data.identifiables.reserve(parser.identifiables.len());
         for (key, value) in parser.identifiables {
-            if let Some(existing) = inner.identifiables.insert(key, value) {
+            if let Some(existing) = data.identifiables.insert(key, value) {
                 if let Some(element) = existing.upgrade() {
                     return Err(AutosarDataError::OverlappingDataError {
                         filename: filename.to_os_string(),
@@ -83,13 +83,13 @@ impl AutosarData {
             }
         }
         for (refpath, referring_element) in parser.references {
-            if let Some(xref) = inner.reference_origins.get_mut(&refpath) {
+            if let Some(xref) = data.reference_origins.get_mut(&refpath) {
                 xref.push(referring_element);
             } else {
-                inner.reference_origins.insert(refpath, vec![referring_element]);
+                data.reference_origins.insert(refpath, vec![referring_element]);
             }
         }
-        inner.files.push(arxml_file.clone());
+        data.files.push(arxml_file.clone());
 
         Ok((arxml_file, parser.warnings))
     }
@@ -148,8 +148,8 @@ impl AutosarData {
     ///
     /// This is a lookup in a hash table and runs in O(1) time
     pub fn get_element_by_path(&self, path: &str) -> Result<Option<Element>, AutosarDataError> {
-        let inner = self.0.lock().map_err(|_| AutosarDataError::MutexPoisoned)?;
-        Ok(inner.identifiables.get(path).and_then(|element| element.upgrade()))
+        let data = self.0.lock();
+        Ok(data.identifiables.get(path).and_then(|element| element.upgrade()))
     }
 
     /// create a depth-first iterator over all [Element]s in all [ArxmlFile]s
@@ -159,8 +159,8 @@ impl AutosarData {
 
     /// create an iterator over all identifiable elements
     pub fn identifiable_elements(&self) -> AutosarDataIdentElementsIterator {
-        let inner = self.0.lock().unwrap();
-        AutosarDataIdentElementsIterator::new(&inner.identifiables)
+        let data = self.0.lock();
+        AutosarDataIdentElementsIterator::new(&data.identifiables)
     }
 
     /// check all Autosar path references and return a list of elements with invalid references
@@ -171,7 +171,7 @@ impl AutosarData {
     pub fn check_references(&self) -> Vec<WeakElement> {
         let mut broken_refs = Vec::new();
 
-        let data = self.0.lock().unwrap();
+        let data = self.0.lock();
         for (path, element_list) in &data.reference_origins {
             if let Some(target_elem_weak) = data.identifiables.get(path) {
                 // reference target exists
@@ -220,43 +220,58 @@ impl AutosarData {
     }
 
     pub(crate) fn fix_identifiables(&self, old_path: Option<String>, element: &Element) {
-        if let Ok(mut data) = self.0.lock() {
-            let new_path = match element.path() {
-                Ok(Some(path)) => path,
-                _ => return,
-            };
-            if let Some(old_path) = old_path {
-                data.identifiables.remove(&old_path);
+        let mut data = self.0.lock();
+        let new_path = match element.path() {
+            Ok(Some(path)) => path,
+            _ => return,
+        };
+        if let Some(old_path) = old_path {
+            data.identifiables.remove(&old_path);
 
-                if element.element_name() == ElementName::ArPackage {
-                    // a package has been renamed, so it might contain other identifiable elements that are affected by the renaming
-                    let keys: Vec<String> = data.identifiables.keys().cloned().collect();
-                    for key in keys {
-                        // find keys referring to entries inside the renamed package
-                        if key.starts_with(&old_path) {
-                            // construct the new element path
-                            let (_, suffix) = key.split_at(old_path.len());
-                            let new_key = format!("{new_path}{suffix}");
-                            // fix the identifiables hashmap
-                            let entry = data.identifiables.remove(&key).unwrap();
-                            data.identifiables.insert(new_key, entry);
-                        }
+            if element.element_name() == ElementName::ArPackage {
+                // a package has been renamed, so it might contain other identifiable elements that are affected by the renaming
+                let keys: Vec<String> = data.identifiables.keys().cloned().collect();
+                for key in keys {
+                    // find keys referring to entries inside the renamed package
+                    if key.starts_with(&old_path) {
+                        // construct the new element path
+                        let (_, suffix) = key.split_at(old_path.len());
+                        let new_key = format!("{new_path}{suffix}");
+                        // fix the identifiables hashmap
+                        let entry = data.identifiables.remove(&key).unwrap();
+                        data.identifiables.insert(new_key, entry);
                     }
                 }
             }
-            // insert under the new name regardless of whether an old name existed or not
-            data.identifiables.insert(new_path, element.downgrade());
         }
+        // insert under the new name regardless of whether an old name existed or not
+        data.identifiables.insert(new_path, element.downgrade());
     }
 
     pub(crate) fn remove_identifiable(&self, path: &str) {
-        if let Ok(mut data) = self.0.lock() {
-            data.identifiables.remove(path);
-        }
+        let mut data = self.0.lock();
+        data.identifiables.remove(path);
     }
 
     pub(crate) fn add_reference_origin(&self, new_ref: &str, origin: WeakElement) {
-        if let Ok(mut data) = self.0.lock() {
+        let mut data = self.0.lock();
+        // add the new entry
+        if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
+            referrer_list.push(origin);
+        } else {
+            data.reference_origins.insert(new_ref.to_owned(), vec![origin]);
+        }
+    }
+
+    pub(crate) fn fix_reference_origins(&self, old_ref: &str, new_ref: &str, origin: WeakElement) {
+        if old_ref != new_ref {
+            let mut data = self.0.lock();
+            // remove the old entry
+            if let Some(referrer_list) = data.reference_origins.get_mut(old_ref) {
+                if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == origin) {
+                    referrer_list.swap_remove(index);
+                }
+            }
             // add the new entry
             if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
                 referrer_list.push(origin);
@@ -266,31 +281,11 @@ impl AutosarData {
         }
     }
 
-    pub(crate) fn fix_reference_origins(&self, old_ref: &str, new_ref: &str, origin: WeakElement) {
-        if old_ref != new_ref {
-            if let Ok(mut data) = self.0.lock() {
-                // remove the old entry
-                if let Some(referrer_list) = data.reference_origins.get_mut(old_ref) {
-                    if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == origin) {
-                        referrer_list.swap_remove(index);
-                    }
-                }
-                // add the new entry
-                if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
-                    referrer_list.push(origin);
-                } else {
-                    data.reference_origins.insert(new_ref.to_owned(), vec![origin]);
-                }
-            }
-        }
-    }
-
     pub(crate) fn remove_reference_origin(&self, reference: &str, element: WeakElement) {
-        if let Ok(mut data) = self.0.lock() {
-            if let Some(referrer_list) = data.reference_origins.get_mut(reference) {
-                if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == element) {
-                    referrer_list.swap_remove(index);
-                }
+        let mut data = self.0.lock();
+        if let Some(referrer_list) = data.reference_origins.get_mut(reference) {
+            if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == element) {
+                referrer_list.swap_remove(index);
             }
         }
     }
