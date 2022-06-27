@@ -1,0 +1,21 @@
+[package]
+name = "autosar-data"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+autosar-data-specification = "0.2"
+thiserror = "~1.0"
+smallvec = { version = "~1.8.0", features = ["union", "const_generics"]}
+parking_lot = "0.12"
+
+# [dev-dependencies]
+# criterion = "0.3"
+
+[[example]]
+name = "demo"
+
+# [[bench]]
+# name = "parse_benchmark"
