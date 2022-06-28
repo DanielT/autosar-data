@@ -197,7 +197,7 @@ impl<'a> ArxmlParser<'a> {
 
         if let ArxmlEvent::BeginElement(elemname, attributes_text) = self.next(&mut lexer)? {
             if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
-                let attributes = self.parse_attribute_text(ROOT_DATATYPE, attributes_text)?;
+                let attributes = self.parse_attribute_text(ElementType::ROOT, attributes_text)?;
                 let attr_xmlns = attributes.iter().find(|attr| attr.attrname == AttributeName::xmlns);
                 let attr_xsi = attributes.iter().find(|attr| attr.attrname == AttributeName::xmlnsXsi);
                 let attr_schema = attributes
@@ -241,7 +241,7 @@ impl<'a> ArxmlParser<'a> {
                         ElementOrFile::None,
                         ElementName::Autosar,
                         attributes,
-                        ROOT_DATATYPE,
+                        ElementType::ROOT,
                         path,
                         &mut lexer,
                     )?;
@@ -261,7 +261,7 @@ impl<'a> ArxmlParser<'a> {
         parent: ElementOrFile,
         element_name: ElementName,
         attributes: SmallVec<[Attribute; 1]>,
-        datatype_id: usize,
+        elemtype: ElementType,
         mut path: Cow<str>,
         lexer: &mut ArxmlLexer,
     ) -> Result<Element, AutosarDataError> {
@@ -270,7 +270,7 @@ impl<'a> ArxmlParser<'a> {
             elemname: element_name,
             attributes,
             content: SmallVec::new(),
-            type_id: datatype_id,
+            elemtype,
         })));
         let mut element = wrapped_element.0.lock();
 
@@ -285,48 +285,40 @@ impl<'a> ArxmlParser<'a> {
             match arxmlevent {
                 ArxmlEvent::BeginElement(elem_text, attr_text) => {
                     if let Ok(name) = ElementName::from_bytes(elem_text) {
-                        elem_idx = self.find_element_in_spec_checked(name, datatype_id, &elem_idx)?;
+                        let (sub_elemtype, idx) = self.find_element_in_spec_checked(name, elemtype)?;
+                        self.check_element_conflict(name, elemtype, &elem_idx, &idx)?;
+                        elem_idx = idx;
 
-                        // the if let is always true, because (elem_spec_idx, elem_group_idx) were only just found by find_element_in_spec()
-                        if let Some(SubElement::Element {
-                            elemtype, version_mask, ..
-                        }) = get_sub_element_spec(datatype_id, &elem_idx)
-                        {
-                            self.check_multiplicity(name, datatype_id, &elem_idx, &mut element_count)?;
+                        // make sure there aren't too many of this element
+                        self.check_multiplicity(name, elemtype, &elem_idx, &mut element_count)?;
 
-                            self.check_version(
-                                *version_mask,
-                                ArxmlParserError::ElementVersionError {
-                                    element: element.elemname,
-                                    sub_element: name,
-                                    version: self.fileversion,
-                                },
-                            )?;
-                            let attributes = self.parse_attribute_text(*elemtype, attr_text)?;
-                            let sub_element = self.parse_element(
-                                ElementOrFile::Element(wrapped_element.downgrade()),
-                                name,
-                                attributes,
-                                *elemtype,
-                                Cow::from(path.as_ref()),
-                                lexer,
-                            )?;
-                            if name == ElementName::ShortName {
-                                short_name_found = true;
-                                let sub_element_inner = sub_element.0.lock();
-                                if let Some(ElementContent::CharacterData(CharacterData::String(name_string))) =
-                                    sub_element_inner.content.get(0)
-                                {
-                                    let mut new_path = String::with_capacity(path.len() + name_string.len() + 1);
-                                    new_path.write_str(&path).unwrap();
-                                    new_path.write_char('/').unwrap();
-                                    new_path.write_str(name_string).unwrap();
-                                    path = Cow::from(new_path.clone());
-                                    self.identifiables.push((new_path, wrapped_element.downgrade()));
-                                }
+                        // atributes for the sub-element must be parsed before calling parse_element, or else the borrow checker hates us
+                        let attributes = self.parse_attribute_text(sub_elemtype, attr_text)?;
+                        // recursively parse the sub element and its sub sub elements
+                        let sub_element = self.parse_element(
+                            ElementOrFile::Element(wrapped_element.downgrade()),
+                            name,
+                            attributes,
+                            sub_elemtype,
+                            Cow::from(path.as_ref()),
+                            lexer,
+                        )?;
+                        // if this sub element was a short name, then Autosar path handling is needed
+                        if name == ElementName::ShortName {
+                            short_name_found = true;
+                            let sub_element_inner = sub_element.0.lock();
+                            if let Some(ElementContent::CharacterData(CharacterData::String(name_string))) =
+                                sub_element_inner.content.get(0)
+                            {
+                                let mut new_path = String::with_capacity(path.len() + name_string.len() + 1);
+                                new_path.write_str(&path).unwrap();
+                                new_path.write_char('/').unwrap();
+                                new_path.write_str(name_string).unwrap();
+                                path = Cow::from(new_path.clone());
+                                self.identifiables.push((new_path, wrapped_element.downgrade()));
                             }
-                            element.content.push(ElementContent::Element(sub_element));
                         }
+                        element.content.push(ElementContent::Element(sub_element));
                     } else {
                         return Err(self.error(ArxmlParserError::InvalidBeginElement {
                             element: element.elemname,
@@ -352,8 +344,8 @@ impl<'a> ArxmlParser<'a> {
                     }
                 }
                 ArxmlEvent::Characters(text_content) => {
-                    if let Some(character_data_spec) = elemtype_chardata_spec(datatype_id) {
-                        match elemtype_content_mode(datatype_id) {
+                    if let Some(character_data_spec) = elemtype.chardata_spec() {
+                        match elemtype.content_mode() {
                             ContentMode::Sequence | ContentMode::Choice | ContentMode::Bag => {
                                 self.optional_error(ArxmlParserError::CharacterContentForbidden {
                                     element: element.elemname,
@@ -361,7 +353,7 @@ impl<'a> ArxmlParser<'a> {
                             }
                             ContentMode::Characters | ContentMode::Mixed => {
                                 let value = self.parse_character_data(text_content, character_data_spec)?;
-                                if elemtype_is_ref(datatype_id) {
+                                if elemtype.is_ref() {
                                     if let CharacterData::String(refpath) = &value {
                                         self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
                                     }
@@ -385,7 +377,7 @@ impl<'a> ArxmlParser<'a> {
         }
 
         if short_name_found {
-        } else if elemtype_is_named_in_version(datatype_id, self.fileversion) {
+        } else if elemtype.is_named_in_version(self.fileversion) {
             self.optional_error(ArxmlParserError::RequiredSubelementMissing {
                 element: element_name,
                 sub_element: ElementName::ShortName,
@@ -398,84 +390,84 @@ impl<'a> ArxmlParser<'a> {
     fn find_element_in_spec_checked(
         &mut self,
         name: ElementName,
-        type_id: usize,
-        elem_indices: &[usize],
-    ) -> Result<Vec<usize>, AutosarDataError> {
+        elemtype: ElementType,
+    ) -> Result<(ElementType, Vec<usize>), AutosarDataError> {
         // Some elements have multiple entries, and the correct one must be chosen based on the autosar version
         // First try to find the sub element using the current file version. If that fails then search again
         // allowing elements from all autosar versions. This is useful in order to give better diagnostics.
-        let result = find_sub_element(name, type_id, self.fileversion as u32)
-            .or_else(|| find_sub_element(name, type_id, u32::MAX));
-        if let Some(new_elem_indices) = result {
-            // find the shared prefix length of the input elem_idx and the newly found new_elem_idx
-            let mut prefix_len = 0;
-            while new_elem_indices.len() > prefix_len
-                && elem_indices.len() > prefix_len
-                && new_elem_indices[prefix_len] == elem_indices[prefix_len]
-            {
-                prefix_len += 1;
+        let (sub_elem_type, new_elem_indices) = match elemtype.find_sub_element(name, self.fileversion as u32) {
+            Some(result) => {
+                // normal case: the element was found in the spec, while restricted to only the current version
+                result
             }
-
-            if elem_indices.is_empty() {
-                // when elem_indices is empty, that means that this is the first sub-element
-                // no ordering checks are possible
-            } else if prefix_len == new_elem_indices.len() {
-                // found the exact same element as last time - otherwise the prefix would be shorter by at least 1
-                assert_eq!(elem_indices, &new_elem_indices);
-                // no need to check anything here
-            } else {
-                let mode = if prefix_len == 0 {
-                    elemtype_content_mode(type_id)
-                } else {
-                    // different elements, but within the same top level group
-                    let group = get_sub_element_spec(type_id, &new_elem_indices[..prefix_len]).unwrap();
-                    if let SubElement::Group { groupid } = group {
-                        elemtype_content_mode(*groupid)
-                    } else {
-                        panic!()
-                    }
-                };
-
-                match mode {
-                    ContentMode::Sequence => {
-                        // We could check if the elements are in the specified order.
-                        // Unfortunaltely the tool used by the Autosar organisation to derive the xsd files from the meta model seems to be buggy.
-                        // For example, VARIATION-POINT should always be last according to the meta model, but some of the xsd files do not place it there.
-                        // Since other tools seem to skip this check, lets also ignore ordering.
-                        //
-                        // if new_elem_indices[prefix_len] < elem_indices[prefix_len] {
-                        //     self.optional_error(ArxmlParserError::ElementSequenceOutOfOrder {
-                        //         element: self.current_element,
-                        //         sub_element: name,
-                        //     })?;
-                        // }
-                    }
-                    ContentMode::Choice => {
-                        self.optional_error(ArxmlParserError::ElementChoiceConflict {
-                            element: self.current_element,
-                            sub_element: name,
-                        })?;
-                    }
-                    ContentMode::Characters => {
-                        // an element with ContentMode::Characters has no sub elements, so the outer "if let Some(new_elem_indices)" is never true
-                        panic!("accepted a sub-element inside a character-only element");
-                    }
-                    _ => {}
-                }
+            None => {
+                // fallback: the search is retried, while allowing matching sub-elements from any AutosarVersion
+                let (sub_elemtype, elem_idx) = elemtype.find_sub_element(name, u32::MAX).ok_or_else(|| {
+                    self.error(ArxmlParserError::IncorrectBeginElement {
+                        element: self.current_element,
+                        sub_element: name,
+                    })
+                })?;
+                // now we need to get the version mask that tells us in what versions this element was actually allowed in
+                // unwrap() is ok here since this can't fail: elem_idx just came from find_sub_element
+                let version_mask = elemtype.get_sub_element_version_mask(&elem_idx).unwrap();
+                // check_version will return an ElementVersionError is strict parsing is on, otherwise it's a warning
+                self.check_version(
+                    version_mask,
+                    ArxmlParserError::ElementVersionError {
+                        element: self.current_element,
+                        sub_element: name,
+                        version: self.fileversion,
+                    },
+                )?;
+                (sub_elemtype, elem_idx)
             }
-            Ok(new_elem_indices)
+        };
+
+        Ok((sub_elem_type, new_elem_indices))
+    }
+
+    fn check_element_conflict(
+        &mut self,
+        name: ElementName,
+        elemtype: ElementType,
+        elem_indices: &[usize],
+        new_elem_indices: &Vec<usize>,
+    ) -> Result<(), AutosarDataError> {
+        if elem_indices.is_empty() || (elem_indices == new_elem_indices) {
+            // when elem_indices is empty, that means that this is the first sub-element or found the exact same element as last time
+            // no ordering checks are possible
         } else {
-            Err(self.error(ArxmlParserError::IncorrectBeginElement {
-                element: self.current_element,
-                sub_element: name,
-            }))
+            let group_type = elemtype.find_common_group(elem_indices, new_elem_indices);
+            let mode = group_type.content_mode();
+
+            match mode {
+                ContentMode::Sequence => {
+                    // We could check if the elements are in the specified order.
+                    // Unfortunaltely the tool used by the Autosar organisation to derive the xsd files from the meta model seems to be buggy.
+                    // For example, VARIATION-POINT should always be last according to the meta model, but some of the xsd files do not place it there.
+                    // Since other tools seem to skip this check, lets also ignore ordering.
+                }
+                ContentMode::Choice => {
+                    self.optional_error(ArxmlParserError::ElementChoiceConflict {
+                        element: self.current_element,
+                        sub_element: name,
+                    })?;
+                }
+                ContentMode::Characters => {
+                    // an element with ContentMode::Characters has no sub elements, so the outer "if let Some(new_elem_indices)" is never true
+                    panic!("accepted a sub-element inside a character-only element");
+                }
+                _ => {}
+            }
         }
+        Ok(())
     }
 
     fn check_multiplicity(
         &mut self,
         name: ElementName,
-        type_id: usize,
+        elemtype: ElementType,
         elem_idx: &[usize],
         element_count: &mut HashMap<u16, usize>,
     ) -> Result<(), AutosarDataError> {
@@ -483,24 +475,16 @@ impl<'a> ArxmlParser<'a> {
         // element_count will contain the current cout for this element if it has been seen before - if not, there cannot be a multiplicity problem
         if let Some(count_value) = element_count.get_mut(&(name as u16)) {
             // get the parent type id, i.e. the type of the containing element or group
-            if let Some(container_type_id) = get_parent_type_id(type_id, elem_idx) {
-                let datatype_mode = elemtype_content_mode(container_type_id);
-                // multiplicity only matters if the mode is Choice or Sequence - modes Mixed and Bag allow arbitrary amounts of all elements
-                if datatype_mode == ContentMode::Sequence || datatype_mode == ContentMode::Choice {
-                    match get_sub_element_spec(type_id, elem_idx).unwrap() {
-                        SubElement::Element { multiplicity, .. } => {
-                            *count_value += 1;
-                            if *multiplicity != ElementMultiplicity::Any {
-                                self.optional_error(ArxmlParserError::TooManySubElements {
-                                    element: self.current_element,
-                                    sub_element: name,
-                                })?;
-                            }
-                        }
-                        SubElement::Group { .. } => {
-                            // it should not be possible to get here
-                            panic!();
-                        }
+            let datatype_mode = elemtype.get_sub_element_container_mode(elem_idx);
+            // multiplicity only matters if the mode is Choice or Sequence - modes Mixed and Bag allow arbitrary amounts of all elements
+            if datatype_mode == ContentMode::Sequence || datatype_mode == ContentMode::Choice {
+                if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(elem_idx) {
+                    *count_value += 1;
+                    if multiplicity != ElementMultiplicity::Any {
+                        self.optional_error(ArxmlParserError::TooManySubElements {
+                            element: self.current_element,
+                            sub_element: name,
+                        })?;
                     }
                 }
             }
@@ -512,7 +496,7 @@ impl<'a> ArxmlParser<'a> {
 
     fn parse_attribute_text(
         &mut self,
-        type_id: usize,
+        elemtype: ElementType,
         attributes_text: &[u8],
     ) -> Result<SmallVec<[Attribute; 1]>, AutosarDataError> {
         let mut attributes = SmallVec::new();
@@ -530,7 +514,7 @@ impl<'a> ArxmlParser<'a> {
                 .find(|(_, c)| !c.is_ascii_whitespace())
                 .unwrap_or((name_len, &0u8));
             if let Ok(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start..name_len]) {
-                if let Some((_, ctype, _, version_mask)) = elemtype_find_attribute_spec(type_id, attr_name) {
+                if let Some((_, ctype, _, version_mask)) = elemtype.find_attribute_spec(attr_name) {
                     self.check_version(
                         *version_mask,
                         ArxmlParserError::AttributeVersionError {
@@ -558,7 +542,7 @@ impl<'a> ArxmlParser<'a> {
             }
         }
 
-        for (name, _ctype, required, _ver) in elemtype_attr_definitions_iter(type_id) {
+        for (name, _ctype, required, _ver) in elemtype.attr_definitions_iter() {
             if *required && !attributes.iter().any(|attr: &Attribute| attr.attrname == *name) {
                 self.optional_error(ArxmlParserError::RequiredAttributeMissing {
                     element: self.current_element,

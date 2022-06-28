@@ -130,7 +130,7 @@ pub struct WeakElement(Weak<Mutex<ElementRaw>>);
 pub(crate) struct ElementRaw {
     pub(crate) parent: ElementOrFile,
     pub(crate) elemname: ElementName,
-    pub(crate) type_id: usize,
+    pub(crate) elemtype: ElementType,
     pub(crate) content: SmallVec<[ElementContent; 4]>,
     pub(crate) attributes: SmallVec<[Attribute; 1]>,
 }

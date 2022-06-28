@@ -70,7 +70,7 @@ impl Element {
     pub fn item_name(&self) -> Option<String> {
         let element = self.0.lock();
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
-        if elemtype_is_named(element.type_id) {
+        if element.elemtype.is_named() {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
             if let Some(ElementContent::Element(subelem)) = element.content.get(0) {
                 if subelem.element_name() == ElementName::ShortName {
@@ -87,7 +87,7 @@ impl Element {
     pub fn is_identifiable(&self) -> bool {
         let element = self.0.lock();
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
-        if elemtype_is_named(element.type_id) {
+        if element.elemtype.is_named() {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
             if let Some(ElementContent::Element(subelem)) = element.content.get(0) {
                 if subelem.element_name() == ElementName::ShortName {
@@ -102,7 +102,7 @@ impl Element {
     ///
     /// The function does not check if the reference is valid
     pub fn is_reference(&self) -> bool {
-        elemtype_is_ref(self.type_id())
+        self.elemtype().is_ref()
     }
 
     /// get the Autosar path of an identifiable element
@@ -155,7 +155,7 @@ impl Element {
 
     /// get the [ContentType] of the current element
     pub fn content_type(&self) -> ContentType {
-        match elemtype_content_mode(self.type_id()) {
+        match self.elemtype().content_mode() {
             ContentMode::Sequence => ContentType::Elements,
             ContentMode::Choice => ContentType::Elements,
             ContentMode::Bag => ContentType::Elements,
@@ -198,28 +198,23 @@ impl Element {
         position: usize,
     ) -> Result<Element, AutosarDataError> {
         let version = self.containing_file().map(|f| f.version())?;
-        let type_id = self.type_id();
-        let element_indices = find_sub_element(element_name, type_id, version as u32).unwrap();
-        let sub_element_spec = get_sub_element_spec(type_id, &element_indices).unwrap();
-        if let SubElement::Element { elemtype, .. } = sub_element_spec {
-            if elemtype_is_named_in_version(*elemtype, version) {
-                Err(Element::error(ElementActionError::VersionIncompatible))
-            } else {
-                let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                    parent: ElementOrFile::Element(self.downgrade()),
-                    elemname: element_name,
-                    type_id: *elemtype,
-                    content: smallvec![],
-                    attributes: smallvec![],
-                })));
-                let mut element = self.0.lock();
-                element
-                    .content
-                    .insert(position, ElementContent::Element(sub_element.clone()));
-                Ok(sub_element)
-            }
+        let elemtype = self.elemtype();
+        let (elemtype, _) = elemtype.find_sub_element(element_name, version as u32).unwrap();
+        if elemtype.is_named_in_version(version) {
+            Err(Element::error(ElementActionError::VersionIncompatible))
         } else {
-            panic!(); // impossible
+            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+                parent: ElementOrFile::Element(self.downgrade()),
+                elemname: element_name,
+                elemtype,
+                content: smallvec![],
+                attributes: smallvec![],
+            })));
+            let mut element = self.0.lock();
+            element
+                .content
+                .insert(position, ElementContent::Element(sub_element.clone()));
+            Ok(sub_element)
         }
     }
 
@@ -267,37 +262,32 @@ impl Element {
         }
 
         let file = self.containing_file()?;
-        let type_id = self.type_id();
-        let element_indices = find_sub_element(element_name, type_id, file.version() as u32).unwrap();
-        let sub_element_spec = get_sub_element_spec(type_id, &element_indices).unwrap();
-        if let SubElement::Element { elemtype, .. } = sub_element_spec {
-            if elemtype_is_named_in_version(*elemtype, file.version()) {
-                let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                    parent: ElementOrFile::Element(self.downgrade()),
-                    elemname: element_name,
-                    type_id: *elemtype,
-                    content: smallvec![],
-                    attributes: smallvec![],
-                })));
-                // insert the new sub element
-                {
-                    // separate scope to limit the lifetime of the mutex
-                    let mut element = self.0.lock();
-                    element
-                        .content
-                        .insert(position, ElementContent::Element(sub_element.clone()));
-                }
-                // create a SHORT-NAME for the sub element
-                let shortname_element = sub_element.create_sub_element(ElementName::ShortName)?;
-                shortname_element
-                    .set_character_data(CharacterData::String(item_name.to_owned()))
-                    .unwrap();
-                Ok(sub_element)
-            } else {
-                Err(Element::error(ElementActionError::VersionIncompatible))
+        let elemtype = self.elemtype();
+        let (elemtype, _) = elemtype.find_sub_element(element_name, file.version() as u32).unwrap();
+        if elemtype.is_named_in_version(file.version()) {
+            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+                parent: ElementOrFile::Element(self.downgrade()),
+                elemname: element_name,
+                elemtype,
+                content: smallvec![],
+                attributes: smallvec![],
+            })));
+            // insert the new sub element
+            {
+                // separate scope to limit the lifetime of the mutex
+                let mut element = self.0.lock();
+                element
+                    .content
+                    .insert(position, ElementContent::Element(sub_element.clone()));
             }
+            // create a SHORT-NAME for the sub element
+            let shortname_element = sub_element.create_sub_element(ElementName::ShortName)?;
+            shortname_element
+                .set_character_data(CharacterData::String(item_name.to_owned()))
+                .unwrap();
+            Ok(sub_element)
         } else {
-            panic!(); // impossible
+            Err(Element::error(ElementActionError::VersionIncompatible))
         }
     }
 
@@ -422,7 +412,7 @@ impl Element {
 
         let copy_wrapped = Element(Arc::new(Mutex::new(ElementRaw {
             elemname: element.elemname,
-            type_id: element.type_id,
+            elemtype: element.elemtype,
             content: SmallVec::with_capacity(element.content.len()),
             attributes: SmallVec::with_capacity(element.attributes.len()),
             parent: ElementOrFile::None,
@@ -432,9 +422,10 @@ impl Element {
             let mut copy = copy_wrapped.0.lock();
             for attribute in &element.attributes {
                 // get the specification of the attribute
-                let (_, cdataspec, required, attr_version_mask) =
-                    elemtype_find_attribute_spec(element.type_id, attribute.attrname)
-                        .ok_or_else(|| Element::error(ElementActionError::VersionIncompatible))?;
+                let (_, cdataspec, required, attr_version_mask) = element
+                    .elemtype
+                    .find_attribute_spec(attribute.attrname)
+                    .ok_or_else(|| Element::error(ElementActionError::VersionIncompatible))?;
                 // check if the attribute is compatible with the target version
                 if target_version.compatible(*attr_version_mask)
                     && attribute
@@ -455,7 +446,11 @@ impl Element {
                     ElementContent::Element(sub_elem) => {
                         let sub_elem_name = sub_elem.element_name();
                         // since find_sub_element already considers the version, finding the element also means it's valid in the target_version
-                        if find_sub_element(sub_elem_name, element.type_id, target_version as u32).is_some() {
+                        if element
+                            .elemtype
+                            .find_sub_element(sub_elem_name, target_version as u32)
+                            .is_some()
+                        {
                             if let Ok(copied_sub_elem) = sub_elem.deep_copy(target_version) {
                                 copied_sub_elem.0.lock().parent = ElementOrFile::Element(copy_wrapped.downgrade());
                                 copy.content.push(ElementContent::Element(copied_sub_elem));
@@ -475,22 +470,23 @@ impl Element {
     /// find the upper and lower bound on the insert position for a sub element
     fn find_element_insert_pos(&self, element_name: ElementName) -> Result<(usize, usize), AutosarDataError> {
         let version = self.containing_file().map(|f| f.version())?;
-        let type_id = self.type_id();
-        if elemtype_content_mode(type_id) == ContentMode::Characters {
+        let elemtype = self.elemtype();
+        if elemtype.content_mode() == ContentMode::Characters {
             // cant't insert at all, only character data is permitted
             return Err(Element::error(ElementActionError::IncorrectContentType));
         }
 
-        if let Some(new_element_indices) = find_sub_element(element_name, type_id, version as u32) {
+        if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
             let element = self.0.lock();
             let mut start_pos = 0;
             let mut end_pos = 0;
             for (idx, content_item) in element.content.iter().enumerate() {
                 if let ElementContent::Element(subelement) = content_item {
-                    let existing_element_indices =
-                        find_sub_element(subelement.element_name(), type_id, version as u32).unwrap();
-                    let group = find_common_group(type_id, &new_element_indices, &existing_element_indices);
-                    match group.mode {
+                    let (_, existing_element_indices) = elemtype
+                        .find_sub_element(subelement.element_name(), version as u32)
+                        .unwrap();
+                    let group_type = elemtype.find_common_group(&new_element_indices, &existing_element_indices);
+                    match group_type.content_mode() {
                         ContentMode::Sequence => {
                             // decide where to insert
                             match new_element_indices.cmp(&existing_element_indices) {
@@ -503,9 +499,10 @@ impl Element {
                                     // new element is not smaller than the current one, so set the end position
                                     end_pos = idx + 1;
                                     // are identical elements of this type allowed at all?
-                                    let sub_elem_spec = get_sub_element_spec(type_id, &new_element_indices).unwrap();
-                                    if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
-                                        if *multiplicity != ElementMultiplicity::Any {
+                                    if let Some(multiplicity) =
+                                        elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                    {
+                                        if multiplicity != ElementMultiplicity::Any {
                                             // the new element is identical to an existing one, but repetitions are not allowed
                                             return Err(Element::error(ElementActionError::ElementInsertionConflict));
                                         }
@@ -523,9 +520,9 @@ impl Element {
                             // can insert elements that ar identical to the existing element, if more than one of this element is allowed
                             // can't insert anything else
                             if new_element_indices == existing_element_indices {
-                                let sub_elem_spec = get_sub_element_spec(type_id, &new_element_indices).unwrap();
-                                if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
-                                    if *multiplicity != ElementMultiplicity::Any {
+                                if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                {
+                                    if multiplicity != ElementMultiplicity::Any {
                                         // the new element is identical to an existing one, but repetitions are not allowed
                                         return Err(Element::error(ElementActionError::ElementInsertionConflict));
                                     }
@@ -650,9 +647,9 @@ impl Element {
     ///
     /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
     pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), AutosarDataError> {
-        let type_id = self.type_id();
-        if elemtype_content_mode(type_id) == ContentMode::Characters {
-            if let Some(cdata_spec) = elemtype_chardata_spec(type_id) {
+        let elemtype = self.elemtype();
+        if elemtype.content_mode() == ContentMode::Characters {
+            if let Some(cdata_spec) = elemtype.chardata_spec() {
                 let autosar_data = self.containing_file().and_then(|file| file.autosar_data())?;
                 let version = self.containing_file().map(|f| f.version())?;
                 if CharacterData::check_value(&chardata, cdata_spec, version) {
@@ -668,7 +665,7 @@ impl Element {
                     };
 
                     // if this is a reference, then some extra effort is needed there too
-                    let old_refval = if elemtype_is_ref(type_id) {
+                    let old_refval = if elemtype.is_ref() {
                         if let Some(CharacterData::String(refval)) = self.character_data() {
                             Some(refval)
                         } else {
@@ -696,7 +693,7 @@ impl Element {
                     }
 
                     // reference: update the references hashmap in the top-level AutosarData struct
-                    if elemtype_is_ref(type_id) {
+                    if elemtype.is_ref() {
                         if let Some(CharacterData::String(refval)) = self.character_data() {
                             if let Some(old_refval) = old_refval {
                                 autosar_data.fix_reference_origins(&old_refval, &refval, self.downgrade());
@@ -719,7 +716,7 @@ impl Element {
     /// return true if the data was added
     pub fn insert_character_content_item(&self, chardata: &str, position: usize) -> bool {
         let mut element = self.0.lock();
-        if let ContentMode::Mixed = elemtype_content_mode(element.type_id) {
+        if let ContentMode::Mixed = element.elemtype.content_mode() {
             if position <= element.content.len() {
                 element.content.insert(
                     position,
@@ -738,7 +735,7 @@ impl Element {
     /// returns true if data was removed
     pub fn remove_content_item(&self, position: usize) -> bool {
         let mut element = self.0.lock();
-        if let ContentMode::Mixed = elemtype_content_mode(element.type_id) {
+        if let ContentMode::Mixed = element.elemtype.content_mode() {
             if position < element.content.len() {
                 if let ElementContent::CharacterData(_) = element.content[position] {
                     element.content.remove(position);
@@ -754,7 +751,7 @@ impl Element {
     /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
     pub fn character_data(&self) -> Option<CharacterData> {
         let element = self.0.lock();
-        if let ContentMode::Characters = elemtype_content_mode(element.type_id) {
+        if let ContentMode::Characters = element.elemtype.content_mode() {
             if let Some(ElementContent::CharacterData(cdata)) = element.content.get(0) {
                 return Some(cdata.clone());
             }
@@ -827,7 +824,7 @@ impl Element {
         if let Ok(version) = self.containing_file().map(|f| f.version()) {
             let mut locked_elem = self.0.lock();
             // let attr_types = DATATYPES[locked_elem.type_id].attributes;
-            if let Some((_, character_data_spec, _, _)) = elemtype_find_attribute_spec(locked_elem.type_id, attrname) {
+            if let Some((_, character_data_spec, _, _)) = locked_elem.elemtype.find_attribute_spec(attrname) {
                 if let Some(value) = CharacterData::parse(stringvalue, character_data_spec, version) {
                     if let Some(attr) = locked_elem.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
                         attr.content = value;
@@ -851,7 +848,7 @@ impl Element {
         file_version: AutosarVersion,
     ) -> bool {
         // find the attribute specification in the item type
-        if let Some((_, spec, _, _)) = elemtype_find_attribute_spec(self.type_id(), attrname) {
+        if let Some((_, spec, _, _)) = self.elemtype().find_attribute_spec(attrname) {
             // find the attribute the element's attribute list
             let mut element = self.0.lock();
             if let Some(attr) = element.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
@@ -881,7 +878,7 @@ impl Element {
         for idx in 0..element.attributes.len() {
             if element.attributes[idx].attrname == attrname {
                 // find the definition of this attribute in the specification
-                if let Some((_, _, required, _)) = elemtype_find_attribute_spec(element.type_id, attrname) {
+                if let Some((_, _, required, _)) = element.elemtype.find_attribute_spec(attrname) {
                     // the attribute can only be removed if it is optional
                     if !required {
                         element.attributes.remove(idx);
@@ -982,8 +979,8 @@ impl Element {
         }
     }
 
-    pub(crate) fn type_id(&self) -> usize {
-        self.0.lock().type_id
+    pub(crate) fn elemtype(&self) -> ElementType {
+        self.0.lock().elemtype
     }
 
     /// check if the sub elements and attributes of this element are compatible with some target_version
@@ -996,8 +993,7 @@ impl Element {
             let element = self.0.lock();
             for attribute in &element.attributes {
                 // find the specification for the current attribute
-                if let Some((_, value_spec, _, version_mask)) =
-                    elemtype_find_attribute_spec(element.type_id, attribute.attrname)
+                if let Some((_, value_spec, _, version_mask)) = element.elemtype.find_attribute_spec(attribute.attrname)
                 {
                     overall_version_mask &= *version_mask;
                     // check if the attribute is allowed at all

@@ -1,9 +1,13 @@
 [package]
 name = "autosar-data"
 version = "0.2.0"
+authors = ["Daniel Thaler <daniel@dthaler.de>"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "read, write and modify Autosar data"
+license = "MIT OR Apache-2.0"
+keywords = ["arxml", "file", "file-format", "Autosar"]
+categories = ["parser-implementations"]
+repository = "https://github.com/DanielT/autosar-data"
 
 [dependencies]
 autosar-data-specification = "0.2"

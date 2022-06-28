@@ -11,17 +11,63 @@ pub use attributename::AttributeName;
 pub use autosarversion::AutosarVersion;
 pub use elementname::ElementName;
 pub use enumitem::EnumItem;
-pub use specification::ROOT_DATATYPE;
 use specification::*;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+/// ElementMultiplicity specifies how often a single child element may occur within its parent
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ElementMultiplicity {
     ZeroOrOne,
     One,
     Any,
 }
 
-pub enum SubElement {
+/// The ContentMode specifies what content may occur inside an element
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ContentMode {
+    /// Sequence: an ordered sequence of elements
+    Sequence,
+    /// Choice: a single element must be chosen from multiple options.
+    /// If the multiplicity of the chosen element is `Any` then it may repeat so there might sill be more than one sub element
+    Choice,
+    /// Bag: From a list of choices, choose a sub element any number of times.
+    /// In this ContentMode all allowed sub elements may occur any number of times and in any order
+    Bag,
+    /// Characters: no sub elements are permitted, there can only be character content
+    Characters,
+    /// Mixed: both characters content and sub elements are allowed, in any order. It's basically like HTML
+    Mixed,
+}
+
+/// Specifies the data type and restrictions of the character data in an element or attribute
+pub enum CharacterDataSpec {
+    /// The character data is an enum value; valid values are given in items and the character data must match one of these
+    Enum {
+        items: &'static [(EnumItem, u32)],
+    },
+    /// The character data is restricted to match a regex, which is given in text form in the filed regex.
+    /// The check_fn is a function that validates input according to the regex.
+    /// If a max_length is given, then it restricts the length (in bytes).
+    Pattern {
+        check_fn: fn(&[u8]) -> bool,
+        regex: &'static str,
+        max_length: Option<usize>,
+    },
+    /// An arbitrary string; if preserve whitepace is set, then whitespace should be preserved during parsing (see the XML standard)
+    String {
+        preserve_whitespace: bool,
+        max_length: Option<usize>,
+    },
+    UnsignedInteger,
+    Double,
+}
+
+/// ElementType is an abstraction over element types in the specification.
+///
+/// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub struct ElementType(usize);
+
+enum SubElement {
     Element {
         name: ElementName,
         elemtype: usize,
@@ -33,39 +79,13 @@ pub enum SubElement {
     },
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum ContentMode {
-    Sequence,
-    Choice,
-    Bag,
-    Characters,
-    Mixed,
-}
-
-pub struct ElementSpec {
-    pub sub_elements: &'static [SubElement],
-    pub attributes: &'static [(AttributeName, &'static CharacterDataSpec, bool, u32)],
-    pub character_data: Option<&'static CharacterDataSpec>,
-    pub mode: ContentMode,
-    pub is_named: u32,
-    pub is_ref: bool,
-}
-
-pub enum CharacterDataSpec {
-    Enum {
-        items: &'static [(EnumItem, u32)],
-    },
-    Pattern {
-        check_fn: fn(&[u8]) -> bool,
-        regex: &'static str,
-        max_length: Option<usize>,
-    },
-    String {
-        preserve_whitespace: bool,
-        max_length: Option<usize>,
-    },
-    UnsignedInteger,
-    Double,
+struct ElementSpec {
+    sub_elements: &'static [SubElement],
+    attributes: &'static [(AttributeName, &'static CharacterDataSpec, bool, u32)],
+    character_data: Option<&'static CharacterDataSpec>,
+    mode: ContentMode,
+    is_named: u32,
+    is_ref: bool,
 }
 
 impl AutosarVersion {
@@ -74,142 +94,196 @@ impl AutosarVersion {
     }
 }
 
-pub fn get_sub_element_spec<'a>(type_id: usize, element_indices: &[usize]) -> Option<&'a SubElement> {
-    let spec = DATATYPES[type_id].sub_elements;
-    if !element_indices.is_empty() {
-        let mut current_spec = spec;
-        // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
-        for idx in 0..(element_indices.len() - 1) {
-            match &current_spec[element_indices[idx]] {
-                SubElement::Element { .. } => {
-                    // elements are not allowed here
-                    return None;
+impl ElementType {
+    /// get the spec of a sub element from the index list
+    fn get_sub_element_spec<'a>(&self, element_indices: &[usize]) -> Option<&'a SubElement> {
+        let spec = DATATYPES[self.0].sub_elements;
+        if !element_indices.is_empty() {
+            let mut current_spec = spec;
+            // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
+            for idx in 0..(element_indices.len() - 1) {
+                match &current_spec[element_indices[idx]] {
+                    SubElement::Element { .. } => {
+                        // elements are not allowed here
+                        return None;
+                    }
+                    SubElement::Group { groupid } => {
+                        current_spec = DATATYPES[*groupid].sub_elements;
+                    }
+                }
+            }
+
+            let last_idx = *element_indices.last().unwrap();
+            Some(&current_spec[last_idx])
+        } else {
+            None
+        }
+    }
+
+    /// get the version mask of a sub element
+    pub fn get_sub_element_version_mask(&self, element_indices: &[usize]) -> Option<u32> {
+        match self.get_sub_element_spec(element_indices) {
+            Some(SubElement::Element { version_mask, .. }) => Some(*version_mask),
+            _ => None,
+        }
+    }
+
+    /// get the multiplicity of a sub element within the current ElementType
+    ///
+    /// The sub element is identified by an indx list, as returned by `find_sub_element()`
+    pub fn get_sub_element_multiplicity(&self, element_indices: &[usize]) -> Option<ElementMultiplicity> {
+        match self.get_sub_element_spec(element_indices) {
+            Some(SubElement::Element { multiplicity, .. }) => Some(*multiplicity),
+            _ => None,
+        }
+    }
+
+    /// get the ContentMode of the container of a sub element of the current ElementType
+    ///
+    /// The sub element is identified by an indx list, as returned by `find_sub_element()`
+    pub fn get_sub_element_container_mode(&self, element_indices: &[usize]) -> ContentMode {
+        if element_indices.len() < 2 {
+            // length == 1: this element is a direct sub element, without any groups;
+            DATATYPES[self.0].mode
+        } else {
+            let len = element_indices.len() - 1;
+            if let Some(SubElement::Group { groupid }) = self.get_sub_element_spec(&element_indices[..len]) {
+                DATATYPES[*groupid].mode
+            } else {
+                panic!("impossible: element container is not a group");
+            }
+        }
+    }
+
+    /// find a sub element in the specification of the current ElementType
+    ///
+    /// Note: Version here is NOT an AutosarVersion, it is a u32. it is a bitmask which can contain multiple AutosarVersions, or any version by using u32::MAX
+    ///
+    /// In almost all cases this is simple: there is a flat list of sub elements that either contains the target_name or not.
+    /// The result in those simple cases is a vec with one entry which is the index of the element in the list.
+    /// There are a handfull of complicated situations though, where the list of sub elements contains groups of
+    /// elements that have a different ContentMode than the other elements.
+    ///
+    /// For example:
+    /// ```text
+    ///     PRM-CHAR (Sequence)
+    ///      -> Element: COND
+    ///      -> Group (Choice)
+    ///         -> Group (Sequence)
+    ///             -> Group (Choice)
+    ///                 -> Group (Sequence)
+    ///                     -> Element: ABS
+    ///                     -> Element: TOL
+    ///                 -> Group (Sequence)
+    ///                     -> Element: MIN
+    ///                     -> Element: TYP
+    ///                     -> Element: MAX
+    ///             -> Element: PRM-UNIT
+    ///         -> Element: TEXT
+    ///      -> Element: REMARK
+    /// ```
+    /// When searching for TOL in PRM-CHAR, the result should be Some(vec![1, 0, 0, 0, 1])!
+    pub fn find_sub_element(&self, target_name: ElementName, version: u32) -> Option<(ElementType, Vec<usize>)> {
+        let spec = DATATYPES[self.0].sub_elements;
+        for (cur_pos, sub_element) in spec.iter().enumerate() {
+            match sub_element {
+                SubElement::Element {
+                    name,
+                    version_mask,
+                    elemtype,
+                    ..
+                } => {
+                    if (*name == target_name) && (version & version_mask != 0) {
+                        return Some((ElementType(*elemtype), vec![cur_pos]));
+                    }
                 }
                 SubElement::Group { groupid } => {
-                    current_spec = DATATYPES[*groupid].sub_elements;
+                    let group = ElementType(*groupid);
+                    if let Some((elemtype, mut indices)) = group.find_sub_element(target_name, version) {
+                        indices.insert(0, cur_pos);
+                        return Some((elemtype, indices));
+                    }
                 }
             }
         }
-
-        let last_idx = *element_indices.last().unwrap();
-        Some(&current_spec[last_idx])
-    } else {
         None
     }
-}
 
-pub fn get_parent_type_id(type_id: usize, element_indices: &[usize]) -> Option<usize> {
-    if element_indices.len() < 2 {
-        // length == 1: this element is a direct sub element, without any groups;
-        return Some(type_id);
-    } else {
-        let len = element_indices.len() - 1;
-        if let Some(SubElement::Group { groupid }) = get_sub_element_spec(type_id, &element_indices[..len]) {
-            return Some(*groupid);
-        }
-    }
-    None
-}
-
-/// find an element in the specification
-///
-/// In almost all cases this is simple: there is a flat list of sub elements that either contains the target_name or not.
-/// There are a handfull of complicated situations though, for example:
-/// ```text
-///     PRM-CHAR (Sequence)
-///      -> Element: COND
-///      -> Group (Choice)
-///         -> Group (Sequence)
-///             -> Group (Choice)
-///                 -> Group (Sequence)
-///                     -> Element: ABS
-///                     -> Element: TOL
-///                 -> Group (Sequence)
-///                     -> Element: MIN
-///                     -> Element: TYP
-///                     -> Element: MAX
-///             -> Element: PRM-UNIT
-///         -> Element: TEXT
-///      -> Element: REMARK
-/// ```
-/// When searching for TOL in PRM-CHAR, the result should be Some(vec![1, 0, 0, 0, 1])!
-pub fn find_sub_element(target_name: ElementName, type_id: usize, version: u32) -> Option<Vec<usize>> {
-    let spec = DATATYPES[type_id].sub_elements;
-    for (cur_pos, sub_element) in spec.iter().enumerate() {
-        match sub_element {
-            SubElement::Element { name, version_mask, .. } => {
-                if (*name == target_name) && (version & version_mask != 0) {
-                    return Some(vec![cur_pos]);
+    /// find the commmon group of two subelements of the current ElementType
+    ///
+    /// The subelements are identified by their index lists, returned by find_sub_element().
+    ///
+    /// In simple cases without sub-groups of elements, the "common group" is simply the current ElementType.
+    pub fn find_common_group(&self, element_indices: &[usize], element_indices2: &[usize]) -> ElementType {
+        let mut result = self.0;
+        let mut prefix_len = 0;
+        while element_indices.len() > prefix_len
+            && element_indices2.len() > prefix_len
+            && element_indices[prefix_len] == element_indices2[prefix_len]
+        {
+            let datatype = &DATATYPES[result];
+            let sub_elem = &datatype.sub_elements[element_indices[prefix_len]];
+            match sub_elem {
+                SubElement::Element { .. } => return ElementType(result),
+                SubElement::Group { groupid } => {
+                    result = *groupid;
                 }
             }
-            SubElement::Group { groupid } => {
-                // the group_pos parameter is only valid when referring to the group at start_pos. All other groups are searched from the beginning
-                if let Some(mut result) = find_sub_element(target_name, *groupid, version) {
-                    result.insert(0, cur_pos);
-                    return Some(result);
-                }
-            }
+            prefix_len += 1;
         }
-    }
-    None
-}
 
-pub fn find_common_group(
-    type_id: usize,
-    element_indices: &[usize],
-    element_indices2: &[usize],
-) -> &'static ElementSpec {
-    let mut result = &DATATYPES[type_id];
-    let mut prefix_len = 0;
-    while element_indices.len() > prefix_len
-        && element_indices2.len() > prefix_len
-        && element_indices[prefix_len] == element_indices2[prefix_len]
-    {
-        let sub_elem = &result.sub_elements[element_indices[prefix_len]];
-        match sub_elem {
-            SubElement::Element { .. } => return result,
-            SubElement::Group { groupid } => {
-                result = &DATATYPES[*groupid];
-            }
-        }
-        prefix_len += 1;
+        ElementType(result)
     }
 
-    result
-}
+    /// are elements of this ElementType named in any Autosar version
+    pub fn is_named(&self) -> bool {
+        DATATYPES[self.0].is_named != 0
+    }
 
-pub fn elemtype_is_named(type_id: usize) -> bool {
-    DATATYPES[type_id].is_named != 0
-}
+    /// are elements of this elementType named in the given Autosar version
+    ///
+    /// Named elements must have a SHORT-NAME sub element. For some elements this
+    /// depends on the Autosar version.
+    ///
+    /// One example of this is END-2-END-METHOD-PROTECTION-PROPS, which was first
+    /// defined in Autosar_00048, but only has a name in Autosar_00050.
+    pub fn is_named_in_version(&self, version: AutosarVersion) -> bool {
+        version.compatible(DATATYPES[self.0].is_named)
+    }
 
-pub fn elemtype_is_named_in_version(type_id: usize, version: AutosarVersion) -> bool {
-    version.compatible(DATATYPES[type_id].is_named)
-}
+    /// is the ElementType a reference
+    pub fn is_ref(&self) -> bool {
+        DATATYPES[self.0].is_ref
+    }
 
-pub fn elemtype_is_ref(type_id: usize) -> bool {
-    DATATYPES[type_id].is_ref
-}
+    /// get the content mode for this ElementType
+    pub fn content_mode(&self) -> ContentMode {
+        DATATYPES[self.0].mode
+    }
 
-pub fn elemtype_content_mode(type_id: usize) -> ContentMode {
-    DATATYPES[type_id].mode
-}
+    /// get the character data spec for this ElementType
+    pub fn chardata_spec(&self) -> Option<&'static CharacterDataSpec> {
+        DATATYPES[self.0].character_data
+    }
 
-pub fn elemtype_chardata_spec(type_id: usize) -> Option<&'static CharacterDataSpec> {
-    DATATYPES[type_id].character_data
-}
+    /// find the spec for a single attribute by name
+    pub fn find_attribute_spec(
+        &self,
+        attrname: AttributeName,
+    ) -> Option<&'static (AttributeName, &'static CharacterDataSpec, bool, u32)> {
+        DATATYPES[self.0].attributes.iter().find(|(name, ..)| *name == attrname)
+    }
 
-pub fn elemtype_find_attribute_spec(
-    type_id: usize,
-    attrname: AttributeName,
-) -> Option<&'static (AttributeName, &'static CharacterDataSpec, bool, u32)> {
-    DATATYPES[type_id]
-        .attributes
-        .iter()
-        .find(|(name, ..)| *name == attrname)
-}
+    /// create an iterator over all attribute definitions in the current ElementType
+    pub fn attr_definitions_iter(&self) -> AttrDefinitionsIter {
+        AttrDefinitionsIter {
+            type_id: self.0,
+            pos: 0,
+        }
+    }
 
-pub fn elemtype_attr_definitions_iter(type_id: usize) -> AttrDefinitionsIter {
-    AttrDefinitionsIter { type_id, pos: 0 }
+    /// ElementType::ROOT is the root ElementType of the Autosar arxml document, i.e. this is the ElementType of the AUTOSAR element
+    pub const ROOT: Self = ElementType(ROOT_DATATYPE);
 }
 
 pub struct AttrDefinitionsIter {
@@ -226,38 +300,139 @@ impl Iterator for AttrDefinitionsIter {
     }
 }
 
+// manually implement Debug for CharacterDataSpec; deriving it is not possible, because that fails on the chack_fn field in ::Pattern.
+// The check_fn field is simply omitted here.
+impl std::fmt::Debug for CharacterDataSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Enum { items } => f.debug_struct("Enum").field("items", items).finish(),
+            Self::Pattern { regex, max_length, .. } => f
+                .debug_struct("Pattern")
+                .field("regex", regex)
+                .field("max_length", max_length)
+                .finish(),
+            Self::String {
+                preserve_whitespace,
+                max_length,
+            } => f
+                .debug_struct("String")
+                .field("preserve_whitespace", preserve_whitespace)
+                .field("max_length", max_length)
+                .finish(),
+            Self::UnsignedInteger => write!(f, "UnsignedInteger"),
+            Self::Double => write!(f, "Double"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[test]
-    fn test_find_element_in_spec_complex() {
-        let prm_char_type_id = 2952; // note: this may change if the specification is updated
-        let result = find_sub_element(ElementName::Tol, prm_char_type_id, 0xffffffff);
-        assert!(result.is_some());
-        let element_path = result.unwrap();
-        assert_eq!(element_path, vec![1, 0, 0, 0, 1]);
+    fn get_prm_char_element_type() -> ElementType {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+        let (documentation_type, _) = elements_type
+            .find_sub_element(ElementName::Documentation, u32::MAX)
+            .unwrap();
+        let (documentation_content_type, _) = documentation_type
+            .find_sub_element(ElementName::DocumentationContent, u32::MAX)
+            .unwrap();
+        let (prms_type, _) = documentation_content_type
+            .find_sub_element(ElementName::Prms, u32::MAX)
+            .unwrap();
+        let (prm_type, _) = prms_type.find_sub_element(ElementName::Prm, u32::MAX).unwrap();
+        let (prm_char_type, _) = prm_type.find_sub_element(ElementName::PrmChar, u32::MAX).unwrap();
+
+        prm_char_type
     }
 
     #[test]
-    fn test_find_element_in_spec_version_dependent() {
-        let sw_base_type_type_id = 3748; // note: this may change if the specification is updated
-        let result = find_sub_element(
-            ElementName::BaseTypeSize,
-            sw_base_type_type_id,
-            AutosarVersion::Autosar_4_0_1 as u32,
-        );
-        assert!(result.is_some());
-        let element_path = result.unwrap();
-        assert_eq!(element_path, vec![11, 0]);
+    fn find_sub_element() {
+        let prm_char_type = get_prm_char_element_type();
+        let (_, indices) = prm_char_type.find_sub_element(ElementName::Tol, 0xffffffff).unwrap();
+        assert_eq!(indices, vec![1, 0, 0, 0, 1]);
+    }
 
-        let result = find_sub_element(
-            ElementName::BaseTypeSize,
-            sw_base_type_type_id,
-            AutosarVersion::Autosar_4_1_1 as u32,
-        );
-        assert!(result.is_some());
-        let element_path = result.unwrap();
-        assert_eq!(element_path, vec![12]);
+    #[test]
+    fn find_sub_element_version_dependent() {
+        let sw_base_type_type = ElementType(3748); // note: this id may change if the specification is updated
+        let (_, indices) = sw_base_type_type
+            .find_sub_element(ElementName::BaseTypeSize, AutosarVersion::Autosar_4_0_1 as u32)
+            .unwrap();
+        assert_eq!(indices, vec![11, 0]);
+
+        let (_, indices) = sw_base_type_type
+            .find_sub_element(ElementName::BaseTypeSize, AutosarVersion::Autosar_4_1_1 as u32)
+            .unwrap();
+        assert_eq!(indices, vec![12]);
+    }
+
+    #[test]
+    fn get_sub_element_spec() {
+        let prm_char_type = get_prm_char_element_type();
+        let (abs_type, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
+        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
+        if let Some(SubElement::Element { name, elemtype, .. }) = sub_elem_spec {
+            assert_eq!(*name, ElementName::Abs);
+            assert_eq!(ElementType(*elemtype), abs_type);
+        } else {
+            panic!("incorrect return value from get_sub_element_spec()");
+        }
+    }
+
+    #[test]
+    fn get_sub_element_version_mask() {
+        let prm_char_type = get_prm_char_element_type();
+        let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
+        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
+        let version_mask2 = prm_char_type.get_sub_element_version_mask(&indices).unwrap();
+        if let Some(SubElement::Element { version_mask, .. }) = sub_elem_spec {
+            assert_eq!(*version_mask, version_mask2);
+        } else {
+            panic!("incorrect return value from get_sub_element_version_mask()");
+        }
+    }
+
+    #[test]
+    fn get_sub_element_container_mode() {
+        let prm_char_type = get_prm_char_element_type();
+        let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
+        let mode = prm_char_type.get_sub_element_container_mode(&indices);
+        assert_eq!(mode, ContentMode::Sequence);
+    }
+
+    #[test]
+    fn find_common_group() {
+        let prm_char_type = get_prm_char_element_type();
+        let (_, indices_abs) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
+        let (_, indices_tol) = prm_char_type.find_sub_element(ElementName::Tol, u32::MAX).unwrap();
+        let (_, indices_min) = prm_char_type.find_sub_element(ElementName::Min, u32::MAX).unwrap();
+        // see the documentation on find_sub_element for the complex structure under PRM-CHAR
+        // ABS and TOL share a sequence group (top level)
+        let group1 = prm_char_type.find_common_group(&indices_abs, &indices_tol);
+        assert_eq!(group1.content_mode(), ContentMode::Sequence);
+        // ABS and MIN have the second level choice group in common
+        let group2 = prm_char_type.find_common_group(&indices_abs, &indices_min);
+        assert_eq!(group2.content_mode(), ContentMode::Choice);
+    }
+
+    #[test]
+    fn find_attribute_spec() {
+        let (attrname, _, req, ver) = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
+        // returned attribute name must be the requested name
+        assert_eq!(*attrname, AttributeName::xmlns);
+        // xmlns in AUTOSAR is required
+        assert_eq!(*req, true);
+        // must be specified both in the first and latest versions (and every one in between - not tested)
+        assert_ne!(*ver & AutosarVersion::Autosar_00050 as u32, 0);
+        assert_ne!(*ver & AutosarVersion::Autosar_4_0_1 as u32, 0);
     }
 }

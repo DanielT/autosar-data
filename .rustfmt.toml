@@ -1,2 +1,10 @@
 max_width = 120
 # use_small_heuristics = "Off"
+
+ignore = [
+    "autosar-data-specification/src/attributename.rs",
+    "autosar-data-specification/src/autosarversion.rs",
+    "autosar-data-specification/src/elementname.rs",
+    "autosar-data-specification/src/enumitem.rs",
+    "autosar-data-specification/src/specification.rs",
+]

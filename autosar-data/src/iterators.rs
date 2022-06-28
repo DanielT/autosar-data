@@ -226,14 +226,14 @@ mod test {
         let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
             parent: ElementOrFile::None,
             elemname: ElementName::ArPackage, // doesn't matter for this test
-            type_id: 0,                       // doesn't matter for this test
+            elemtype: ElementType::ROOT,      // doesn't matter for this test
             attributes: SmallVec::new(),
             content: SmallVec::new(),
         })));
         let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
             parent: ElementOrFile::None,
             elemname: ElementName::ArPackages, // doesn't matter for this test
-            type_id: 0,                        // doesn't matter for this test
+            elemtype: ElementType::ROOT,       // doesn't matter for this test
             attributes: SmallVec::new(),
             content: smallvec::smallvec![
                 ElementContent::Element(sub_sub_element.clone()),
@@ -243,7 +243,7 @@ mod test {
         let element = Element(Arc::new(Mutex::new(ElementRaw {
             parent: ElementOrFile::None,
             elemname: ElementName::Autosar, // doesn't matter for this test
-            type_id: 0,                     // doesn't matter for this test
+            elemtype: ElementType::ROOT,    // doesn't matter for this test
             attributes: SmallVec::new(),
             content: smallvec::smallvec![
                 ElementContent::Element(sub_element.clone()),

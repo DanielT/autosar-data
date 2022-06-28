@@ -25,7 +25,7 @@ impl ArxmlFile {
         let root_element = Element(Arc::new(Mutex::new(ElementRaw {
             parent: ElementOrFile::None,
             elemname: ElementName::Autosar,
-            type_id: ROOT_DATATYPE,
+            elemtype: ElementType::ROOT,
             content: SmallVec::new(),
             attributes: root_attributes,
         })));

@@ -400,8 +400,8 @@ mod test {
         let ref0 = invalid_refs[0].upgrade().unwrap();
         assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
         if let CharacterData::String(refpath) = ref0.character_data().unwrap() {
-            if refpath != "/Pkg/System<" && refpath != "/Some/Invalid/Path" {
-                panic!("unexpected path");
+            if refpath != "/Pkg/System" && refpath != "/Some/Invalid/Path" {
+                panic!("unexpected path: {refpath}");
             }
         } else {
             panic!("did not get a reference path where it was expected")
