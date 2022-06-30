@@ -556,6 +556,156 @@ impl Element {
         }
     }
 
+    /// take an `element` from it's current location and place it in this element as a sub element
+    ///
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarData project
+    ///
+    /// Restrictions:
+    /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
+    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    pub fn move_element_here(&self, new_element: &Element) -> Result<Element, AutosarDataError> {
+        let new_elementname = new_element.element_name();
+        let (_, end_pos) = self.find_element_insert_pos(new_elementname)?;
+
+        self.move_element_here_inner(new_element, end_pos)
+    }
+
+    /// take an `element` from it's current location and place it at the given position in this element as a sub element
+    ///
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarData project
+    ///
+    /// Restrictions:
+    /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
+    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    pub fn move_element_here_at(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        let new_elementname = new_element.element_name();
+        let (start_pos, end_pos) = self.find_element_insert_pos(new_elementname)?;
+        if start_pos <= position && position <= end_pos {
+            self.move_element_here_inner(new_element, position)
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    fn move_element_here_inner(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        let new_elem_file = new_element.containing_file()?;
+        let ar_data_other = new_elem_file.autosar_data()?;
+        let own_ver = self.containing_file().map(|f| f.version())?;
+        let ar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+        let new_elem_ver = new_elem_file.version();
+        if own_ver != new_elem_ver {
+            return Err(Element::error(ElementActionError::VersionIncompatible));
+        }
+
+        // collect the paths of all identifiable elements under new_element before moving it
+        let original_paths: HashMap<String, Element> = new_element
+            .elements_dfs()
+            .filter(|(_, e)| e.is_identifiable())
+            .map(|(_, e)| (e.path().unwrap().unwrap(), e))
+            .collect();
+        // collect all reference targets and referring elements under new_element
+        let original_refs: Vec<(String, Element)> = new_element
+            .elements_dfs()
+            .filter(|(_, e)| e.is_reference())
+            .filter_map(|(_, e)| e.character_data().map(|data| (data.to_string(), e)))
+            .collect();
+
+        let new_elem_parent = new_element
+            .parent()?
+            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+
+        // limit the lifetime of the mutex on new_elem_parent
+        {
+            // lock the parent of the new element and remove it from the parent's content list
+            let mut new_elem_parent_locked = new_elem_parent.0.lock();
+            let idx = new_elem_parent_locked
+                .content
+                .iter()
+                .enumerate()
+                .find(|(_, item)| {
+                    if let ElementContent::Element(elem) = item {
+                        *elem == *new_element
+                    } else {
+                        false
+                    }
+                })
+                .map(|(idx, _)| idx)
+                .unwrap();
+            new_elem_parent_locked.content.remove(idx);
+        }
+
+        // remove all cached references for elements under new_element - they all become invalid as a result of moving it
+        for path in original_paths.keys() {
+            ar_data_other.remove_identifiable(path);
+        }
+        if ar_data != ar_data_other {
+            // delete all reference origin info for elements under new_element
+            for (path, elem) in &original_refs {
+                ar_data_other.remove_reference_origin(path, elem.downgrade());
+            }
+        }
+
+        {
+            // set the parent of the new element to the current element
+            let mut new_element_locked = new_element.0.lock();
+            new_element_locked.parent = ElementOrFile::Element(self.downgrade());
+        }
+
+        new_element.make_unique_item_name()?;
+
+        // cache references to all the identifiable elements in new_element
+        for identifiable_element in original_paths.values() {
+            ar_data.fix_identifiables(None, identifiable_element);
+        }
+        // cache all newly added (or modified) reference origins in new_element
+        for (old_ref, ref_element) in original_refs {
+            let mut refstr = if let Some(CharacterData::String(refstr)) = ref_element.character_data() {
+                refstr
+            } else {
+                String::new()
+            };
+            // if the reference points to a known old path, then update it to use the new path instead
+            if let Some(ref_target) = original_paths.get(&refstr) {
+                refstr = ref_target.path()?.unwrap();
+                ref_element.set_character_data(CharacterData::String(refstr.clone()))?;
+            }
+            ar_data.fix_reference_origins(&old_ref, &refstr, ref_element.downgrade());
+        }
+        // if the new_element was moved within this autosar project, then we might be able to update other references pointing to it
+        if ar_data == ar_data_other {
+            let mut ar_data_locked = ar_data.0.lock();
+            for (old_path, target_elem) in &original_paths {
+                // the elements under new_element hav already been updated above, this will get any other elements all over the autosar project
+                if let Some(ref_elements) = ar_data_locked.reference_origins.remove(old_path) {
+                    let new_ref_path = target_elem.path()?.unwrap();
+                    for ref_elem_weak in &ref_elements {
+                        if let Some(ref_elem) = ref_elem_weak.upgrade() {
+                            let mut ref_elem_locked = ref_elem.0.lock();
+                            // bypass the extra logic in set_character_data, which also wants to manipulate the currently locked ar_data_locked.reference_origins
+                            ref_elem_locked.content.truncate(0);
+                            ref_elem_locked
+                                .content
+                                .push(ElementContent::CharacterData(CharacterData::String(
+                                    new_ref_path.clone(),
+                                )));
+                        }
+                    }
+                    ar_data_locked.reference_origins.insert(new_ref_path, ref_elements);
+                }
+            }
+        }
+
+        // insert new_element
+        {
+            let mut self_locked = self.0.lock();
+            self_locked
+                .content
+                .insert(position, ElementContent::Element(new_element.clone()));
+        }
+
+        Ok(new_element.clone())
+    }
+
     /// remove the sub element sub_element
     ///
     /// The sub_element will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
@@ -619,7 +769,7 @@ impl Element {
     ///
     /// When the reference is updated, the DEST attribute is also updated to match the referenced element.
     /// The current element must be a reference element, otherwise the function fails.
-    pub fn set_reference_target(&self, target: Element) {
+    pub fn set_reference_target(&self, target: &Element) {
         // the current element must be a reference
         if self.is_reference() {
             // the target element must be identifiable, i.e. it has an autosar path
@@ -1267,5 +1417,71 @@ mod test {
         } else {
             panic!("unexpected content in <L-4>: {item:?}");
         }
+    }
+
+    #[test]
+    fn move_element_here() {
+        const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+                <SYSTEM><SHORT-NAME>System</SHORT-NAME>
+                    <FIBEX-ELEMENTS>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE">/Pkg/EcuInstance</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="I-SIGNAL-I-PDU">/Some/Invalid/Path</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="I-SIGNAL">/Pkg/System</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                    </FIBEX-ELEMENTS>
+                </SYSTEM>
+                <ECU-INSTANCE><SHORT-NAME>EcuInstance</SHORT-NAME></ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+        <AR-PACKAGE><SHORT-NAME>Pkg2</SHORT-NAME>
+            <ELEMENTS>
+                <ECU-INSTANCE><SHORT-NAME>EcuInstance</SHORT-NAME></ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        let data = AutosarData::new();
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+            .unwrap();
+        // get the existing ECU-INSTANCE EcuInstance
+        let ecu_instance = data.get_element_by_path("/Pkg/EcuInstance").unwrap().unwrap();
+        // get the existing AR-PACKAGE Pkg2
+        let pkg2 = data.get_element_by_path("/Pkg2").unwrap().unwrap();
+        // get the ELEMENTS sub element of Pkg2
+        let pkg2_elements = pkg2
+            .sub_elements()
+            .find(|e| e.element_name() == ElementName::Elements)
+            .unwrap();
+        // move the EcuInstance into Pkg2
+        pkg2_elements.move_element_here(&ecu_instance).unwrap();
+        // assert: pkg2 is now the parent of EcuInstance
+        assert_eq!(ecu_instance.parent().unwrap().unwrap(), pkg2_elements);
+        // assert: due to a name conflict, the moved EcuInstance has been renamed to EcuInstance_1
+        assert_eq!(ecu_instance.item_name().unwrap(), "EcuInstance_1");
+        // assert: The path of the EcuInstance is now "/Pkg2/EcuInstance" instead of "/Pkg/EcuInstance"
+        assert_eq!(ecu_instance.path().unwrap().unwrap(), "/Pkg2/EcuInstance_1");
+        let system = data.get_element_by_path("/Pkg/System").unwrap().unwrap();
+        // get the FIBEX-ELEMENT-REF which has DEST=ECU-INSTANCE
+        let (_, fibex_elem_ref) = system
+            .elements_dfs()
+            .find(|(_, e)| {
+                e.is_reference()
+                    && e.get_attribute(AttributeName::Dest)
+                        .map(|val| val == CharacterData::Enum(EnumItem::EcuInstance))
+                        .unwrap()
+            })
+            .unwrap();
+        // assert: The reference has been updated to refer to the new path of the ECU-INSTANCE
+        assert_eq!(
+            fibex_elem_ref.character_data().unwrap().to_string(),
+            "/Pkg2/EcuInstance_1"
+        );
     }
 }

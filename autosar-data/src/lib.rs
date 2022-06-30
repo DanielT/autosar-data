@@ -1,6 +1,6 @@
 //! Crate autosar-data
 //!
-//! This crate provides functionality to read, modify and write Autosar arxml files, bith separately and as collections.
+//! This crate provides functionality to read, modify and write Autosar arxml files, both separately and as collections.
 
 use autosar_data_specification::*;
 use element::ElementActionError;
