@@ -1,5 +1,5 @@
 use super::AutosarDataError;
-use std::ffi::OsString;
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error, Eq, PartialEq, Clone, Copy)]
@@ -34,11 +34,11 @@ pub(crate) struct ArxmlLexer<'a> {
     bufpos: usize,
     line: usize,
     deferred_end: Option<(usize, usize)>,
-    sourcefile: OsString,
+    sourcefile: PathBuf,
 }
 
 impl<'a> ArxmlLexer<'a> {
-    pub(crate) fn new(buffer: &'a [u8], name: OsString) -> Self {
+    pub(crate) fn new(buffer: &'a [u8], name: PathBuf) -> Self {
         // skip the byte-order mark, if it is present
         let bufpos = if buffer.len() > 3 && buffer[0] == 239 && buffer[1] == 187 && buffer[2] == 191 {
             3
@@ -268,7 +268,7 @@ mod test {
     fn test_basic_functionality() {
         let data =
             b"<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
-        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         match lexer.next() {
             Ok((_, ArxmlEvent::ArxmlHeader)) => {}
             _ => panic!("got an error instead of ArxmlHeader"),
@@ -301,7 +301,7 @@ mod test {
     #[test]
     fn test_incomplete_data() {
         let data = b"<element";
-        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         match lexer.next() {
             Ok(_) => panic!("expected error, got OK"),
             Err(AutosarDataError::LexerError {
@@ -317,7 +317,7 @@ mod test {
     #[test]
     fn test_invalid_element() {
         let data = b"<element><>";
-        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(lexer.next().is_ok());
         match lexer.next() {
             Ok(_) => panic!("expected error, got OK"),
@@ -334,7 +334,7 @@ mod test {
     #[test]
     fn test_invalid_processing_instruction() {
         let data = b"<element><?what>";
-        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(lexer.next().is_ok());
         match lexer.next() {
             Ok(_) => panic!("expected error, got OK"),
@@ -351,7 +351,7 @@ mod test {
     #[test]
     fn test_invalid_comment() {
         let data = b"<element><!-- foo>";
-        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(lexer.next().is_ok());
         match lexer.next() {
             Ok(_) => panic!("expected error, got OK"),
@@ -368,7 +368,7 @@ mod test {
     #[test]
     fn test_invalid_xml_header() {
         let data = br#"<?xml version="1.0" encoding="cp1252"?>"#;
-        let mut lexer = ArxmlLexer::new(data, OsString::from("(buffer)"));
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         match lexer.next() {
             Ok(_) => panic!("expected error, got OK"),
             Err(AutosarDataError::LexerError {

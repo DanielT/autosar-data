@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, path::Path};
 
 use crate::*;
 
@@ -19,13 +19,13 @@ impl AutosarData {
     /// You must provide a filename for the [ArxmlFile], even if you do not plan to write the data to disk.
     /// You must also specify an [AutosarVersion]. All methods manipulation the data insdie the file will ensure conformity with the version specified here.
     /// The newly created ArxmlFile will be created with a root AUTOSAR element.
-    pub fn create_file(&self, filename: OsString, version: AutosarVersion) -> Result<ArxmlFile, AutosarDataError> {
+    pub fn create_file<P: AsRef<Path>>(&self, filename: P, version: AutosarVersion) -> Result<ArxmlFile, AutosarDataError> {
         let mut data = self.0.lock();
 
-        if data.files.iter().any(|af| af.filename() == filename) {
+        if data.files.iter().any(|af| af.filename() == filename.as_ref()) {
             return Err(AutosarDataError::DuplicateFilenameError {
                 verb: "create",
-                filename,
+                filename: filename.as_ref().to_path_buf(),
             });
         }
 
@@ -44,26 +44,26 @@ impl AutosarData {
     ///  - strict: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
     ///
     /// This method may be called concurrently on multiple threads to load different buffers
-    pub fn load_named_arxml_buffer(
+    pub fn load_named_arxml_buffer<P: AsRef<Path>>(
         &self,
         buffer: &[u8],
-        filename: &OsStr,
+        filename: P,
         strict: bool,
     ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
-        if self.files().any(|file| file.filename() == filename) {
+        if self.files().any(|file| file.filename() == filename.as_ref()) {
             return Err(AutosarDataError::DuplicateFilenameError {
                 verb: "load",
-                filename: filename.to_owned(),
+                filename: filename.as_ref().to_path_buf(),
             });
         }
 
-        let mut parser = ArxmlParser::new(filename.to_os_string(), buffer, strict);
+        let mut parser = ArxmlParser::new(filename.as_ref().to_path_buf(), buffer, strict);
         let root_element = parser.parse_arxml()?;
 
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
             autosar_data: self.downgrade(),
             version: parser.get_fileversion(),
-            filename: filename.to_os_string(),
+            filename: filename.as_ref().to_path_buf(),
             root_element,
         })));
         // graft on the back-link from the root element to the file
@@ -76,7 +76,7 @@ impl AutosarData {
             if let Some(existing) = data.identifiables.insert(key, value) {
                 if let Some(element) = existing.upgrade() {
                     return Err(AutosarDataError::OverlappingDataError {
-                        filename: filename.to_os_string(),
+                        filename: filename.as_ref().to_path_buf(),
                         path: element.path().unwrap().unwrap_or_else(|| "".to_owned()),
                     });
                 }
@@ -101,16 +101,17 @@ impl AutosarData {
     /// Parameters:
     ///  - filename: the original filename of the data, or a newly generated name that is unique within the AutosarData instance.
     ///  - strict: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
-    pub fn load_arxml_file(
+    pub fn load_arxml_file<P: AsRef<Path>>(
         &self,
-        filename: &OsStr,
+        filename: P,
         strict: bool,
     ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
+        let filename_buf = filename.as_ref().to_path_buf();
         let mut file = match File::open(filename) {
             Ok(file) => file,
             Err(error) => {
                 return Err(AutosarDataError::IoErrorOpen {
-                    filename: filename.to_os_string(),
+                    filename: filename_buf,
                     ioerror: error,
                 })
             }
@@ -120,17 +121,17 @@ impl AutosarData {
         let mut buffer = Vec::with_capacity(filesize as usize);
         file.read_to_end(&mut buffer)
             .map_err(|err| AutosarDataError::IoErrorRead {
-                filename: filename.to_os_string(),
+                filename: filename_buf.clone(),
                 ioerror: err,
             })?;
 
-        self.load_named_arxml_buffer(&buffer, filename, strict)
+        self.load_named_arxml_buffer(&buffer, &filename_buf, strict)
     }
 
     /// serialize each of the files in the data set
     ///
     /// returns the result in a HashMap of <file_name, file_content>
-    pub fn serialize_files(&self) -> HashMap<OsString, String> {
+    pub fn serialize_files(&self) -> HashMap<PathBuf, String> {
         let mut result = HashMap::new();
         for file in self.files() {
             let data = file.serialize();
@@ -316,7 +317,7 @@ mod test {
     #[test]
     fn create_file() {
         let data = AutosarData::new();
-        let file = data.create_file(OsString::from("test"), AutosarVersion::Autosar_00050);
+        let file = data.create_file("test", AutosarVersion::Autosar_00050);
         assert!(file.is_ok());
     }
 
@@ -326,7 +327,7 @@ mod test {
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
         <AR-PACKAGES></AR-PACKAGES></AUTOSAR>"#;
         let data = AutosarData::new();
-        let result = data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true);
+        let result = data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_ok());
     }
 
@@ -358,7 +359,7 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
             .unwrap();
         let mut iter = data.identifiable_elements();
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
@@ -393,7 +394,7 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
             .unwrap();
         let invalid_refs = data.check_references();
         assert_eq!(invalid_refs.len(), 2);

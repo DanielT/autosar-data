@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fmt::Write;
 use std::str::FromStr;
 use std::str::Utf8Error;
@@ -121,7 +120,7 @@ pub enum ArxmlParserError {
 }
 
 pub(crate) struct ArxmlParser<'a> {
-    filename: OsString,
+    filename: PathBuf,
     line: usize,
     buffer: &'a [u8],
     fileversion: AutosarVersion,
@@ -134,7 +133,7 @@ pub(crate) struct ArxmlParser<'a> {
 }
 
 impl<'a> ArxmlParser<'a> {
-    pub(crate) fn new(filename: OsString, buffer: &'a [u8], strict: bool) -> Self {
+    pub(crate) fn new(filename: PathBuf, buffer: &'a [u8], strict: bool) -> Self {
         Self {
             filename,
             line: 1,
@@ -732,10 +731,9 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
 mod test {
     use crate::parser::*;
     use crate::*;
-    use std::ffi::OsString;
 
     fn test_helper(buffer: &[u8], target_error: std::mem::Discriminant<ArxmlParserError>, optional: bool) {
-        let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), buffer, true);
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), buffer, true);
         let result = parser.parse_arxml();
         println!("Result: {result:?}");
         if let Err(AutosarDataError::ParserError { source, .. }) = result {
@@ -749,7 +747,7 @@ mod test {
         }
 
         if optional {
-            let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), buffer, false);
+            let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), buffer, false);
             let result = parser.parse_arxml();
             println!("Result: {result:?}");
             if let Some(AutosarDataError::ParserError { source, .. }) = parser.warnings.get(0) {
@@ -1106,7 +1104,7 @@ mod test {
 
     #[test]
     fn unescape_entities() {
-        let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), &[], true);
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), &[], true);
         let result = parser
             .unescape_string("&amp;&amp;&lt;FOO&gt;&quot;&quot;&apos;end")
             .unwrap();
@@ -1157,7 +1155,7 @@ mod test {
 
     #[test]
     fn test_basic_functionality() {
-        let mut parser = ArxmlParser::new(OsString::from("test_buffer.arxml"), PARSER_TEST_DATA.as_bytes(), true);
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), PARSER_TEST_DATA.as_bytes(), true);
         let result = parser.parse_arxml();
         assert!(result.is_ok());
     }

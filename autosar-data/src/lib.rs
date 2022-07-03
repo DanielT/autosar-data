@@ -11,11 +11,11 @@ use parser::*;
 use smallvec::SmallVec;
 use std::{
     collections::HashMap,
-    ffi::{OsStr, OsString},
     sync::{Arc, Weak},
 };
 use std::{fs::File, io::Read};
 use thiserror::Error;
+use std::path::PathBuf;
 
 mod arxmlfile;
 mod autosardata;
@@ -54,34 +54,34 @@ pub enum AutosarDataError {
     /// IoErrorRead: An IoError that occurred while reading a file
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorRead {
-        filename: OsString,
+        filename: PathBuf,
         ioerror: std::io::Error,
     },
     /// IoErrorOpen: an IoError that occurres while opening a file
     #[error("Failed to open {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorOpen {
-        filename: OsString,
+        filename: PathBuf,
         ioerror: std::io::Error,
     },
     /// DuplicateFilenameError,
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
-    DuplicateFilenameError { verb: &'static str, filename: OsString },
+    DuplicateFilenameError { verb: &'static str, filename: PathBuf },
     /// LexerError: An error originating in the lexer, such as unclodes strings, mismatched '<' and '>', etc
     #[error("Failed to tokenize {} on line {line}: {source}", .filename.to_string_lossy())]
     LexerError {
-        filename: OsString,
+        filename: PathBuf,
         line: usize,
         source: ArxmlLexerError,
     },
     /// ParserError: A parser error
     #[error("Failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
     ParserError {
-        filename: OsString,
+        filename: PathBuf,
         line: usize,
         source: ArxmlParserError,
     },
     #[error("Loading failed: element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
-    OverlappingDataError { filename: OsString, path: String },
+    OverlappingDataError { filename: PathBuf, path: String },
 
     #[error("Element operation failed: {source}")]
     ElementActionError { source: ElementActionError },
@@ -105,7 +105,7 @@ pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 pub(crate) struct ArxmlFileRaw {
     autosar_data: WeakAutosarData,
     pub(crate) version: AutosarVersion,
-    pub(crate) filename: OsString,
+    pub(crate) filename: PathBuf,
     pub(crate) root_element: Element,
 }
 

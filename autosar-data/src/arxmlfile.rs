@@ -1,9 +1,9 @@
-use std::fmt::Write;
+use std::{fmt::Write, path::Path};
 
 use crate::*;
 
 impl ArxmlFile {
-    pub(crate) fn new(filename: OsString, version: AutosarVersion, container: &AutosarData) -> Self {
+    pub(crate) fn new<P: AsRef<Path>>(filename: P, version: AutosarVersion, container: &AutosarData) -> Self {
         let xsi_schemalocation =
             CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
         let xmlns = CharacterData::String("http://autosar.org/schema/r4.0".to_string());
@@ -33,7 +33,7 @@ impl ArxmlFile {
             autosar_data: container.downgrade(),
             root_element,
             version,
-            filename,
+            filename: filename.as_ref().to_path_buf(),
         })));
         let new_parent = ElementOrFile::File(file.downgrade());
         file.root_element().set_parent(new_parent);
@@ -41,15 +41,15 @@ impl ArxmlFile {
     }
 
     /// get the filename of this ArxmnlFile
-    pub fn filename(&self) -> OsString {
+    pub fn filename(&self) -> PathBuf {
         self.0.lock().filename.clone()
     }
 
     /// set the filename of this arxml filename
     ///
     /// This will not rename any existing file on disk, but the new filename will be used when writing the data.
-    pub fn set_filename(&self, new_filename: OsString) {
-        self.0.lock().filename = new_filename;
+    pub fn set_filename<P: AsRef<Path>>(&self, new_filename: P) {
+        self.0.lock().filename = new_filename.as_ref().to_path_buf();
     }
 
     /// get the [AutosarVersion] of the file
@@ -139,16 +139,16 @@ mod test {
     #[test]
     fn create() {
         let data = AutosarData::new();
-        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
         assert!(result.is_ok());
     }
 
     #[test]
     fn filename() {
         let data = AutosarData::new();
-        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
-        let filename = OsString::from("newname.arxml");
+        let filename = PathBuf::from("newname.arxml");
         file.set_filename(filename.clone());
         assert_eq!(file.filename(), filename);
     }
@@ -156,7 +156,7 @@ mod test {
     #[test]
     fn version() {
         let data = AutosarData::new();
-        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
         file.set_version(AutosarVersion::Autosar_00050);
         assert_eq!(file.version(), AutosarVersion::Autosar_00050);
@@ -165,7 +165,7 @@ mod test {
     #[test]
     fn references() {
         let data = AutosarData::new();
-        let result = data.create_file(OsString::from("test"), AutosarVersion::Autosar_4_0_1);
+        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
         let weak_file = file.downgrade();
         let file2 = weak_file.upgrade().unwrap();
@@ -177,7 +177,7 @@ mod test {
     fn serialize() {
         let data = AutosarData::new();
         let file = data
-            .create_file(OsString::from("test"), AutosarVersion::Autosar_00050)
+            .create_file("test", AutosarVersion::Autosar_00050)
             .unwrap();
         let text = file.serialize();
         assert_eq!(
