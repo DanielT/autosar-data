@@ -513,16 +513,16 @@ impl<'a> ArxmlParser<'a> {
                 .find(|(_, c)| !c.is_ascii_whitespace())
                 .unwrap_or((name_len, &0u8));
             if let Ok(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start..name_len]) {
-                if let Some((_, ctype, _, version_mask)) = elemtype.find_attribute_spec(attr_name) {
+                if let Some((ctype, _, version_mask)) = elemtype.find_attribute_spec(attr_name) {
                     self.check_version(
-                        *version_mask,
+                        version_mask,
                         ArxmlParserError::AttributeVersionError {
                             element: self.current_element,
                             attribute: attr_name,
                             version: self.fileversion,
                         },
                     )?;
-                    let attr_value = self.parse_character_data(attr_value_part, *ctype)?;
+                    let attr_value = self.parse_character_data(attr_value_part, ctype)?;
                     attributes.push(Attribute {
                         attrname: attr_name,
                         content: attr_value,
@@ -541,11 +541,11 @@ impl<'a> ArxmlParser<'a> {
             }
         }
 
-        for (name, _ctype, required, _ver) in elemtype.attr_definitions_iter() {
-            if *required && !attributes.iter().any(|attr: &Attribute| attr.attrname == *name) {
+        for (name, _ctype, required) in elemtype.attr_definitions_iter() {
+            if required && !attributes.iter().any(|attr: &Attribute| attr.attrname == name) {
                 self.optional_error(ArxmlParserError::RequiredAttributeMissing {
                     element: self.current_element,
-                    attribute: *name,
+                    attribute: name,
                 })?;
             }
         }

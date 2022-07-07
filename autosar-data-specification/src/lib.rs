@@ -71,7 +71,6 @@ enum SubElement {
     Element {
         name: ElementName,
         elemtype: usize,
-        version_mask: u32,
         multiplicity: ElementMultiplicity,
     },
     Group {
@@ -80,9 +79,11 @@ enum SubElement {
 }
 
 struct ElementSpec {
-    sub_elements: &'static [SubElement],
-    attributes: &'static [(AttributeName, &'static CharacterDataSpec, bool, u32)],
-    character_data: Option<&'static CharacterDataSpec>,
+    sub_elements: (usize, usize),
+    sub_element_ver: usize,
+    attributes: (usize, usize),
+    attributes_ver: usize,
+    character_data: Option<usize>,
     mode: ContentMode,
     is_named: u32,
     is_ref: bool,
@@ -95,11 +96,18 @@ impl AutosarVersion {
 }
 
 impl ElementType {
+    fn get_sub_elements(&self) -> &'static [SubElement] {
+        let (idx_start, idx_end) = DATATYPES[self.0].sub_elements;
+        &SUBELEMENTS[idx_start..idx_end]
+    }
+
     /// get the spec of a sub element from the index list
-    fn get_sub_element_spec<'a>(&self, element_indices: &[usize]) -> Option<&'a SubElement> {
-        let spec = DATATYPES[self.0].sub_elements;
+    fn get_sub_element_spec<'a>(&self, element_indices: &[usize]) -> Option<(&'a SubElement, u32)> {
+        let spec = self.get_sub_elements();
+        let ver_list_start = DATATYPES[self.0].sub_element_ver;
         if !element_indices.is_empty() {
             let mut current_spec = spec;
+            let mut current_ver_list_start = ver_list_start;
             // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
             for idx in 0..(element_indices.len() - 1) {
                 match &current_spec[element_indices[idx]] {
@@ -108,13 +116,14 @@ impl ElementType {
                         return None;
                     }
                     SubElement::Group { groupid } => {
-                        current_spec = DATATYPES[*groupid].sub_elements;
+                        current_spec = ElementType(*groupid).get_sub_elements();
+                        current_ver_list_start = DATATYPES[*groupid].sub_element_ver;
                     }
                 }
             }
 
             let last_idx = *element_indices.last().unwrap();
-            Some(&current_spec[last_idx])
+            Some((&current_spec[last_idx], VERSION_INFO[current_ver_list_start + last_idx]))
         } else {
             None
         }
@@ -123,7 +132,7 @@ impl ElementType {
     /// get the version mask of a sub element
     pub fn get_sub_element_version_mask(&self, element_indices: &[usize]) -> Option<u32> {
         match self.get_sub_element_spec(element_indices) {
-            Some(SubElement::Element { version_mask, .. }) => Some(*version_mask),
+            Some((_, version_mask)) => Some(version_mask),
             _ => None,
         }
     }
@@ -133,7 +142,7 @@ impl ElementType {
     /// The sub element is identified by an indx list, as returned by `find_sub_element()`
     pub fn get_sub_element_multiplicity(&self, element_indices: &[usize]) -> Option<ElementMultiplicity> {
         match self.get_sub_element_spec(element_indices) {
-            Some(SubElement::Element { multiplicity, .. }) => Some(*multiplicity),
+            Some((SubElement::Element { multiplicity, .. }, _)) => Some(*multiplicity),
             _ => None,
         }
     }
@@ -147,7 +156,7 @@ impl ElementType {
             DATATYPES[self.0].mode
         } else {
             let len = element_indices.len() - 1;
-            if let Some(SubElement::Group { groupid }) = self.get_sub_element_spec(&element_indices[..len]) {
+            if let Some((SubElement::Group { groupid }, _)) = self.get_sub_element_spec(&element_indices[..len]) {
                 DATATYPES[*groupid].mode
             } else {
                 panic!("impossible: element container is not a group");
@@ -184,15 +193,12 @@ impl ElementType {
     /// ```
     /// When searching for TOL in PRM-CHAR, the result should be Some(vec![1, 0, 0, 0, 1])!
     pub fn find_sub_element(&self, target_name: ElementName, version: u32) -> Option<(ElementType, Vec<usize>)> {
-        let spec = DATATYPES[self.0].sub_elements;
+        let spec = self.get_sub_elements();
         for (cur_pos, sub_element) in spec.iter().enumerate() {
             match sub_element {
-                SubElement::Element {
-                    name,
-                    version_mask,
-                    elemtype,
-                    ..
-                } => {
+                SubElement::Element { name, elemtype, .. } => {
+                    let ver_info_start = DATATYPES[self.0].sub_element_ver;
+                    let version_mask = VERSION_INFO[ver_info_start + cur_pos];
                     if (*name == target_name) && (version & version_mask != 0) {
                         return Some((ElementType(*elemtype), vec![cur_pos]));
                     }
@@ -221,8 +227,7 @@ impl ElementType {
             && element_indices2.len() > prefix_len
             && element_indices[prefix_len] == element_indices2[prefix_len]
         {
-            let datatype = &DATATYPES[result];
-            let sub_elem = &datatype.sub_elements[element_indices[prefix_len]];
+            let sub_elem = &ElementType(result).get_sub_elements()[element_indices[prefix_len]];
             match sub_elem {
                 SubElement::Element { .. } => return ElementType(result),
                 SubElement::Group { groupid } => {
@@ -263,15 +268,26 @@ impl ElementType {
 
     /// get the character data spec for this ElementType
     pub fn chardata_spec(&self) -> Option<&'static CharacterDataSpec> {
-        DATATYPES[self.0].character_data
+        if let Some(chardata_id) = DATATYPES[self.0].character_data {
+            Some(&CHARACTER_DATA[chardata_id])
+        } else {
+            None
+        }
     }
 
     /// find the spec for a single attribute by name
-    pub fn find_attribute_spec(
-        &self,
-        attrname: AttributeName,
-    ) -> Option<&'static (AttributeName, &'static CharacterDataSpec, bool, u32)> {
-        DATATYPES[self.0].attributes.iter().find(|(name, ..)| *name == attrname)
+    pub fn find_attribute_spec(&self, attrname: AttributeName) -> Option<(&'static CharacterDataSpec, bool, u32)> {
+        let (idx_start, idx_end) = DATATYPES[self.0].attributes;
+        let attributes = &ATTRIBUTES[idx_start..idx_end];
+        if let Some((find_pos, (_, chardata_id, required))) =
+            attributes.iter().enumerate().find(|(_, (name, ..))| *name == attrname)
+        {
+            let idx_ver_start = DATATYPES[self.0].attributes_ver;
+            let version = VERSION_INFO[idx_ver_start + find_pos];
+            Some((&CHARACTER_DATA[*chardata_id], *required, version))
+        } else {
+            None
+        }
     }
 
     /// create an iterator over all attribute definitions in the current ElementType
@@ -292,11 +308,18 @@ pub struct AttrDefinitionsIter {
 }
 
 impl Iterator for AttrDefinitionsIter {
-    type Item = &'static (AttributeName, &'static CharacterDataSpec, bool, u32);
+    type Item = (AttributeName, &'static CharacterDataSpec, bool);
 
     fn next(&mut self) -> Option<Self::Item> {
+        let (idx_start, idx_end) = DATATYPES[self.type_id].attributes;
+        let cur_pos = self.pos;
         self.pos += 1;
-        DATATYPES[self.type_id].attributes.get(self.pos - 1)
+        if idx_start + cur_pos < idx_end {
+            let (name, chardata_id, required) = ATTRIBUTES[idx_start + cur_pos];
+            Some((name, &CHARACTER_DATA[chardata_id], required))
+        } else {
+            None
+        }
     }
 }
 
@@ -323,6 +346,12 @@ impl std::fmt::Debug for CharacterDataSpec {
             Self::Double => write!(f, "Double"),
         }
     }
+}
+
+pub(crate) fn hashfunc(data: &[u8], param: usize) -> usize {
+    data.iter().fold(100usize, |acc, val| {
+        usize::wrapping_add(usize::wrapping_mul(acc, param), *val as usize)
+    })
 }
 
 #[cfg(test)]
@@ -380,7 +409,7 @@ mod test {
         let prm_char_type = get_prm_char_element_type();
         let (abs_type, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
-        if let Some(SubElement::Element { name, elemtype, .. }) = sub_elem_spec {
+        if let Some((SubElement::Element { name, elemtype, .. }, _)) = sub_elem_spec {
             assert_eq!(*name, ElementName::Abs);
             assert_eq!(ElementType(*elemtype), abs_type);
         } else {
@@ -394,8 +423,8 @@ mod test {
         let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
         let version_mask2 = prm_char_type.get_sub_element_version_mask(&indices).unwrap();
-        if let Some(SubElement::Element { version_mask, .. }) = sub_elem_spec {
-            assert_eq!(*version_mask, version_mask2);
+        if let Some((_, version_mask)) = sub_elem_spec {
+            assert_eq!(version_mask, version_mask2);
         } else {
             panic!("incorrect return value from get_sub_element_version_mask()");
         }
@@ -426,13 +455,11 @@ mod test {
 
     #[test]
     fn find_attribute_spec() {
-        let (attrname, _, req, ver) = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
-        // returned attribute name must be the requested name
-        assert_eq!(*attrname, AttributeName::xmlns);
+        let (_, req, ver) = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
         // xmlns in AUTOSAR is required
-        assert_eq!(*req, true);
+        assert_eq!(req, true);
         // must be specified both in the first and latest versions (and every one in between - not tested)
-        assert_ne!(*ver & AutosarVersion::Autosar_00050 as u32, 0);
-        assert_ne!(*ver & AutosarVersion::Autosar_4_0_1 as u32, 0);
+        assert_ne!(ver & AutosarVersion::Autosar_00050 as u32, 0);
+        assert_ne!(ver & AutosarVersion::Autosar_4_0_1 as u32, 0);
     }
 }

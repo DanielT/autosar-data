@@ -127,9 +127,9 @@ impl Display for CharacterData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CharacterData::Enum(enumitem) => f.write_str(enumitem.to_str()),
-            CharacterData::String(stringval) => f.write_str(&**stringval),
-            CharacterData::UnsignedInteger(uintval) => f.write_str(&*uintval.to_string()),
-            CharacterData::Double(f64val) => f.write_str(&*f64val.to_string()),
+            CharacterData::String(stringval) => f.write_str(stringval),
+            CharacterData::UnsignedInteger(uintval) => f.write_str(&uintval.to_string()),
+            CharacterData::Double(f64val) => f.write_str(&f64val.to_string()),
         }
     }
 }

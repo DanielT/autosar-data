@@ -1,4 +1,4 @@
-use std::{str::FromStr, path::Path};
+use std::{path::Path, str::FromStr};
 
 use crate::*;
 
@@ -19,7 +19,11 @@ impl AutosarData {
     /// You must provide a filename for the [ArxmlFile], even if you do not plan to write the data to disk.
     /// You must also specify an [AutosarVersion]. All methods manipulation the data insdie the file will ensure conformity with the version specified here.
     /// The newly created ArxmlFile will be created with a root AUTOSAR element.
-    pub fn create_file<P: AsRef<Path>>(&self, filename: P, version: AutosarVersion) -> Result<ArxmlFile, AutosarDataError> {
+    pub fn create_file<P: AsRef<Path>>(
+        &self,
+        filename: P,
+        version: AutosarVersion,
+    ) -> Result<ArxmlFile, AutosarDataError> {
         let mut data = self.0.lock();
 
         if data.files.iter().any(|af| af.filename() == filename.as_ref()) {
@@ -359,8 +363,7 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
-            .unwrap();
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         let mut iter = data.identifiable_elements();
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
@@ -394,8 +397,7 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
-            .unwrap();
+        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         let invalid_refs = data.check_references();
         assert_eq!(invalid_refs.len(), 2);
         let ref0 = invalid_refs[0].upgrade().unwrap();

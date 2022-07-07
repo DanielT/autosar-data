@@ -1,4 +1,4 @@
-use crate::specification::hashfunc;
+use crate::hashfunc;
 
 #[derive(Debug)]
 /// The error type ParseAttributeNameError is returned when from_str() / parse() fails for AttributeName
@@ -215,15 +215,15 @@ pub enum AttributeName {
 
 impl AttributeName {
     const STRING_TABLE: [&'static str; 101] = ["ACCESSKEY", "ALIGN", "ALLOW-BREAK", "ALT", "BASE", "BGCOLOR", "BINDING-TIME", "BLUEPRINT-VALUE", "BREAK", "CLASS", "COLNAME", "COLNUM", "COLOR", "COLS", "COLSEP", "COLWIDTH", "COORDS", "DEST", "EDIT-HEIGHT", "EDIT-WIDTH", "EDITFIT", "EDITSCALE", "ENUM-TABLE", "FILENAME", "FIT", "FLOAT", "FONT", "FRAME", "GENERATOR", "GID", "HEIGHT", "HELP-ENTRY", "HREF", "HTML-FIT", "HTML-HEIGHT", "HTML-SCALE", "HTML-WIDTH", "INDEX", "INTERVAL-TYPE", "ITEM-LABEL-POS", "KEEP-WITH-PREVIOUS", "L", "LEVEL", "MIME-TYPE", "MOREROWS", "NAME", "NAME-PATTERN", "NAMEEND", "NAMEST", "NOHREF", "NOTATION", "NOTE-TYPE", "ONBLUR", "ONCLICK", "ONDBLCLICK", "ONFOCUS", "ONKEYDOWN", "ONKEYPRESS", "ONKEYUP", "ONMOUSEDOWN", "ONMOUSEMOVE", "ONMOUSEOUT", "ONMOUSEOVER", "ONMOUSEUP", "ORIENT", "PGWIDE", "RESOLUTION-POLICY", "ROTATE", "ROWSEP", "S", "SCALE", "SD", "SHAPE", "SHORT-LABEL", "SHOW-CONTENT", "SHOW-RESOURCE-ALIAS-NAME", "SHOW-RESOURCE-CATEGORY", "SHOW-RESOURCE-LONG-NAME", "SHOW-RESOURCE-NUMBER", "SHOW-RESOURCE-PAGE", "SHOW-RESOURCE-SHORT-NAME", "SHOW-RESOURCE-TYPE", "SHOW-SEE", "SI", "SPANNAME", "STYLE", "T", "TABINDEX", "TABSTYLE", "TEX-RENDER", "TITLE", "TYPE", "UUID", "VALIDITY", "VALIGN", "VIEW", "WIDTH", "space", "xmlns", "xmlns:xsi", "xsi:schemaLocation"];
-    const HASH_TABLE_1: [u16; 54] = [35, 26, 58, 46, 84, 83, 65535, 66, 47, 53, 26, 91, 19, 65535, 48, 97, 38, 6, 65535, 96, 25, 26, 40, 27, 75, 67, 77, 30, 23, 44, 88, 15, 78, 88, 76, 94, 78, 3, 35, 89, 62, 41, 41, 98, 21, 64, 99, 92, 90, 87, 50, 38, 25, 25];
-    const HASH_TABLE_2: [u16; 54] = [67, 23, 65, 89, 81, 0, 67, 43, 38, 9, 56, 13, 72, 45, 65535, 92, 95, 57, 36, 57, 48, 37, 82, 61, 32, 58, 85, 69, 75, 0, 72, 96, 20, 87, 48, 15, 0, 65, 6, 77, 10, 82, 0, 50, 43, 59, 59, 8, 96, 97, 8, 44, 51, 75];
+    const HASH_TABLE_1: [u16; 54] = [93, 84, 15, 3, 41, 40, 65535, 23, 4, 10, 84, 48, 77, 65535, 5, 54, 96, 64, 65535, 53, 83, 26, 98, 85, 32, 24, 34, 88, 81, 1, 45, 73, 35, 45, 33, 51, 35, 61, 35, 46, 19, 99, 99, 55, 79, 21, 56, 49, 47, 44, 7, 96, 83, 83];
+    const HASH_TABLE_2: [u16; 54] = [9, 66, 7, 31, 23, 43, 9, 86, 81, 52, 99, 56, 14, 88, 65535, 34, 37, 100, 79, 100, 91, 80, 24, 3, 75, 0, 27, 11, 17, 0, 14, 38, 63, 29, 91, 58, 43, 7, 49, 19, 53, 24, 0, 93, 86, 1, 1, 51, 38, 39, 51, 87, 94, 17];
 
-    // derive an enum entry from an input string using a perfect hash function
-    // here, hashfunc(input, <param>) is an ordinary hash function which may produce collisions
-    // it is possible to create two tables so that
-    //     table1[hashfunc(input, param1)] + table2[hashfunc(input, param2)] == desired enumeration value
-    // these tables are pre-built and included here as constants, since the values to be hashed don't change
+    /// derive an enum entry from an input string using a perfect hash function
     pub fn from_bytes(input: &[u8]) -> Result<Self, ParseAttributeNameError> {
+        // here, hashfunc(input, <param>) is an ordinary hash function which may produce collisions
+        // it is possible to create two tables so that
+        //     table1[hashfunc(input, param1)] + table2[hashfunc(input, param2)] == desired enumeration value
+        // these tables are pre-built and included here as constants, since the values to be hashed don't change
         let hashval1: usize = hashfunc(input, 13929);
         let hashval2: usize = hashfunc(input, 17554);
         let val1 = AttributeName::HASH_TABLE_1[hashval1 % 54];
@@ -266,3 +266,4 @@ impl std::fmt::Display for AttributeName {
         f.write_str(AttributeName::STRING_TABLE[*self as usize])
     }
 }
+

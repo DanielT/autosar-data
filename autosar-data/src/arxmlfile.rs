@@ -176,9 +176,7 @@ mod test {
     #[test]
     fn serialize() {
         let data = AutosarData::new();
-        let file = data
-            .create_file("test", AutosarVersion::Autosar_00050)
-            .unwrap();
+        let file = data.create_file("test", AutosarVersion::Autosar_00050).unwrap();
         let text = file.serialize();
         assert_eq!(
             text,

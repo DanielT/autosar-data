@@ -1,3 +1,4 @@
+
 /// Error type returned when from_str / parse for AutosarVersion fails
 pub struct ParseAutosarVersionError;
 
@@ -135,3 +136,4 @@ impl std::fmt::Display for AutosarVersion {
         f.write_str(self.describe())
     }
 }
+

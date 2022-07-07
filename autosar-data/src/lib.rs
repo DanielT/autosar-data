@@ -9,13 +9,13 @@ use lexer::*;
 use parking_lot::Mutex;
 use parser::*;
 use smallvec::SmallVec;
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     sync::{Arc, Weak},
 };
 use std::{fs::File, io::Read};
 use thiserror::Error;
-use std::path::PathBuf;
 
 mod arxmlfile;
 mod autosardata;
@@ -53,16 +53,10 @@ pub(crate) struct AutosarDataRaw {
 pub enum AutosarDataError {
     /// IoErrorRead: An IoError that occurred while reading a file
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
-    IoErrorRead {
-        filename: PathBuf,
-        ioerror: std::io::Error,
-    },
+    IoErrorRead { filename: PathBuf, ioerror: std::io::Error },
     /// IoErrorOpen: an IoError that occurres while opening a file
     #[error("Failed to open {}: {ioerror}", .filename.to_string_lossy())]
-    IoErrorOpen {
-        filename: PathBuf,
-        ioerror: std::io::Error,
-    },
+    IoErrorOpen { filename: PathBuf, ioerror: std::io::Error },
     /// DuplicateFilenameError,
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
     DuplicateFilenameError { verb: &'static str, filename: PathBuf },

@@ -422,19 +422,19 @@ impl Element {
             let mut copy = copy_wrapped.0.lock();
             for attribute in &element.attributes {
                 // get the specification of the attribute
-                let (_, cdataspec, required, attr_version_mask) = element
+                let (cdataspec, required, attr_version_mask) = element
                     .elemtype
                     .find_attribute_spec(attribute.attrname)
                     .ok_or_else(|| Element::error(ElementActionError::VersionIncompatible))?;
                 // check if the attribute is compatible with the target version
-                if target_version.compatible(*attr_version_mask)
+                if target_version.compatible(attr_version_mask)
                     && attribute
                         .content
                         .check_version_compatibility(cdataspec, target_version)
                         .0
                 {
                     copy.attributes.push(attribute.clone());
-                } else if *required {
+                } else if required {
                     return Err(Element::error(ElementActionError::VersionIncompatible));
                 } else {
                     // no action, the attribute is not compatible, but it's not required either
@@ -974,7 +974,7 @@ impl Element {
         if let Ok(version) = self.containing_file().map(|f| f.version()) {
             let mut locked_elem = self.0.lock();
             // let attr_types = DATATYPES[locked_elem.type_id].attributes;
-            if let Some((_, character_data_spec, _, _)) = locked_elem.elemtype.find_attribute_spec(attrname) {
+            if let Some((character_data_spec, _, _)) = locked_elem.elemtype.find_attribute_spec(attrname) {
                 if let Some(value) = CharacterData::parse(stringvalue, character_data_spec, version) {
                     if let Some(attr) = locked_elem.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
                         attr.content = value;
@@ -998,7 +998,7 @@ impl Element {
         file_version: AutosarVersion,
     ) -> bool {
         // find the attribute specification in the item type
-        if let Some((_, spec, _, _)) = self.elemtype().find_attribute_spec(attrname) {
+        if let Some((spec, _, _)) = self.elemtype().find_attribute_spec(attrname) {
             // find the attribute the element's attribute list
             let mut element = self.0.lock();
             if let Some(attr) = element.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
@@ -1028,7 +1028,7 @@ impl Element {
         for idx in 0..element.attributes.len() {
             if element.attributes[idx].attrname == attrname {
                 // find the definition of this attribute in the specification
-                if let Some((_, _, required, _)) = element.elemtype.find_attribute_spec(attrname) {
+                if let Some((_, required, _)) = element.elemtype.find_attribute_spec(attrname) {
                     // the attribute can only be removed if it is optional
                     if !required {
                         element.attributes.remove(idx);
@@ -1143,15 +1143,14 @@ impl Element {
             let element = self.0.lock();
             for attribute in &element.attributes {
                 // find the specification for the current attribute
-                if let Some((_, value_spec, _, version_mask)) = element.elemtype.find_attribute_spec(attribute.attrname)
-                {
-                    overall_version_mask &= *version_mask;
+                if let Some((value_spec, _, version_mask)) = element.elemtype.find_attribute_spec(attribute.attrname) {
+                    overall_version_mask &= version_mask;
                     // check if the attribute is allowed at all
-                    if !target_version.compatible(*version_mask) {
+                    if !target_version.compatible(version_mask) {
                         compat_errors.push(CompatibilityError::IncompatibleAttribute {
                             element: self.clone(),
                             attribute: attribute.attrname,
-                            version_mask: *version_mask,
+                            version_mask,
                         });
                     } else {
                         let (is_compatible, value_version_mask) = attribute
