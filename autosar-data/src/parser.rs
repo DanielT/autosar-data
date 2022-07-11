@@ -541,7 +541,7 @@ impl<'a> ArxmlParser<'a> {
             }
         }
 
-        for (name, _ctype, required) in elemtype.attr_definitions_iter() {
+        for (name, _ctype, required) in elemtype.attribute_spec_iter() {
             if required && !attributes.iter().any(|attr: &Attribute| attr.attrname == name) {
                 self.optional_error(ArxmlParserError::RequiredAttributeMissing {
                     element: self.current_element,

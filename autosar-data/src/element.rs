@@ -62,6 +62,13 @@ impl Element {
         self.0.lock().elemname
     }
 
+    /// get the [ElementType] of the element
+    ///
+    /// The ElementType is needed in order to call methods from the autosar-data-specification crate
+    pub fn element_type(&self) -> ElementType {
+        self.0.lock().elemtype
+    }
+
     /// get the name of an identifiable element
     ///
     /// An identifiable element has a ```<SHORT-NAME>``` sub element and can be referenced using an autosar path.
@@ -1177,6 +1184,29 @@ impl Element {
         }
 
         (compat_errors, overall_version_mask)
+    }
+
+    /// list all sub_elements that are valid in the current element
+    ///
+    /// returns:
+    ///     ElementName of the potential sub element
+    ///     bool: is the sub element named
+    ///     bool: can this sub element be inserted considering the current content of the element
+    pub fn list_valid_sub_elements(&self) -> Vec<(ElementName, bool, bool)> {
+        let etype = self.0.lock().elemtype;
+        let mut valid_sub_elements = Vec::new();
+
+        if let Ok(version) = self.containing_file().map(|f| f.version()) {
+            for (element_name, _, version_mask, named_mask) in etype.sub_element_spec_iter() {
+                if version.compatible(version_mask) {
+                    let named = version.compatible(named_mask);
+                    let available = self.find_element_insert_pos(element_name).is_ok();
+                    valid_sub_elements.push((element_name, named, available));
+                }
+            }
+        }
+
+        valid_sub_elements
     }
 
     fn error(err: ElementActionError) -> AutosarDataError {

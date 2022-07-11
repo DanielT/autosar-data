@@ -5,7 +5,7 @@ use crate::hashfunc;
 pub struct ParseAttributeNameError;
 
 #[allow(dead_code, non_camel_case_types)]
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u16)]
 /// Enum of all attribute names in Autosar
 pub enum AttributeName {
@@ -215,8 +215,6 @@ pub enum AttributeName {
 
 impl AttributeName {
     const STRING_TABLE: [&'static str; 101] = ["ACCESSKEY", "ALIGN", "ALLOW-BREAK", "ALT", "BASE", "BGCOLOR", "BINDING-TIME", "BLUEPRINT-VALUE", "BREAK", "CLASS", "COLNAME", "COLNUM", "COLOR", "COLS", "COLSEP", "COLWIDTH", "COORDS", "DEST", "EDIT-HEIGHT", "EDIT-WIDTH", "EDITFIT", "EDITSCALE", "ENUM-TABLE", "FILENAME", "FIT", "FLOAT", "FONT", "FRAME", "GENERATOR", "GID", "HEIGHT", "HELP-ENTRY", "HREF", "HTML-FIT", "HTML-HEIGHT", "HTML-SCALE", "HTML-WIDTH", "INDEX", "INTERVAL-TYPE", "ITEM-LABEL-POS", "KEEP-WITH-PREVIOUS", "L", "LEVEL", "MIME-TYPE", "MOREROWS", "NAME", "NAME-PATTERN", "NAMEEND", "NAMEST", "NOHREF", "NOTATION", "NOTE-TYPE", "ONBLUR", "ONCLICK", "ONDBLCLICK", "ONFOCUS", "ONKEYDOWN", "ONKEYPRESS", "ONKEYUP", "ONMOUSEDOWN", "ONMOUSEMOVE", "ONMOUSEOUT", "ONMOUSEOVER", "ONMOUSEUP", "ORIENT", "PGWIDE", "RESOLUTION-POLICY", "ROTATE", "ROWSEP", "S", "SCALE", "SD", "SHAPE", "SHORT-LABEL", "SHOW-CONTENT", "SHOW-RESOURCE-ALIAS-NAME", "SHOW-RESOURCE-CATEGORY", "SHOW-RESOURCE-LONG-NAME", "SHOW-RESOURCE-NUMBER", "SHOW-RESOURCE-PAGE", "SHOW-RESOURCE-SHORT-NAME", "SHOW-RESOURCE-TYPE", "SHOW-SEE", "SI", "SPANNAME", "STYLE", "T", "TABINDEX", "TABSTYLE", "TEX-RENDER", "TITLE", "TYPE", "UUID", "VALIDITY", "VALIGN", "VIEW", "WIDTH", "space", "xmlns", "xmlns:xsi", "xsi:schemaLocation"];
-    const HASH_TABLE_1: [u16; 54] = [93, 84, 15, 3, 41, 40, 65535, 23, 4, 10, 84, 48, 77, 65535, 5, 54, 96, 64, 65535, 53, 83, 26, 98, 85, 32, 24, 34, 88, 81, 1, 45, 73, 35, 45, 33, 51, 35, 61, 35, 46, 19, 99, 99, 55, 79, 21, 56, 49, 47, 44, 7, 96, 83, 83];
-    const HASH_TABLE_2: [u16; 54] = [9, 66, 7, 31, 23, 43, 9, 86, 81, 52, 99, 56, 14, 88, 65535, 34, 37, 100, 79, 100, 91, 80, 24, 3, 75, 0, 27, 11, 17, 0, 14, 38, 63, 29, 91, 58, 43, 7, 49, 19, 53, 24, 0, 93, 86, 1, 1, 51, 38, 39, 51, 87, 94, 17];
 
     /// derive an enum entry from an input string using a perfect hash function
     pub fn from_bytes(input: &[u8]) -> Result<Self, ParseAttributeNameError> {
@@ -224,10 +222,12 @@ impl AttributeName {
         // it is possible to create two tables so that
         //     table1[hashfunc(input, param1)] + table2[hashfunc(input, param2)] == desired enumeration value
         // these tables are pre-built and included here as constants, since the values to be hashed don't change
+        static HASH_TABLE_1: [u16; 54] = [43, 34, 66, 54, 92, 91, 65535, 74, 55, 61, 34, 99, 27, 65535, 56, 4, 46, 14, 65535, 3, 33, 26, 48, 35, 83, 75, 85, 38, 31, 52, 96, 23, 86, 96, 84, 1, 86, 11, 35, 97, 70, 49, 49, 5, 29, 72, 6, 100, 98, 95, 58, 46, 33, 33];
+        static HASH_TABLE_2: [u16; 54] = [59, 15, 57, 81, 73, 93, 59, 35, 30, 1, 48, 5, 64, 37, 65535, 84, 87, 49, 28, 49, 40, 29, 74, 53, 24, 50, 77, 61, 67, 0, 64, 88, 12, 79, 40, 7, 93, 57, 99, 69, 2, 74, 0, 42, 35, 51, 51, 0, 88, 89, 0, 36, 43, 67];
         let hashval1: usize = hashfunc(input, 13929);
         let hashval2: usize = hashfunc(input, 17554);
-        let val1 = AttributeName::HASH_TABLE_1[hashval1 % 54];
-        let val2 = AttributeName::HASH_TABLE_2[hashval2 % 54];
+        let val1 = HASH_TABLE_1[hashval1 % 54];
+        let val2 = HASH_TABLE_2[hashval2 % 54];
         if val1 == u16::MAX || val2 == u16::MAX {
             return Err(ParseAttributeNameError);
         }

@@ -291,10 +291,18 @@ impl ElementType {
     }
 
     /// create an iterator over all attribute definitions in the current ElementType
-    pub fn attr_definitions_iter(&self) -> AttrDefinitionsIter {
+    pub fn attribute_spec_iter(&self) -> AttrDefinitionsIter {
         AttrDefinitionsIter {
             type_id: self.0,
             pos: 0,
+        }
+    }
+
+    /// create an iterator over all sub elements of the current ElementType
+    pub fn sub_element_spec_iter(&self) -> SubelemDefinitionsIter {
+        SubelemDefinitionsIter {
+            type_id_stack: vec![self.0],
+            indices: vec![0],
         }
     }
 
@@ -317,6 +325,58 @@ impl Iterator for AttrDefinitionsIter {
         if idx_start + cur_pos < idx_end {
             let (name, chardata_id, required) = ATTRIBUTES[idx_start + cur_pos];
             Some((name, &CHARACTER_DATA[chardata_id], required))
+        } else {
+            None
+        }
+    }
+}
+
+pub struct SubelemDefinitionsIter {
+    type_id_stack: Vec<usize>,
+    indices: Vec<usize>,
+}
+
+impl Iterator for SubelemDefinitionsIter {
+    // ElementName, elementType, version_mask, is_named
+    type Item = (ElementName, ElementType, u32, u32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.type_id_stack.is_empty() {
+            debug_assert_eq!(self.type_id_stack.len(), self.indices.len());
+
+            let depth = self.indices.len() - 1;
+            let current_type = self.type_id_stack[depth];
+            let cur_pos = self.indices[depth];
+            let datatype = &DATATYPES[current_type];
+            let (start_idx, end_idx) = datatype.sub_elements;
+
+            if start_idx + cur_pos < end_idx {
+                match &SUBELEMENTS[start_idx + cur_pos] {
+                    SubElement::Element { name, elemtype, .. } => {
+                        // found an element, return it and advance
+                        self.indices[depth] += 1;
+                        let ver_idx = datatype.sub_element_ver;
+                        let version_mask = VERSION_INFO[ver_idx + cur_pos];
+                        //let elem_datatype = &DATATYPES[*elemtype];
+                        let is_named = DATATYPES[*elemtype].is_named;
+                        Some((*name, ElementType(*elemtype), version_mask, is_named))
+                    }
+                    SubElement::Group { groupid } => {
+                        // found a group, descend into it
+                        self.type_id_stack.push(*groupid);
+                        self.indices.push(0);
+                        self.next()
+                    }
+                }
+            } else {
+                // finished processing this element / group; remove it from the stack
+                self.indices.pop();
+                self.type_id_stack.pop();
+                if !self.indices.is_empty() {
+                    self.indices[depth - 1] += 1;
+                }
+                self.next()
+            }
         } else {
             None
         }
@@ -392,7 +452,18 @@ mod test {
 
     #[test]
     fn find_sub_element_version_dependent() {
-        let sw_base_type_type = ElementType(3748); // note: this id may change if the specification is updated
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+        let (sw_base_type_type, _) = elements_type
+            .find_sub_element(ElementName::SwBaseType, u32::MAX)
+            .unwrap();
         let (_, indices) = sw_base_type_type
             .find_sub_element(ElementName::BaseTypeSize, AutosarVersion::Autosar_4_0_1 as u32)
             .unwrap();
@@ -401,7 +472,7 @@ mod test {
         let (_, indices) = sw_base_type_type
             .find_sub_element(ElementName::BaseTypeSize, AutosarVersion::Autosar_4_1_1 as u32)
             .unwrap();
-        assert_eq!(indices, vec![12]);
+        assert_eq!(indices, vec![13]);
     }
 
     #[test]
@@ -461,5 +532,29 @@ mod test {
         // must be specified both in the first and latest versions (and every one in between - not tested)
         assert_ne!(ver & AutosarVersion::Autosar_00050 as u32, 0);
         assert_ne!(ver & AutosarVersion::Autosar_4_0_1 as u32, 0);
+    }
+
+    #[test]
+    fn subelement_definition_iterator() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+
+        let se_iter = elements_type.sub_element_spec_iter();
+        assert_eq!(se_iter.count(), 560);
+
+        let prm_char_type = get_prm_char_element_type();
+        let pc_iter = prm_char_type.sub_element_spec_iter();
+        // not all items in the sub element spec are compatible with the latest Autosar version, count only the ones that are compatible
+        let compatible_count = pc_iter
+            .filter(|(_, _, version_mask, _)| AutosarVersion::Autosar_00050.compatible(*version_mask))
+            .count();
+        assert_eq!(compatible_count, 9);
     }
 }

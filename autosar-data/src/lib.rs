@@ -25,6 +25,12 @@ mod iterators;
 mod lexer;
 mod parser;
 
+// reexport some of the info from the specification
+pub use autosar_data_specification::AttributeName;
+pub use autosar_data_specification::AutosarVersion;
+pub use autosar_data_specification::ElementName;
+pub use autosar_data_specification::EnumItem;
+
 /// AutosarData is the top level data type in the autosar-data crate.
 ///
 /// All manipulations of arxml files are performed through an instance of AutosarDatas
