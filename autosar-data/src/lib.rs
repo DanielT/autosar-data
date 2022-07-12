@@ -11,11 +11,11 @@ use parser::*;
 use smallvec::SmallVec;
 use std::path::PathBuf;
 use std::{
-    collections::HashMap,
     sync::{Arc, Weak},
 };
 use std::{fs::File, io::Read};
 use thiserror::Error;
+use rustc_hash::FxHashMap;
 
 mod arxmlfile;
 mod autosardata;
@@ -49,9 +49,9 @@ pub(crate) struct WeakAutosarData(Weak<Mutex<AutosarDataRaw>>);
 pub(crate) struct AutosarDataRaw {
     files: Vec<ArxmlFile>,
     /// identifiables is a HashMap of all named elements, needed to resolve references without doing a full search.
-    identifiables: HashMap<String, WeakElement>,
+    identifiables: FxHashMap<String, WeakElement>,
     /// reference_origins is a HashMap of all referencing alements. This is needed to efficiently fix up the references when a referenced element is renamed.
-    reference_origins: HashMap<String, Vec<WeakElement>>,
+    reference_origins: FxHashMap<String, Vec<WeakElement>>,
 }
 
 /// The error type AutosarDataError wraps all errors that can be generated anywhere in the crate

@@ -9,8 +9,8 @@ impl AutosarData {
     pub fn new() -> AutosarData {
         AutosarData(Arc::new(Mutex::new(AutosarDataRaw {
             files: Vec::new(),
-            identifiables: HashMap::new(),
-            reference_origins: HashMap::new(),
+            identifiables: FxHashMap::default(),
+            reference_origins: FxHashMap::default(),
         })))
     }
 
@@ -135,8 +135,8 @@ impl AutosarData {
     /// serialize each of the files in the data set
     ///
     /// returns the result in a HashMap of <file_name, file_content>
-    pub fn serialize_files(&self) -> HashMap<PathBuf, String> {
-        let mut result = HashMap::new();
+    pub fn serialize_files(&self) -> FxHashMap<PathBuf, String> {
+        let mut result = FxHashMap::default();
         for file in self.files() {
             let data = file.serialize();
             result.insert(file.filename(), data);

@@ -605,7 +605,7 @@ impl Element {
         }
 
         // collect the paths of all identifiable elements under new_element before moving it
-        let original_paths: HashMap<String, Element> = new_element
+        let original_paths: FxHashMap<String, Element> = new_element
             .elements_dfs()
             .filter(|(_, e)| e.is_identifiable())
             .map(|(_, e)| (e.path().unwrap().unwrap(), e))

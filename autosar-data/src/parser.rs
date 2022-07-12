@@ -1,9 +1,9 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::Write;
 use std::str::FromStr;
 use std::str::Utf8Error;
 use thiserror::Error;
+use rustc_hash::FxHashMap;
 
 use crate::lexer::*;
 use crate::*;
@@ -275,7 +275,7 @@ impl<'a> ArxmlParser<'a> {
 
         let mut elem_idx: Vec<usize> = Vec::new();
         let mut short_name_found = false;
-        let mut element_count = HashMap::<u16, usize>::new();
+        let mut element_count = FxHashMap::<u16, usize>::default();
 
         loop {
             // track the current element name in the parser for error messages - set this in every loop iteration, since it gets overwritten during the recursive calls
@@ -468,7 +468,7 @@ impl<'a> ArxmlParser<'a> {
         name: ElementName,
         elemtype: ElementType,
         elem_idx: &[usize],
-        element_count: &mut HashMap<u16, usize>,
+        element_count: &mut FxHashMap<u16, usize>,
     ) -> Result<(), AutosarDataError> {
         // check the multiplicity - in practice the only restriction that matters here is having too many elements where the multiplicity is not Any
         // element_count will contain the current cout for this element if it has been seen before - if not, there cannot be a multiplicity problem

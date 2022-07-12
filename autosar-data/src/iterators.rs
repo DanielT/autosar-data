@@ -193,7 +193,7 @@ pub struct AutosarDataIdentElementsIterator {
 }
 
 impl AutosarDataIdentElementsIterator {
-    pub(crate) fn new(identifiables: &HashMap<String, WeakElement>) -> Self {
+    pub(crate) fn new(identifiables: &FxHashMap<String, WeakElement>) -> Self {
         let mut identifiables_list: Vec<(String, WeakElement)> = identifiables
             .iter()
             .map(|(path, elementref)| (path.to_owned(), elementref.clone()))
