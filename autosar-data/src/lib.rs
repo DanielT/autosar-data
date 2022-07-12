@@ -18,7 +18,7 @@ use thiserror::Error;
 use rustc_hash::FxHashMap;
 
 mod arxmlfile;
-mod autosardata;
+mod autosarproject;
 mod chardata;
 mod element;
 mod iterators;
@@ -31,22 +31,22 @@ pub use autosar_data_specification::AutosarVersion;
 pub use autosar_data_specification::ElementName;
 pub use autosar_data_specification::EnumItem;
 
-/// AutosarData is the top level data type in the autosar-data crate.
+/// AutosarProject is the top level data type in the autosar-data crate.
 ///
-/// All manipulations of arxml files are performed through an instance of AutosarDatas
+/// All manipulations of arxml files are performed through an instance of AutosarProject
 #[derive(Debug, Clone)]
-pub struct AutosarData(Arc<Mutex<AutosarDataRaw>>);
+pub struct AutosarProject(Arc<Mutex<AutosarProjectRaw>>);
 
-// Weak reference to an instance of AutosarData
+// Weak reference to an instance of AutosarProject
 #[derive(Debug, Clone)]
-pub(crate) struct WeakAutosarData(Weak<Mutex<AutosarDataRaw>>);
+pub(crate) struct WeakAutosarProject(Weak<Mutex<AutosarProjectRaw>>);
 
-/// Data of an autosar project
+/// An autosar project
 ///
-/// This data consists of a number auf arxml files, each of which contains a heirarchy of elements.
-/// In addition, this top-level strucutre provides chaching of Autosar paths, to allow quick resolution of cross-references.
+/// The project consists of a number auf arxml files, each of which contains a heirarchy of elements.
+/// In addition, this top-level structure provides chaching of Autosar paths, to allow quick resolution of cross-references.
 #[derive(Debug)]
-pub(crate) struct AutosarDataRaw {
+pub(crate) struct AutosarProjectRaw {
     files: Vec<ArxmlFile>,
     /// identifiables is a HashMap of all named elements, needed to resolve references without doing a full search.
     identifiables: FxHashMap<String, WeakElement>,
@@ -103,7 +103,7 @@ pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 /// The data of an arxml file
 #[derive(Debug)]
 pub(crate) struct ArxmlFileRaw {
-    autosar_data: WeakAutosarData,
+    project: WeakAutosarProject,
     pub(crate) version: AutosarVersion,
     pub(crate) filename: PathBuf,
     pub(crate) root_element: Element,

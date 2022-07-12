@@ -3,7 +3,7 @@ use std::{fmt::Write, path::Path};
 use crate::*;
 
 impl ArxmlFile {
-    pub(crate) fn new<P: AsRef<Path>>(filename: P, version: AutosarVersion, container: &AutosarData) -> Self {
+    pub(crate) fn new<P: AsRef<Path>>(filename: P, version: AutosarVersion, container: &AutosarProject) -> Self {
         let xsi_schemalocation =
             CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
         let xmlns = CharacterData::String("http://autosar.org/schema/r4.0".to_string());
@@ -30,7 +30,7 @@ impl ArxmlFile {
             attributes: root_attributes,
         })));
         let file = Self(Arc::new(Mutex::new(ArxmlFileRaw {
-            autosar_data: container.downgrade(),
+            project: container.downgrade(),
             root_element,
             version,
             filename: filename.as_ref().to_path_buf(),
@@ -74,11 +74,11 @@ impl ArxmlFile {
         self.root_element().check_version_compatibility(target_version)
     }
 
-    /// get a reference to the [AutosarData] object that contains this file
-    pub fn autosar_data(&self) -> Result<AutosarData, AutosarDataError> {
+    /// get a reference to the [AutosarProject] object that contains this file
+    pub fn project(&self) -> Result<AutosarProject, AutosarDataError> {
         let locked_file = self.0.lock();
         // This reference must always be valid, so it is an error if upgrade() fails
-        locked_file.autosar_data.upgrade().ok_or(AutosarDataError::ItemDeleted)
+        locked_file.project.upgrade().ok_or(AutosarDataError::ItemDeleted)
     }
 
     /// get a referenct to the root ```<AUTOSAR ...>``` element of this file
@@ -138,15 +138,15 @@ mod test {
 
     #[test]
     fn create() {
-        let data = AutosarData::new();
-        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
+        let project = AutosarProject::new();
+        let result = project.create_file("test", AutosarVersion::Autosar_4_0_1);
         assert!(result.is_ok());
     }
 
     #[test]
     fn filename() {
-        let data = AutosarData::new();
-        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
+        let project = AutosarProject::new();
+        let result = project.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
         let filename = PathBuf::from("newname.arxml");
         file.set_filename(filename.clone());
@@ -155,8 +155,8 @@ mod test {
 
     #[test]
     fn version() {
-        let data = AutosarData::new();
-        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
+        let project = AutosarProject::new();
+        let result = project.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
         file.set_version(AutosarVersion::Autosar_00050);
         assert_eq!(file.version(), AutosarVersion::Autosar_00050);
@@ -164,19 +164,19 @@ mod test {
 
     #[test]
     fn references() {
-        let data = AutosarData::new();
-        let result = data.create_file("test", AutosarVersion::Autosar_4_0_1);
+        let project = AutosarProject::new();
+        let result = project.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
         let weak_file = file.downgrade();
         let file2 = weak_file.upgrade().unwrap();
-        assert_eq!(Arc::strong_count(&file.0), 3); // 3 references are: AutosarData, file, file2
+        assert_eq!(Arc::strong_count(&file.0), 3); // 3 references are: AutosarProject, file, file2
         assert_eq!(file, file2);
     }
 
     #[test]
     fn serialize() {
-        let data = AutosarData::new();
-        let file = data.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let project = AutosarProject::new();
+        let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
         let text = file.serialize();
         assert_eq!(
             text,

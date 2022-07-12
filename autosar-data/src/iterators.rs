@@ -1,12 +1,12 @@
 use super::*;
 
 pub struct ArxmlFileIterator {
-    data: AutosarData,
+    data: AutosarProject,
     index: usize,
 }
 
 impl ArxmlFileIterator {
-    pub(crate) fn new(data: AutosarData) -> Self {
+    pub(crate) fn new(data: AutosarProject) -> Self {
         Self { data, index: 0 }
     }
 }
@@ -15,9 +15,9 @@ impl Iterator for ArxmlFileIterator {
     type Item = ArxmlFile;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let data = self.data.0.lock();
-        if self.index < data.files.len() {
-            let result = data.files[self.index].clone();
+        let project = self.data.0.lock();
+        if self.index < project.files.len() {
+            let result = project.files[self.index].clone();
             self.index += 1;
             return Some(result);
         }
@@ -180,7 +180,7 @@ impl Iterator for AttributeIterator {
     }
 }
 
-/// An iterator over all identifiable elements in the [AutosarData]
+/// An iterator over all identifiable elements in the [AutosarProject]
 pub struct AutosarDataIdentElementsIterator {
     // The implementation of this iterator has two problems:
     // 1) it's not possible to return references to data protected by a mutex, which makes sense (we would be bypassing the mutex to read through the references)

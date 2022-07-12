@@ -31,7 +31,7 @@ fn main() {
 
         println!("Generating {filename} for \'{}\'", version.describe());
 
-        let project = AutosarData::new();
+        let project = AutosarProject::new();
         let arxml_file = project.create_file(&filename, version).unwrap();
         let autosar_element = arxml_file.root_element();
 

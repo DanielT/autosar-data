@@ -301,7 +301,7 @@ impl Element {
     /// create a deep copy of the given element and insert it as a sub-element
     ///
     /// The other element must be a permissible sub-element in this element and not conflict with any existing sub element.
-    /// The other element can originate from any loaded [AutosarData], it does not have to originate from the same project or file as the current element.
+    /// The other element can originate from any loaded [AutosarProject], it does not have to originate from the same project or file as the current element.
     ///
     /// The [AutosarVersion] of the other element might differ from the version of the current file;
     /// in this case a partial copy will be performed that omits all incompatible elements.
@@ -323,7 +323,7 @@ impl Element {
     /// create a deep copy of the given element and insert it as a sub-element at the given position
     ///
     /// The other element must be a permissible sub-element in this element and not conflict with any existing sub element.
-    /// The other element can originate from any loaded [AutosarData], it does not have to originate from the same project or file as the current element.
+    /// The other element can originate from any loaded [AutosarProject], it does not have to originate from the same project or file as the current element.
     ///
     /// The [AutosarVersion] of the other element might differ from the version of the current file;
     /// in this case a partial copy will be performed that omits all incompatible elements.
@@ -348,7 +348,7 @@ impl Element {
 
     fn create_copied_sub_element_inner(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
         let version = self.containing_file().map(|f| f.version())?;
-        let autosar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+        let project = self.containing_file().and_then(|f| f.project())?;
 
         // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
         // Additionally, implementing this manually provides the opportunity to filter out
@@ -364,12 +364,12 @@ impl Element {
         for (_, sub_elem) in newelem.elements_dfs() {
             // add all identifiable sub elements to the identifiables hashmap
             if sub_elem.is_identifiable() {
-                autosar_data.fix_identifiables(None, &sub_elem);
+                project.fix_identifiables(None, &sub_elem);
             }
             // add all references to the reference_origins hashmap
             if sub_elem.is_reference() {
                 if let Some(CharacterData::String(reference)) = sub_elem.character_data() {
-                    autosar_data.add_reference_origin(&reference, sub_elem.downgrade())
+                    project.add_reference_origin(&reference, sub_elem.downgrade())
                 }
             }
         }
@@ -384,12 +384,12 @@ impl Element {
 
     /// make_unique_item_name ensures that a copied element has a unique name
     fn make_unique_item_name(&self) -> Result<(), AutosarDataError> {
-        let autosar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+        let project = self.containing_file().and_then(|f| f.project())?;
         let orig_name = self.item_name().unwrap();
         let mut path = self.path()?.unwrap();
         let mut counter = 1;
 
-        while autosar_data.get_element_by_path(&path)?.is_some() {
+        while project.get_element_by_path(&path)?.is_some() {
             let name = format!("{orig_name}_{counter}");
             counter += 1;
             {
@@ -565,7 +565,7 @@ impl Element {
 
     /// take an `element` from it's current location and place it in this element as a sub element
     ///
-    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarData project
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarProject
     ///
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
@@ -579,7 +579,7 @@ impl Element {
 
     /// take an `element` from it's current location and place it at the given position in this element as a sub element
     ///
-    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarData project
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarProject
     ///
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
@@ -596,9 +596,9 @@ impl Element {
 
     fn move_element_here_inner(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
         let new_elem_file = new_element.containing_file()?;
-        let ar_data_other = new_elem_file.autosar_data()?;
+        let ar_data_other = new_elem_file.project()?;
         let own_ver = self.containing_file().map(|f| f.version())?;
-        let ar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+        let ar_data = self.containing_file().and_then(|f| f.project())?;
         let new_elem_ver = new_elem_file.version();
         if own_ver != new_elem_ver {
             return Err(Element::error(ElementActionError::VersionIncompatible));
@@ -736,7 +736,7 @@ impl Element {
                 .map(|(idx, _)| idx)
                 .ok_or_else(|| Element::error(ElementActionError::ElementNotFound))?
         };
-        let autosar_data = self.containing_file().and_then(|f| f.autosar_data())?;
+        let project = self.containing_file().and_then(|f| f.project())?;
         if self.is_identifiable() && sub_element.element_name() == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
             return Err(Element::error(ElementActionError::ShortNameRemovalForbidden));
@@ -747,18 +747,18 @@ impl Element {
             let _ = sub_element.remove_sub_element(sub_sub_element);
         }
 
-        // if sub_element is a named element, then a reference to it exists in the autosar_data.identifiables HashMap
+        // if sub_element is a named element, then a reference to it exists in the project.identifiables HashMap
         if sub_element.is_identifiable() {
             if let Some(path) = sub_element.path()? {
                 // remove the identifiables-reference (terminology???)
-                autosar_data.remove_identifiable(&path);
+                project.remove_identifiable(&path);
             }
         }
-        // if the sub_element is a reference, then autosar_data.references caches this relation
+        // if the sub_element is a reference, then project.references caches this relation
         if sub_element.is_reference() {
             if let Some(CharacterData::String(reference)) = sub_element.character_data() {
                 // remove the references-reference (ugh. terminology???)
-                autosar_data.remove_reference_origin(&reference, sub_element.downgrade());
+                project.remove_reference_origin(&reference, sub_element.downgrade());
             }
         }
 
@@ -783,8 +783,8 @@ impl Element {
             if let Ok(Some(new_ref)) = target.path() {
                 // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
                 if let Ok(enum_item) = EnumItem::from_str(target.element_name().to_str()) {
-                    // need a reference to the AutosarData struct all this is part of - shouldn't ever fail
-                    if let Ok(data) = self.containing_file().and_then(|f| f.autosar_data()) {
+                    // need a reference to the AutosarProject struct all this is part of - shouldn't ever fail
+                    if let Ok(data) = self.containing_file().and_then(|f| f.project()) {
                         // if this reference previously referenced some other element, update
                         if let Some(CharacterData::String(old_ref)) = self.character_data() {
                             data.fix_reference_origins(&old_ref, &new_ref, self.downgrade());
@@ -807,7 +807,7 @@ impl Element {
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters {
             if let Some(cdata_spec) = elemtype.chardata_spec() {
-                let autosar_data = self.containing_file().and_then(|file| file.autosar_data())?;
+                let project = self.containing_file().and_then(|file| file.project())?;
                 let version = self.containing_file().map(|f| f.version())?;
                 if CharacterData::check_value(&chardata, cdata_spec, version) {
                     // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
@@ -842,18 +842,18 @@ impl Element {
                         }
                     }
 
-                    // short-name: make sure the hashmap in the top-level AutosarData struct is updated so that this element can still be found
+                    // short-name: make sure the hashmap in the top-level AutosarProject is updated so that this element can still be found
                     if self.element_name() == ElementName::ShortName {
                         if let Some(parent) = self.parent()? {
-                            autosar_data.fix_identifiables(prev_path, &parent);
+                            project.fix_identifiables(prev_path, &parent);
                         }
                     }
 
-                    // reference: update the references hashmap in the top-level AutosarData struct
+                    // reference: update the references hashmap in the top-level AutosarProject
                     if elemtype.is_ref() {
                         if let Some(CharacterData::String(refval)) = self.character_data() {
                             if let Some(old_refval) = old_refval {
-                                autosar_data.fix_reference_origins(&old_refval, &refval, self.downgrade());
+                                project.fix_reference_origins(&old_refval, &refval, self.downgrade());
                             }
                         }
                     }
@@ -1249,11 +1249,11 @@ mod test {
 
     #[test]
     fn element_creation() {
-        let autosar_data = AutosarData::new();
-        autosar_data
+        let project = AutosarProject::new();
+        project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
 
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
         let el_compu_method = el_elements
@@ -1275,7 +1275,7 @@ mod test {
         assert_eq!(end_pos, 3); // upper limit is 3 since there are currently 3 elements
 
         // check if create_named_sub_element correctly registered the element in the hashmap so that it can be found
-        let el_compu_method_test = autosar_data
+        let el_compu_method_test = project
             .get_element_by_path("/TestPackage/TestCompuMethod")
             .unwrap()
             .unwrap();
@@ -1312,11 +1312,11 @@ mod test {
 
     #[test]
     fn element_copy() {
-        let autosar_data = AutosarData::new();
-        autosar_data
+        let project = AutosarProject::new();
+        project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
         let el_compu_method = el_elements
             .create_named_sub_element(ElementName::CompuMethod, "CompuMethod")
@@ -1325,8 +1325,8 @@ mod test {
             .create_named_sub_element(ElementName::DdsServiceInstanceToMachineMapping, "ApItem")
             .unwrap();
 
-        let autosar_data2 = AutosarData::new();
-        let file = autosar_data2
+        let project2 = AutosarProject::new();
+        let file = project2
             .create_file(OsString::from("test.arxml"), AutosarVersion::Autosar_00044)
             .unwrap();
 
@@ -1341,7 +1341,7 @@ mod test {
         el_ar_packages2.create_copied_sub_element(&el_ar_package).unwrap();
 
         // it should be possible to look up the copied compu method by its path
-        let el_compu_method_2 = autosar_data2
+        let el_compu_method_2 = project2
             .get_element_by_path("/TestPackage/CompuMethod")
             .unwrap()
             .unwrap();
@@ -1352,17 +1352,17 @@ mod test {
         assert_eq!(el_compu_method.serialize(), el_compu_method_2.serialize());
 
         // verify that the DDS-SERVICE-INSTANCE-TO-MACHINE-MAPPING element was not copied
-        let result = autosar_data2.get_element_by_path("/TestPackage/ApItem").unwrap();
+        let result = project2.get_element_by_path("/TestPackage/ApItem").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn element_deletion() {
-        let autosar_data = AutosarData::new();
-        autosar_data
+        let project = AutosarProject::new();
+        project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
         let el_short_name = el_ar_package.sub_elements().next().unwrap();
         // removing the SHORT-NAME of an identifiable element is formbidden
         let result = el_ar_package.remove_sub_element(el_short_name);
@@ -1381,8 +1381,8 @@ mod test {
 
     #[test]
     fn attributes() {
-        let autosar_data = AutosarData::new();
-        let (file, _) = autosar_data
+        let project = AutosarProject::new();
+        let (file, _) = project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
         let el_autosar = file.root_element();
@@ -1420,11 +1420,11 @@ mod test {
 
     #[test]
     fn mixed_content() {
-        let autosar_data = AutosarData::new();
-        autosar_data
+        let project = AutosarProject::new();
+        project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = autosar_data.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
         let el_long_name = el_ar_package.create_sub_element(ElementName::LongName).unwrap();
         assert_eq!(el_long_name.content_type(), ContentType::Elements);
         let el_l_4 = el_long_name.create_sub_element(ElementName::L4).unwrap();
@@ -1476,13 +1476,13 @@ mod test {
             </ELEMENTS>
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
-        let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+        let project = AutosarProject::new();
+        project.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
             .unwrap();
         // get the existing ECU-INSTANCE EcuInstance
-        let ecu_instance = data.get_element_by_path("/Pkg/EcuInstance").unwrap().unwrap();
+        let ecu_instance = project.get_element_by_path("/Pkg/EcuInstance").unwrap().unwrap();
         // get the existing AR-PACKAGE Pkg2
-        let pkg2 = data.get_element_by_path("/Pkg2").unwrap().unwrap();
+        let pkg2 = project.get_element_by_path("/Pkg2").unwrap().unwrap();
         // get the ELEMENTS sub element of Pkg2
         let pkg2_elements = pkg2
             .sub_elements()
@@ -1496,7 +1496,7 @@ mod test {
         assert_eq!(ecu_instance.item_name().unwrap(), "EcuInstance_1");
         // assert: The path of the EcuInstance is now "/Pkg2/EcuInstance" instead of "/Pkg/EcuInstance"
         assert_eq!(ecu_instance.path().unwrap().unwrap(), "/Pkg2/EcuInstance_1");
-        let system = data.get_element_by_path("/Pkg/System").unwrap().unwrap();
+        let system = project.get_element_by_path("/Pkg/System").unwrap().unwrap();
         // get the FIBEX-ELEMENT-REF which has DEST=ECU-INSTANCE
         let (_, fibex_elem_ref) = system
             .elements_dfs()

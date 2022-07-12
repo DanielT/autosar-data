@@ -5,7 +5,7 @@ use std::{
     io::Read,
 };
 
-use autosar_data::AutosarData;
+use autosar_data::AutosarProject;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -15,7 +15,7 @@ fn main() {
         return;
     }
 
-    let data = AutosarData::new();
+    let project = AutosarProject::new();
     let filename = OsString::from(&args[1]);
     let buffer = match load_file_data(&filename) {
         Ok(buffer) => buffer,
@@ -25,13 +25,13 @@ fn main() {
         }
     };
     let now = std::time::Instant::now();
-    let result = data.load_named_arxml_buffer(&buffer, &filename, true);
+    let result = project.load_named_arxml_buffer(&buffer, &filename, true);
     match result {
         Ok(_) => println!("parsing succeeded in {}ms", now.elapsed().as_micros() as f64 / 1000.0),
         Err(err) => println!("parsing failed: {err}"),
     }
 
-    for file in data.files() {
+    for file in project.files() {
         println!("loaded arxml file: {}", file.filename().to_string_lossy());
     }
 }

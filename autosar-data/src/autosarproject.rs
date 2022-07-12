@@ -2,12 +2,12 @@ use std::{path::Path, str::FromStr};
 
 use crate::*;
 
-impl AutosarData {
+impl AutosarProject {
     /// Create an instance of AutosarData
     ///
     /// Initially it contains no arxml files
-    pub fn new() -> AutosarData {
-        AutosarData(Arc::new(Mutex::new(AutosarDataRaw {
+    pub fn new() -> AutosarProject {
+        AutosarProject(Arc::new(Mutex::new(AutosarProjectRaw {
             files: Vec::new(),
             identifiables: FxHashMap::default(),
             reference_origins: FxHashMap::default(),
@@ -65,7 +65,7 @@ impl AutosarData {
         let root_element = parser.parse_arxml()?;
 
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
-            autosar_data: self.downgrade(),
+            project: self.downgrade(),
             version: parser.get_fileversion(),
             filename: filename.as_ref().to_path_buf(),
             root_element,
@@ -153,8 +153,8 @@ impl AutosarData {
     ///
     /// This is a lookup in a hash table and runs in O(1) time
     pub fn get_element_by_path(&self, path: &str) -> Result<Option<Element>, AutosarDataError> {
-        let data = self.0.lock();
-        Ok(data.identifiables.get(path).and_then(|element| element.upgrade()))
+        let project = self.0.lock();
+        Ok(project.identifiables.get(path).and_then(|element| element.upgrade()))
     }
 
     /// create a depth-first iterator over all [Element]s in all [ArxmlFile]s
@@ -164,8 +164,8 @@ impl AutosarData {
 
     /// create an iterator over all identifiable elements
     pub fn identifiable_elements(&self) -> AutosarDataIdentElementsIterator {
-        let data = self.0.lock();
-        AutosarDataIdentElementsIterator::new(&data.identifiables)
+        let project = self.0.lock();
+        AutosarDataIdentElementsIterator::new(&project.identifiables)
     }
 
     /// check all Autosar path references and return a list of elements with invalid references
@@ -176,9 +176,9 @@ impl AutosarData {
     pub fn check_references(&self) -> Vec<WeakElement> {
         let mut broken_refs = Vec::new();
 
-        let data = self.0.lock();
-        for (path, element_list) in &data.reference_origins {
-            if let Some(target_elem_weak) = data.identifiables.get(path) {
+        let project = self.0.lock();
+        for (path, element_list) in &project.reference_origins {
+            if let Some(target_elem_weak) = project.identifiables.get(path) {
                 // reference target exists
                 if let Some(target_elem) = target_elem_weak.upgrade() {
                     // the target of the reference exists, but the reference can still be technically invalid
@@ -220,8 +220,8 @@ impl AutosarData {
     }
 
     /// create a weak reference to this data
-    pub(crate) fn downgrade(&self) -> WeakAutosarData {
-        WeakAutosarData(Arc::downgrade(&self.0))
+    pub(crate) fn downgrade(&self) -> WeakAutosarProject {
+        WeakAutosarProject(Arc::downgrade(&self.0))
     }
 
     pub(crate) fn fix_identifiables(&self, old_path: Option<String>, element: &Element) {
@@ -296,21 +296,21 @@ impl AutosarData {
     }
 }
 
-impl Default for AutosarData {
+impl Default for AutosarProject {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PartialEq for AutosarData {
+impl PartialEq for AutosarProject {
     fn eq(&self, other: &Self) -> bool {
         Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
     }
 }
 
-impl WeakAutosarData {
-    pub(crate) fn upgrade(&self) -> Option<AutosarData> {
-        Weak::upgrade(&self.0).map(AutosarData)
+impl WeakAutosarProject {
+    pub(crate) fn upgrade(&self) -> Option<AutosarProject> {
+        Weak::upgrade(&self.0).map(AutosarProject)
     }
 }
 
@@ -320,8 +320,8 @@ mod test {
 
     #[test]
     fn create_file() {
-        let data = AutosarData::new();
-        let file = data.create_file("test", AutosarVersion::Autosar_00050);
+        let project = AutosarProject::new();
+        let file = project.create_file("test", AutosarVersion::Autosar_00050);
         assert!(file.is_ok());
     }
 
@@ -330,18 +330,18 @@ mod test {
         const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
         <AR-PACKAGES></AR-PACKAGES></AUTOSAR>"#;
-        let data = AutosarData::new();
-        let result = data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
+        let project = AutosarProject::new();
+        let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_ok());
     }
 
     #[test]
     fn references() {
-        let data = AutosarData::new();
-        let weak = data.downgrade();
-        let data2 = weak.upgrade();
-        assert_eq!(Arc::strong_count(&data.0), 2);
-        assert_eq!(data, data2.unwrap());
+        let project = AutosarProject::new();
+        let weak = project.downgrade();
+        let project2 = weak.upgrade();
+        assert_eq!(Arc::strong_count(&project.0), 2);
+        assert_eq!(project, project2.unwrap());
     }
 
     #[test]
@@ -362,9 +362,9 @@ mod test {
             </AR-PACKAGES>
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
-        let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
-        let mut iter = data.identifiable_elements();
+        let project = AutosarProject::new();
+        project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        let mut iter = project.identifiable_elements();
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage2");
@@ -396,9 +396,9 @@ mod test {
             </ELEMENTS>
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
-        let data = AutosarData::new();
-        data.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
-        let invalid_refs = data.check_references();
+        let project = AutosarProject::new();
+        project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        let invalid_refs = project.check_references();
         assert_eq!(invalid_refs.len(), 2);
         let ref0 = invalid_refs[0].upgrade().unwrap();
         assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
