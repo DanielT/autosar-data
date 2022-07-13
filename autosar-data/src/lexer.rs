@@ -54,20 +54,26 @@ impl<'a> ArxmlLexer<'a> {
         }
     }
 
-    fn read_characters(&mut self) -> ArxmlEvent<'a> {
+    fn read_characters(&mut self) -> (ArxmlEvent<'a>, bool) {
         debug_assert!(self.bufpos < self.buffer.len());
 
         // the start of the next element '<' is the end of this block of characters
         let mut endpos = self.bufpos;
+        let mut all_whitespace = true;
         while endpos < self.buffer.len() && self.buffer[endpos] != b'<' {
+            // count the lines directly in this loop; it's faster than calling count_lines and this loop is quite hot in the profile...
+            if !self.buffer[endpos].is_ascii_whitespace() {
+                all_whitespace = false;
+            } else if self.buffer[endpos] == b'\n' {
+                self.line += 1;
+            }
             endpos += 1;
         }
         debug_assert!(endpos > self.bufpos);
 
         let text = &self.buffer[self.bufpos..endpos];
-        self.line += count_lines(text);
         self.bufpos = endpos;
-        ArxmlEvent::Characters(text)
+        (ArxmlEvent::Characters(text), all_whitespace)
     }
 
     fn read_element_start(&mut self, endpos: usize) -> ArxmlEvent<'a> {
@@ -193,17 +199,16 @@ impl<'a> ArxmlLexer<'a> {
                     break Ok((self.line, ArxmlEvent::EndOfFile));
                 } else if self.buffer[self.bufpos] == b'<' {
                     // start of an <element> or </element> or <!--comment-->
-                    let mut endpos = self.bufpos;
                     // find a '>' character
-                    while endpos < self.buffer.len() && self.buffer[endpos] != b'>' {
-                        endpos += 1;
-                    }
+                    let (findpos, _) = self.buffer[self.bufpos + 1..]
+                        .iter()
+                        .enumerate()
+                        .find(|(_, c)| **c == b'>')
+                        .ok_or_else(|| self.error(ArxmlLexerError::IncompleteData))?;
+                    let endpos = self.bufpos + findpos + 1;
 
-                    if endpos == self.buffer.len() {
-                        // '>' not found
-                        return Err(self.error(ArxmlLexerError::IncompleteData));
-                    } else if endpos <= self.bufpos + 1 {
-                        // string is "<" or "<>"
+                    if endpos == self.bufpos + 1 {
+                        // string is "<>"
                         return Err(self.error(ArxmlLexerError::InvalidElement));
                     }
 
@@ -217,7 +222,8 @@ impl<'a> ArxmlLexer<'a> {
                             // second char is '?' -> xml header or processing instruction
                             // processing instructions are ignored, read_xml_header returns None
                             if let Some(result) = self.read_xml_header(endpos) {
-                                return Ok((self.line, result?));
+                                let value = result?;
+                                return Ok((self.line, value));
                             }
                         }
                         b'!' => {
@@ -230,13 +236,10 @@ impl<'a> ArxmlLexer<'a> {
                         }
                     }
                 } else {
-                    // start of characters or whitespace
-                    if let ArxmlEvent::Characters(text) = self.read_characters() {
-                        let is_whitespace = text.iter().all(|c| c.is_ascii_whitespace());
-                        // only break and return a value if the text is not empty
-                        if !is_whitespace {
-                            return Ok((self.line, ArxmlEvent::Characters(text)));
-                        }
+                    // start of character sequence
+                    if let (ArxmlEvent::Characters(text), false) = self.read_characters() {
+                        // found a character sequence which is not all whitespace
+                        return Ok((self.line, ArxmlEvent::Characters(text)));
                     }
                 }
                 // loop if:

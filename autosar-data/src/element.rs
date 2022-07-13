@@ -1477,7 +1477,8 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let project = AutosarProject::new();
-        project.load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+        project
+            .load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
             .unwrap();
         // get the existing ECU-INSTANCE EcuInstance
         let ecu_instance = project.get_element_by_path("/Pkg/EcuInstance").unwrap().unwrap();

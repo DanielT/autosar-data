@@ -86,6 +86,7 @@ impl AutosarProject {
                 }
             }
         }
+        data.reference_origins.reserve(parser.references.len());
         for (refpath, referring_element) in parser.references {
             if let Some(xref) = data.reference_origins.get_mut(&refpath) {
                 xref.push(referring_element);
@@ -363,7 +364,9 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let project = AutosarProject::new();
-        project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        project
+            .load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
+            .unwrap();
         let mut iter = project.identifiable_elements();
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
@@ -397,7 +400,9 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let project = AutosarProject::new();
-        project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        project
+            .load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
+            .unwrap();
         let invalid_refs = project.check_references();
         assert_eq!(invalid_refs.len(), 2);
         let ref0 = invalid_refs[0].upgrade().unwrap();

@@ -8,14 +8,12 @@ use iterators::*;
 use lexer::*;
 use parking_lot::Mutex;
 use parser::*;
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::path::PathBuf;
-use std::{
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 use std::{fs::File, io::Read};
 use thiserror::Error;
-use rustc_hash::FxHashMap;
 
 mod arxmlfile;
 mod autosarproject;

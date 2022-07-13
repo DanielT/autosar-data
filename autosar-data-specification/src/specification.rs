@@ -18896,7 +18896,7 @@ pub(crate) static SUBELEMENTS: [SubElement; 18013] = [
     SubElement::Element{name: ElementName::SecondElementRef, elemtype: 23, multiplicity: ElementMultiplicity::One},
     SubElement::Element{name: ElementName::ViewMap, elemtype: 4300, multiplicity: ElementMultiplicity::One}];
 
-pub(crate) static ATTRIBUTES: [(AttributeName, usize, bool); 3483] = [
+pub(crate) static ATTRIBUTES: [(AttributeName, u16, bool); 3483] = [
     (AttributeName::S, 875, false),
     (AttributeName::T, 181, false),
     (AttributeName::Accesskey, 875, false),

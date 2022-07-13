@@ -1,9 +1,9 @@
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::fmt::Write;
 use std::str::FromStr;
 use std::str::Utf8Error;
 use thiserror::Error;
-use rustc_hash::FxHashMap;
 
 use crate::lexer::*;
 use crate::*;
