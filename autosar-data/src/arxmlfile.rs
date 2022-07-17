@@ -1,4 +1,4 @@
-use std::{fmt::Write, path::Path};
+use std::path::Path;
 
 use crate::*;
 
@@ -97,9 +97,7 @@ impl ArxmlFile {
     pub fn serialize(&self) -> String {
         let mut outstring = String::with_capacity(1024 * 1024);
 
-        outstring
-            .write_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
-            .unwrap();
+        outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
         self.root_element().serialize_internal(&mut outstring, 0, false);
 
         outstring

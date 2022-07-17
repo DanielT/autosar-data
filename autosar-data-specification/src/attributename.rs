@@ -9,229 +9,219 @@ pub struct ParseAttributeNameError;
 #[repr(u16)]
 /// Enum of all attribute names in Autosar
 pub enum AttributeName {
-    /// ACCESSKEY
-    Accesskey               = 0,
-    /// ALIGN
-    Align                   = 1,
-    /// ALLOW-BREAK
-    AllowBreak              = 2,
-    /// ALT
-    Alt                     = 3,
-    /// BASE
-    Base                    = 4,
-    /// BGCOLOR
-    Bgcolor                 = 5,
-    /// BINDING-TIME
-    BindingTime             = 6,
-    /// BLUEPRINT-VALUE
-    BlueprintValue          = 7,
-    /// BREAK
-    Break                   = 8,
-    /// CLASS
-    Class                   = 9,
-    /// COLNAME
-    Colname                 = 10,
-    /// COLNUM
-    Colnum                  = 11,
-    /// COLOR
-    Color                   = 12,
-    /// COLS
-    Cols                    = 13,
-    /// COLSEP
-    Colsep                  = 14,
-    /// COLWIDTH
-    Colwidth                = 15,
-    /// COORDS
-    Coords                  = 16,
-    /// DEST
-    Dest                    = 17,
-    /// EDIT-HEIGHT
-    EditHeight              = 18,
-    /// EDIT-WIDTH
-    EditWidth               = 19,
-    /// EDITFIT
-    Editfit                 = 20,
-    /// EDITSCALE
-    Editscale               = 21,
-    /// ENUM-TABLE
-    EnumTable               = 22,
-    /// FILENAME
-    Filename                = 23,
-    /// FIT
-    Fit                     = 24,
-    /// FLOAT
-    Float                   = 25,
-    /// FONT
-    Font                    = 26,
-    /// FRAME
-    Frame                   = 27,
-    /// GENERATOR
-    Generator               = 28,
-    /// GID
-    Gid                     = 29,
-    /// HEIGHT
-    Height                  = 30,
-    /// HELP-ENTRY
-    HelpEntry               = 31,
-    /// HREF
-    Href                    = 32,
-    /// HTML-FIT
-    HtmlFit                 = 33,
-    /// HTML-HEIGHT
-    HtmlHeight              = 34,
-    /// HTML-SCALE
-    HtmlScale               = 35,
-    /// HTML-WIDTH
-    HtmlWidth               = 36,
-    /// INDEX
-    Index                   = 37,
-    /// INTERVAL-TYPE
-    IntervalType            = 38,
-    /// ITEM-LABEL-POS
-    ItemLabelPos            = 39,
-    /// KEEP-WITH-PREVIOUS
-    KeepWithPrevious        = 40,
-    /// L
-    L                       = 41,
-    /// LEVEL
-    Level                   = 42,
-    /// MIME-TYPE
-    MimeType                = 43,
-    /// MOREROWS
-    Morerows                = 44,
-    /// NAME
-    Name                    = 45,
-    /// NAME-PATTERN
-    NamePattern             = 46,
-    /// NAMEEND
-    Nameend                 = 47,
-    /// NAMEST
-    Namest                  = 48,
     /// NOHREF
-    Nohref                  = 49,
-    /// NOTATION
-    Notation                = 50,
-    /// NOTE-TYPE
-    NoteType                = 51,
-    /// ONBLUR
-    Onblur                  = 52,
-    /// ONCLICK
-    Onclick                 = 53,
-    /// ONDBLCLICK
-    Ondblclick              = 54,
-    /// ONFOCUS
-    Onfocus                 = 55,
-    /// ONKEYDOWN
-    Onkeydown               = 56,
-    /// ONKEYPRESS
-    Onkeypress              = 57,
-    /// ONKEYUP
-    Onkeyup                 = 58,
-    /// ONMOUSEDOWN
-    Onmousedown             = 59,
-    /// ONMOUSEMOVE
-    Onmousemove             = 60,
+    Nohref                  = 0,
     /// ONMOUSEOUT
-    Onmouseout              = 61,
-    /// ONMOUSEOVER
-    Onmouseover             = 62,
-    /// ONMOUSEUP
-    Onmouseup               = 63,
-    /// ORIENT
-    Orient                  = 64,
-    /// PGWIDE
-    Pgwide                  = 65,
-    /// RESOLUTION-POLICY
-    ResolutionPolicy        = 66,
-    /// ROTATE
-    Rotate                  = 67,
-    /// ROWSEP
-    Rowsep                  = 68,
-    /// S
-    S                       = 69,
-    /// SCALE
-    Scale                   = 70,
-    /// SD
-    Sd                      = 71,
-    /// SHAPE
-    Shape                   = 72,
+    Onmouseout              = 1,
+    /// xmlns:xsi
+    xmlnsXsi                = 2,
+    /// MOREROWS
+    Morerows                = 3,
+    /// SPANNAME
+    Spanname                = 4,
+    /// TITLE
+    Title                   = 5,
+    /// DEST
+    Dest                    = 6,
+    /// COLNUM
+    Colnum                  = 7,
+    /// CLASS
+    Class                   = 8,
+    /// SHOW-RESOURCE-SHORT-NAME
+    ShowResourceShortName   = 9,
+    /// SHOW-RESOURCE-NUMBER
+    ShowResourceNumber      = 10,
     /// SHORT-LABEL
-    ShortLabel              = 73,
+    ShortLabel              = 11,
+    /// ONDBLCLICK
+    Ondblclick              = 12,
+    /// ROWSEP
+    Rowsep                  = 13,
+    /// FRAME
+    Frame                   = 14,
+    /// ALLOW-BREAK
+    AllowBreak              = 15,
+    /// HEIGHT
+    Height                  = 16,
+    /// ONMOUSEDOWN
+    Onmousedown             = 17,
+    /// BINDING-TIME
+    BindingTime             = 18,
+    /// NAMEST
+    Namest                  = 19,
+    /// EDIT-WIDTH
+    EditWidth               = 20,
+    /// EDITFIT
+    Editfit                 = 21,
+    /// BREAK
+    Break                   = 22,
+    /// BLUEPRINT-VALUE
+    BlueprintValue          = 23,
+    /// VIEW
+    View                    = 24,
+    /// COORDS
+    Coords                  = 25,
+    /// COLOR
+    Color                   = 26,
+    /// SHOW-RESOURCE-CATEGORY
+    ShowResourceCategory    = 27,
+    /// xmlns
+    xmlns                   = 28,
+    /// PGWIDE
+    Pgwide                  = 29,
+    /// ORIENT
+    Orient                  = 30,
+    /// FILENAME
+    Filename                = 31,
+    /// INDEX
+    Index                   = 32,
+    /// NAME
+    Name                    = 33,
+    /// TYPE
+    Type                    = 34,
+    /// ENUM-TABLE
+    EnumTable               = 35,
+    /// ONBLUR
+    Onblur                  = 36,
+    /// ONKEYUP
+    Onkeyup                 = 37,
+    /// SHAPE
+    Shape                   = 38,
+    /// ONMOUSEUP
+    Onmouseup               = 39,
+    /// SHOW-RESOURCE-TYPE
+    ShowResourceType        = 40,
+    /// BGCOLOR
+    Bgcolor                 = 41,
+    /// FLOAT
+    Float                   = 42,
+    /// L
+    L                       = 43,
+    /// NOTE-TYPE
+    NoteType                = 44,
+    /// STYLE
+    Style                   = 45,
+    /// ALT
+    Alt                     = 46,
     /// SHOW-CONTENT
-    ShowContent             = 74,
+    ShowContent             = 47,
+    /// TABSTYLE
+    Tabstyle                = 48,
+    /// VALIGN
+    Valign                  = 49,
+    /// LEVEL
+    Level                   = 50,
+    /// GID
+    Gid                     = 51,
+    /// S
+    S                       = 52,
+    /// SHOW-RESOURCE-LONG-NAME
+    ShowResourceLongName    = 53,
+    /// KEEP-WITH-PREVIOUS
+    KeepWithPrevious        = 54,
+    /// HTML-FIT
+    HtmlFit                 = 55,
+    /// ONMOUSEOVER
+    Onmouseover             = 56,
+    /// ROTATE
+    Rotate                  = 57,
+    /// HELP-ENTRY
+    HelpEntry               = 58,
+    /// UUID
+    Uuid                    = 59,
+    /// INTERVAL-TYPE
+    IntervalType            = 60,
+    /// FONT
+    Font                    = 61,
+    /// WIDTH
+    Width                   = 62,
+    /// GENERATOR
+    Generator               = 63,
+    /// space
+    space                   = 64,
+    /// SHOW-RESOURCE-PAGE
+    ShowResourcePage        = 65,
+    /// TEX-RENDER
+    TexRender               = 66,
+    /// HREF
+    Href                    = 67,
+    /// FIT
+    Fit                     = 68,
+    /// HTML-WIDTH
+    HtmlWidth               = 69,
+    /// ITEM-LABEL-POS
+    ItemLabelPos            = 70,
+    /// ONMOUSEMOVE
+    Onmousemove             = 71,
+    /// ALIGN
+    Align                   = 72,
+    /// ONKEYPRESS
+    Onkeypress              = 73,
+    /// COLNAME
+    Colname                 = 74,
     /// SHOW-RESOURCE-ALIAS-NAME
     ShowResourceAliasName   = 75,
-    /// SHOW-RESOURCE-CATEGORY
-    ShowResourceCategory    = 76,
-    /// SHOW-RESOURCE-LONG-NAME
-    ShowResourceLongName    = 77,
-    /// SHOW-RESOURCE-NUMBER
-    ShowResourceNumber      = 78,
-    /// SHOW-RESOURCE-PAGE
-    ShowResourcePage        = 79,
-    /// SHOW-RESOURCE-SHORT-NAME
-    ShowResourceShortName   = 80,
-    /// SHOW-RESOURCE-TYPE
-    ShowResourceType        = 81,
-    /// SHOW-SEE
-    ShowSee                 = 82,
+    /// SCALE
+    Scale                   = 76,
     /// SI
-    Si                      = 83,
-    /// SPANNAME
-    Spanname                = 84,
-    /// STYLE
-    Style                   = 85,
-    /// T
-    T                       = 86,
-    /// TABINDEX
-    Tabindex                = 87,
-    /// TABSTYLE
-    Tabstyle                = 88,
-    /// TEX-RENDER
-    TexRender               = 89,
-    /// TITLE
-    Title                   = 90,
-    /// TYPE
-    Type                    = 91,
-    /// UUID
-    Uuid                    = 92,
-    /// VALIDITY
-    Validity                = 93,
-    /// VALIGN
-    Valign                  = 94,
-    /// VIEW
-    View                    = 95,
-    /// WIDTH
-    Width                   = 96,
-    /// space
-    space                   = 97,
-    /// xmlns
-    xmlns                   = 98,
-    /// xmlns:xsi
-    xmlnsXsi                = 99,
+    Si                      = 77,
     /// xsi:schemaLocation
-    xsiSchemalocation       = 100,
+    xsiSchemalocation       = 78,
+    /// ACCESSKEY
+    Accesskey               = 79,
+    /// T
+    T                       = 80,
+    /// NAMEEND
+    Nameend                 = 81,
+    /// BASE
+    Base                    = 82,
+    /// EDITSCALE
+    Editscale               = 83,
+    /// VALIDITY
+    Validity                = 84,
+    /// HTML-SCALE
+    HtmlScale               = 85,
+    /// COLSEP
+    Colsep                  = 86,
+    /// NOTATION
+    Notation                = 87,
+    /// COLS
+    Cols                    = 88,
+    /// NAME-PATTERN
+    NamePattern             = 89,
+    /// EDIT-HEIGHT
+    EditHeight              = 90,
+    /// RESOLUTION-POLICY
+    ResolutionPolicy        = 91,
+    /// SD
+    Sd                      = 92,
+    /// TABINDEX
+    Tabindex                = 93,
+    /// COLWIDTH
+    Colwidth                = 94,
+    /// ONKEYDOWN
+    Onkeydown               = 95,
+    /// MIME-TYPE
+    MimeType                = 96,
+    /// HTML-HEIGHT
+    HtmlHeight              = 97,
+    /// ONCLICK
+    Onclick                 = 98,
+    /// SHOW-SEE
+    ShowSee                 = 99,
+    /// ONFOCUS
+    Onfocus                 = 100,
 }
 
 impl AttributeName {
-    const STRING_TABLE: [&'static str; 101] = ["ACCESSKEY", "ALIGN", "ALLOW-BREAK", "ALT", "BASE", "BGCOLOR", "BINDING-TIME", "BLUEPRINT-VALUE", "BREAK", "CLASS", "COLNAME", "COLNUM", "COLOR", "COLS", "COLSEP", "COLWIDTH", "COORDS", "DEST", "EDIT-HEIGHT", "EDIT-WIDTH", "EDITFIT", "EDITSCALE", "ENUM-TABLE", "FILENAME", "FIT", "FLOAT", "FONT", "FRAME", "GENERATOR", "GID", "HEIGHT", "HELP-ENTRY", "HREF", "HTML-FIT", "HTML-HEIGHT", "HTML-SCALE", "HTML-WIDTH", "INDEX", "INTERVAL-TYPE", "ITEM-LABEL-POS", "KEEP-WITH-PREVIOUS", "L", "LEVEL", "MIME-TYPE", "MOREROWS", "NAME", "NAME-PATTERN", "NAMEEND", "NAMEST", "NOHREF", "NOTATION", "NOTE-TYPE", "ONBLUR", "ONCLICK", "ONDBLCLICK", "ONFOCUS", "ONKEYDOWN", "ONKEYPRESS", "ONKEYUP", "ONMOUSEDOWN", "ONMOUSEMOVE", "ONMOUSEOUT", "ONMOUSEOVER", "ONMOUSEUP", "ORIENT", "PGWIDE", "RESOLUTION-POLICY", "ROTATE", "ROWSEP", "S", "SCALE", "SD", "SHAPE", "SHORT-LABEL", "SHOW-CONTENT", "SHOW-RESOURCE-ALIAS-NAME", "SHOW-RESOURCE-CATEGORY", "SHOW-RESOURCE-LONG-NAME", "SHOW-RESOURCE-NUMBER", "SHOW-RESOURCE-PAGE", "SHOW-RESOURCE-SHORT-NAME", "SHOW-RESOURCE-TYPE", "SHOW-SEE", "SI", "SPANNAME", "STYLE", "T", "TABINDEX", "TABSTYLE", "TEX-RENDER", "TITLE", "TYPE", "UUID", "VALIDITY", "VALIGN", "VIEW", "WIDTH", "space", "xmlns", "xmlns:xsi", "xsi:schemaLocation"];
+    const STRING_TABLE: [&'static str; 101] = ["NOHREF", "ONMOUSEOUT", "xmlns:xsi", "MOREROWS", "SPANNAME", "TITLE", "DEST", "COLNUM", "CLASS", "SHOW-RESOURCE-SHORT-NAME", "SHOW-RESOURCE-NUMBER", "SHORT-LABEL", "ONDBLCLICK", "ROWSEP", "FRAME", "ALLOW-BREAK", "HEIGHT", "ONMOUSEDOWN", "BINDING-TIME", "NAMEST", "EDIT-WIDTH", "EDITFIT", "BREAK", "BLUEPRINT-VALUE", "VIEW", "COORDS", "COLOR", "SHOW-RESOURCE-CATEGORY", "xmlns", "PGWIDE", "ORIENT", "FILENAME", "INDEX", "NAME", "TYPE", "ENUM-TABLE", "ONBLUR", "ONKEYUP", "SHAPE", "ONMOUSEUP", "SHOW-RESOURCE-TYPE", "BGCOLOR", "FLOAT", "L", "NOTE-TYPE", "STYLE", "ALT", "SHOW-CONTENT", "TABSTYLE", "VALIGN", "LEVEL", "GID", "S", "SHOW-RESOURCE-LONG-NAME", "KEEP-WITH-PREVIOUS", "HTML-FIT", "ONMOUSEOVER", "ROTATE", "HELP-ENTRY", "UUID", "INTERVAL-TYPE", "FONT", "WIDTH", "GENERATOR", "space", "SHOW-RESOURCE-PAGE", "TEX-RENDER", "HREF", "FIT", "HTML-WIDTH", "ITEM-LABEL-POS", "ONMOUSEMOVE", "ALIGN", "ONKEYPRESS", "COLNAME", "SHOW-RESOURCE-ALIAS-NAME", "SCALE", "SI", "xsi:schemaLocation", "ACCESSKEY", "T", "NAMEEND", "BASE", "EDITSCALE", "VALIDITY", "HTML-SCALE", "COLSEP", "NOTATION", "COLS", "NAME-PATTERN", "EDIT-HEIGHT", "RESOLUTION-POLICY", "SD", "TABINDEX", "COLWIDTH", "ONKEYDOWN", "MIME-TYPE", "HTML-HEIGHT", "ONCLICK", "SHOW-SEE", "ONFOCUS"];
 
     /// derive an enum entry from an input string using a perfect hash function
     pub fn from_bytes(input: &[u8]) -> Result<Self, ParseAttributeNameError> {
-        // here, hashfunc(input, <param>) is an ordinary hash function which may produce collisions
-        // it is possible to create two tables so that
-        //     table1[hashfunc(input, param1)] + table2[hashfunc(input, param2)] == desired enumeration value
-        // these tables are pre-built and included here as constants, since the values to be hashed don't change
-        static HASH_TABLE_1: [u16; 54] = [43, 34, 66, 54, 92, 91, 65535, 74, 55, 61, 34, 99, 27, 65535, 56, 4, 46, 14, 65535, 3, 33, 26, 48, 35, 83, 75, 85, 38, 31, 52, 96, 23, 86, 96, 84, 1, 86, 11, 35, 97, 70, 49, 49, 5, 29, 72, 6, 100, 98, 95, 58, 46, 33, 33];
-        static HASH_TABLE_2: [u16; 54] = [59, 15, 57, 81, 73, 93, 59, 35, 30, 1, 48, 5, 64, 37, 65535, 84, 87, 49, 28, 49, 40, 29, 74, 53, 24, 50, 77, 61, 67, 0, 64, 88, 12, 79, 40, 7, 93, 57, 99, 69, 2, 74, 0, 42, 35, 51, 51, 0, 88, 89, 0, 36, 43, 67];
-        let hashval1: usize = hashfunc(input, 13929);
-        let hashval2: usize = hashfunc(input, 17554);
-        let val1 = HASH_TABLE_1[hashval1 % 54];
-        let val2 = HASH_TABLE_2[hashval2 % 54];
-        if val1 == u16::MAX || val2 == u16::MAX {
-            return Err(ParseAttributeNameError);
-        }
-        let item_idx = (val1 + val2) as usize % 101;
+        static DISPLACEMENTS: [(u16, u16); 21] = [(0, 0), (0, 1), (0, 21), (2, 17), (0, 52), (0, 46), (0, 29), (0, 6), (0, 4), (1, 42), (0, 57), (0, 82), (0, 64), (0, 21), (12, 82), (1, 87), (22, 29), (26, 57), (0, 0), (58, 36), (28, 81)];
+        let (g, f1, f2) = hashfunc(input);
+        let (d1, d2) = DISPLACEMENTS[(g % 21) as usize];
+        let item_idx = (d2 as u32).wrapping_add(f1.wrapping_mul(d1 as u32)).wrapping_add(f2) as usize % 101;
         if AttributeName::STRING_TABLE[item_idx].as_bytes() != input {
             return Err(ParseAttributeNameError);
         }

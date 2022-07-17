@@ -7,6 +7,8 @@ mod enumitem;
 mod regex;
 mod specification;
 
+use std::ops::BitXor;
+
 pub use attributename::AttributeName;
 pub use autosarversion::AutosarVersion;
 pub use elementname::ElementName;
@@ -425,10 +427,30 @@ impl std::fmt::Debug for CharacterDataSpec {
     }
 }
 
-pub(crate) fn hashfunc(data: &[u8], param: usize) -> usize {
-    data.iter().fold(100usize, |acc, val| {
-        usize::wrapping_add(usize::wrapping_mul(acc, param), *val as usize)
-    })
+pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
+    const HASHCONST1: u32 = 0x541C69B2; // these 4 constant values are not special, just random values
+    const HASHCONST2: u32 = 0x3B17161B;
+
+    let mut f1 = 0x33143C63u32;
+    let mut f2 = 0x88B0B21Eu32;
+    while data.len() >= 4 {
+        let val = u32::from_ne_bytes(data[..4].try_into().unwrap()) as u32;
+        f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
+        f2 = f2.rotate_left(6).bitxor(val).wrapping_mul(HASHCONST2);
+        data = &data[4..];
+    }
+    if data.len() >= 2 {
+        let val = u16::from_ne_bytes(data[..2].try_into().unwrap()) as u32;
+        f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
+        f2 = f2.rotate_left(6).bitxor(val).wrapping_mul(HASHCONST2);
+        data = &data[2..];
+    }
+    if !data.is_empty() {
+        f1 = f1.rotate_left(5).bitxor(data[0] as u32).wrapping_mul(HASHCONST1);
+        f2 = f2.rotate_left(6).bitxor(data[0] as u32).wrapping_mul(HASHCONST2);
+    }
+    let g = f1.bitxor(f2);
+    (g, f1, f2)
 }
 
 #[cfg(test)]
