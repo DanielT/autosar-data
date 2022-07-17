@@ -87,8 +87,6 @@ struct ElementSpec {
     attributes_ver: u16,
     character_data: Option<u16>,
     mode: ContentMode,
-    is_named: u32,
-    is_ref: bool,
 }
 
 impl AutosarVersion {
@@ -262,7 +260,24 @@ impl ElementType {
 
     /// are elements of this ElementType named in any Autosar version
     pub fn is_named(&self) -> bool {
-        DATATYPES[self.0].is_named != 0
+        self.short_name_version_mask().is_some()
+    }
+
+    pub(crate) fn short_name_version_mask(&self) -> Option<u32> {
+        let (start_idx, end_idx) = DATATYPES[self.0].sub_elements;
+        if start_idx != end_idx {
+            if let SubElement::Element {
+                name: ElementName::ShortName,
+                ..
+            } = SUBELEMENTS[start_idx as usize]
+            {
+                Some(VERSION_INFO[DATATYPES[self.0].sub_element_ver as usize])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// are elements of this elementType named in the given Autosar version
@@ -273,12 +288,17 @@ impl ElementType {
     /// One example of this is END-2-END-METHOD-PROTECTION-PROPS, which was first
     /// defined in Autosar_00048, but only has a name in Autosar_00050.
     pub fn is_named_in_version(&self, version: AutosarVersion) -> bool {
-        version.compatible(DATATYPES[self.0].is_named)
+        self.short_name_version_mask()
+            .map_or(false, |ver_mask| version.compatible(ver_mask))
     }
 
     /// is the ElementType a reference
     pub fn is_ref(&self) -> bool {
-        DATATYPES[self.0].is_ref
+        if let Some(idx) = DATATYPES[self.0].character_data {
+            idx == REFERENCE_TYPE_IDX
+        } else {
+            false
+        }
     }
 
     /// get the content mode for this ElementType
@@ -376,8 +396,7 @@ impl Iterator for SubelemDefinitionsIter {
                         self.indices[depth] += 1;
                         let ver_idx = ElementType(current_type).get_sub_element_ver();
                         let version_mask = VERSION_INFO[ver_idx + cur_pos];
-                        //let elem_datatype = &DATATYPES[*elemtype];
-                        let is_named = DATATYPES[*elemtype].is_named;
+                        let is_named = ElementType(*elemtype).short_name_version_mask().unwrap_or(0);
                         Some((*name, ElementType(*elemtype), version_mask, is_named))
                     }
                     SubElement::Group { groupid } => {
