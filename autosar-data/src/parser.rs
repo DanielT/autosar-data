@@ -633,7 +633,7 @@ impl<'a> ArxmlParser<'a> {
             CharacterDataSpec::UnsignedInteger => {
                 let strval = std::str::from_utf8(trimmed_input)
                     .map_err(|err| self.error(ArxmlParserError::Utf8Error { source: err }))?;
-                let value = match strval.parse::<usize>() {
+                let value = match strval.parse::<u64>() {
                     Ok(parsed) => parsed,
                     Err(_) => {
                         self.optional_error(ArxmlParserError::InvalidNumber {

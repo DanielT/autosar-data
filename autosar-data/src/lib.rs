@@ -160,7 +160,7 @@ pub enum ElementContent {
 pub enum CharacterData {
     Enum(EnumItem),
     String(String),
-    UnsignedInteger(usize),
+    UnsignedInteger(u64),
     Double(f64),
 }
 

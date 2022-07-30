@@ -169,6 +169,15 @@ impl AutosarProject {
         AutosarDataIdentElementsIterator::new(&project.identifiables)
     }
 
+    /// return all elements referring to the given target path
+    pub fn get_referrers_of(&self, target_path: &str) -> Vec<WeakElement> {
+        if let Some(origins) = self.0.lock().reference_origins.get(target_path) {
+            origins.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// check all Autosar path references and return a list of elements with invalid references
     ///
     /// For each reference: The target must exist and the DEST attribute must correctly specify the type of the target

@@ -33,6 +33,12 @@ pub enum ElementActionError {
 
     #[error("the SHORT-NAME sub element may not be removed")]
     ShortNameRemovalForbidden,
+
+    #[error("The current element is not a reference")]
+    NotReferenceElement,
+
+    #[error("The reference is not valid")]
+    InvalidReference,
 }
 
 impl Element {
@@ -800,6 +806,31 @@ impl Element {
         }
     }
 
+    /// Get the referenced element
+    pub fn get_reference_target(&self) -> Result<Element, AutosarDataError> {
+        if self.is_reference() {
+            if let Some(CharacterData::String(reference)) = self.character_data() {
+                let project = self.containing_file().and_then(|file| file.project())?;
+                let target_elem = project
+                    .get_element_by_path(&reference)?
+                    .ok_or_else(|| Element::error(ElementActionError::InvalidReference))?;
+
+                let dest = self
+                    .get_attribute_string(AttributeName::Dest)
+                    .ok_or_else(|| Element::error(ElementActionError::InvalidReference))?;
+                if dest == target_elem.element_name().to_str() {
+                    Ok(target_elem)
+                } else {
+                    Err(Element::error(ElementActionError::InvalidReference))
+                }
+            } else {
+                Err(Element::error(ElementActionError::InvalidReference))
+            }
+        } else {
+            Err(Element::error(ElementActionError::NotReferenceElement))
+        }
+    }
+
     /// set the character data of this element
     ///
     /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
@@ -931,6 +962,13 @@ impl Element {
     /// create an iterator over all sub elements of this element
     pub fn sub_elements(&self) -> ElementsIterator {
         ElementsIterator::new(self.clone())
+    }
+
+    /// get the sub element with the given element name
+    ///
+    /// Returns None if no such element exists. if there are multiple sub elements with the requested name, then only the first is returned
+    pub fn get_sub_element(&self, name: ElementName) -> Option<Element> {
+        self.sub_elements().find(|se| se.element_name() == name)
     }
 
     /// create a depth first iterator over this element and all of its sub elements

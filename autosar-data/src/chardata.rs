@@ -121,6 +121,38 @@ impl CharacterData {
             CharacterData::Double(doubleval) => outstring.push_str(&doubleval.to_string()),
         }
     }
+
+    pub fn enum_value(&self) -> Option<EnumItem> {
+        if let CharacterData::Enum(item) = self {
+            Some(*item)
+        } else {
+            None
+        }
+    }
+
+    pub fn string_value(&self) -> Option<String> {
+        if let CharacterData::String(value) = self {
+            Some(value.to_owned())
+        } else {
+            None
+        }
+    }
+
+    pub fn unsigned_integer_value(&self) -> Option<u64> {
+        if let CharacterData::UnsignedInteger(uintval) = self {
+            Some(*uintval)
+        } else {
+            None
+        }
+    }
+
+    pub fn double_value(&self) -> Option<f64> {
+        if let CharacterData::Double(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
 }
 
 impl Display for CharacterData {
