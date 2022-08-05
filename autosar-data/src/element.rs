@@ -968,7 +968,15 @@ impl Element {
     ///
     /// Returns None if no such element exists. if there are multiple sub elements with the requested name, then only the first is returned
     pub fn get_sub_element(&self, name: ElementName) -> Option<Element> {
-        self.sub_elements().find(|se| se.element_name() == name)
+        let locked_elem = self.0.lock();
+        for item in &locked_elem.content {
+            if let ElementContent::Element(subelem) = item {
+                if subelem.element_name() == name {
+                    return Some(subelem.clone());
+                }
+            }
+        }
+        None
     }
 
     /// create a depth first iterator over this element and all of its sub elements
@@ -1415,6 +1423,22 @@ mod test {
         let el_ar_packages = el_ar_package.parent().unwrap().unwrap();
         let result = el_ar_packages.remove_sub_element(el_ar_package);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn element_ops() {
+        let project = AutosarProject::new();
+        let (file, _) = project
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .unwrap();
+
+        let el_autosar = file.root_element();
+        let el_ar_packages = el_autosar.get_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages.get_sub_element(ElementName::ArPackage).unwrap();
+
+        let el_ar_package2 = project.get_element_by_path("/TestPackage").unwrap().unwrap();
+
+        assert_eq!(el_ar_package, el_ar_package2);
     }
 
     #[test]
