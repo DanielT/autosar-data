@@ -66,7 +66,7 @@ pub enum CharacterDataSpec {
 /// ElementType is an abstraction over element types in the specification.
 ///
 /// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
 pub struct ElementType(usize);
 
 enum SubElement {

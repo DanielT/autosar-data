@@ -895,7 +895,11 @@ fn get_time_range(base: &Element) -> Option<TimeRange> {
 //     ...
 //   </TRANSFORMATION-I-SIGNAL-PROPSS>
 //   ...
-fn display_isignal_group(signal_group: &Element, signals: &mut FxHashMap<String, (String, Option<i64>, Option<i64>)>, indentation: &str) {
+fn display_isignal_group(
+    signal_group: &Element,
+    signals: &mut FxHashMap<String, (String, Option<i64>, Option<i64>)>,
+    indentation: &str,
+) {
     let name = signal_group.item_name().unwrap();
     println!("{indentation}  Signal group: {name}");
     println!("{indentation}    Signals:");
@@ -927,8 +931,7 @@ fn display_isignal_group(signal_group: &Element, signals: &mut FxHashMap<String,
         println!("");
     }
     // show minimal info about any data transformation attached to the group
-    if let Some(com_transformations) = signal_group.get_sub_element(ElementName::ComBasedSignalGroupTransformations)
-    {
+    if let Some(com_transformations) = signal_group.get_sub_element(ElementName::ComBasedSignalGroupTransformations) {
         for elem in com_transformations.sub_elements() {
             if let Some(data_transformation) = elem
                 .get_sub_element(ElementName::DataTransformationRef)

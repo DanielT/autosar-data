@@ -109,7 +109,7 @@ pub(crate) struct ArxmlFileRaw {
 
 /// An arxml element
 ///
-/// This is actually a wrapper type which provides all the necessary manupulation functions. The actual element data is
+/// This is actually a wrapper type which provides all the necessary manipulation functions. The actual element data is
 /// held behind Arc<Mutex<>>.
 #[derive(Debug, Clone)]
 pub struct Element(Arc<Mutex<ElementRaw>>);

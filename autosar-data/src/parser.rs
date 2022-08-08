@@ -1,6 +1,5 @@
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use std::fmt::Write;
 use std::str::FromStr;
 use std::str::Utf8Error;
 use thiserror::Error;
@@ -310,9 +309,9 @@ impl<'a> ArxmlParser<'a> {
                                 sub_element_inner.content.get(0)
                             {
                                 let mut new_path = String::with_capacity(path.len() + name_string.len() + 1);
-                                new_path.write_str(&path).unwrap();
-                                new_path.write_char('/').unwrap();
-                                new_path.write_str(name_string).unwrap();
+                                new_path.push_str(&path);
+                                new_path.push('/');
+                                new_path.push_str(name_string);
                                 path = Cow::from(new_path.clone());
                                 self.identifiables.push((new_path, wrapped_element.downgrade()));
                             }

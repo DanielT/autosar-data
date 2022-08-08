@@ -2735,9 +2735,7 @@ pub(crate) fn validate_regex_23(s: &[u8]) -> bool {
     if !txt.is_empty() && txt[0] == b'-' {
         txt = &txt[1..];
     }
-    !txt.is_empty() && {
-        txt.iter().all(|c| c.is_ascii_digit()) || txt == b"MAX-TEXT-SIZE" || txt == b"ARRAY-SIZE"
-    }
+    !txt.is_empty() && { txt.iter().all(|c| c.is_ascii_digit()) || txt == b"MAX-TEXT-SIZE" || txt == b"ARRAY-SIZE" }
 }
 
 /// validate ^(/?[a-zA-Z][a-zA-Z0-9_]{0,127}(/[a-zA-Z][a-zA-Z0-9_]{0,127})*)$
@@ -2747,7 +2745,7 @@ pub(crate) fn validate_regex_24(s: &[u8]) -> bool {
         if path[0] == b'/' {
             path = &path[1..];
         }
-        path.split(|c| *c == b'/').all(|part| validate_regex_8(part))
+        path.split(|c| *c == b'/').all(validate_regex_8)
     } else {
         false
     }

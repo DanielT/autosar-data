@@ -1,10 +1,11 @@
 use smallvec::smallvec;
-use std::str::FromStr;
+use std::{borrow::Cow, str::FromStr};
 
 use crate::iterators::*;
 
 use super::*;
 
+/// Errors that might occur while working with elements
 #[derive(Debug, Error)]
 pub enum ElementActionError {
     #[error("Invalid position for an element of this kind")]
@@ -39,6 +40,9 @@ pub enum ElementActionError {
 
     #[error("The reference is not valid")]
     InvalidReference,
+
+    #[error("Duplicate item name")]
+    DuplicateItemName,
 }
 
 impl Element {
@@ -96,6 +100,85 @@ impl Element {
         None
     }
 
+    /// Set the item name of this element
+    ///
+    /// This operation will update all references pointing to the element or its sub-elements so that they remain valid.
+    ///
+    /// In order to rename an element *without* updating any references, do this instead:
+    /// ```
+    /// #   use autosar_data::*;
+    /// #   let project = AutosarProject::new();
+    /// #   let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// #   let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    ///     if let Some(short_name) = element.get_sub_element(ElementName::ShortName) {
+    ///         short_name.set_character_data(CharacterData::String("the_new_name".to_string()));
+    ///     }
+    /// ```
+    pub fn set_item_name(&self, new_name: &str) -> Result<(), AutosarDataError> {
+        // a new name is required
+        if new_name.is_empty() {
+            return Err(Element::error(ElementActionError::ItemNameRequired));
+        }
+
+        if let Some(current_name) = self.item_name() {
+            // bail out early if the name is actually the same
+            if current_name == new_name {
+                return Ok(());
+            }
+
+            let project = self.containing_file().and_then(|f| f.project())?;
+            let old_path = self
+                .path()?
+                .ok_or_else(|| Element::error(ElementActionError::ElementNotIdentifiable))?;
+            let new_path = format!("{}{new_name}", old_path.strip_suffix(&current_name).unwrap());
+            if project.get_element_by_path(&new_path).is_some() {
+                return Err(Element::error(ElementActionError::DuplicateItemName));
+            }
+
+            let element = self.0.lock();
+            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
+            if let Some(ElementContent::Element(subelem)) = element.content.get(0).cloned() {
+                if subelem.element_name() == ElementName::ShortName {
+                    drop(element);
+                    subelem.set_character_data(CharacterData::String(new_name.to_owned()))?;
+                    let new_prefix = self.path().unwrap().unwrap();
+                    let mut project_locked = project.0.lock();
+
+                    // check all references and update those that point to this element or its sub elements
+                    let refpaths = project_locked
+                        .reference_origins
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<String>>();
+                    for refpath in refpaths {
+                        // if the existing reference has the old path as a prefix, then it needs to be updated
+                        if let Some(partial_path) = refpath.strip_prefix(&old_path) {
+                            // prevent ref updates from being applied to e.g. /package10 while renaming /package1
+                            if partial_path.is_empty() || partial_path.starts_with('/') {
+                                let reflist = project_locked.reference_origins.remove(&refpath).unwrap();
+                                let refpath_new = format!("{new_prefix}{partial_path}");
+
+                                for weak_ref_elem in &reflist {
+                                    if let Some(ref_elem) = weak_ref_elem.upgrade() {
+                                        let mut ref_elem_locked = ref_elem.0.lock();
+                                        // can't use .set_character_data() here, because the project is locked
+                                        ref_elem_locked.content[0] =
+                                            ElementContent::CharacterData(CharacterData::String(refpath_new.clone()));
+                                    }
+                                }
+                                project_locked.reference_origins.insert(refpath_new, reflist);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        } else {
+            Err(Element::error(ElementActionError::ElementNotIdentifiable))
+        }
+    }
+
     /// returns true if the element is identifiable
     pub fn is_identifiable(&self) -> bool {
         let element = self.0.lock();
@@ -123,18 +206,7 @@ impl Element {
     /// returns Some(path) if the element is identifiable, None otherwise
     pub fn path(&self) -> Result<Option<String>, AutosarDataError> {
         if self.is_identifiable() {
-            let mut cur_elem_opt = Some(self.clone());
-            let mut path_components = vec![];
-            while let Some(cur_elem) = &cur_elem_opt {
-                if let Some(name) = cur_elem.item_name() {
-                    path_components.push(name);
-                }
-                cur_elem_opt = cur_elem.parent()?;
-            }
-            path_components.push(String::new());
-            path_components.reverse();
-
-            let path = path_components.join("/");
+            let path = self.path_unchecked()?;
             // even if this element is identifiable, path might still be "" if the current element has been deleted from the element hierarchy
             if !path.is_empty() {
                 Ok(Some(path))
@@ -144,6 +216,21 @@ impl Element {
         } else {
             Err(Element::error(ElementActionError::ElementNotIdentifiable))
         }
+    }
+
+    fn path_unchecked(&self) -> Result<String, AutosarDataError> {
+        let mut cur_elem_opt = Some(self.clone());
+        let mut path_components = vec![];
+        while let Some(cur_elem) = &cur_elem_opt {
+            if let Some(name) = cur_elem.item_name() {
+                path_components.push(name);
+            }
+            cur_elem_opt = cur_elem.parent()?;
+        }
+        path_components.push(String::new());
+        path_components.reverse();
+        let path = path_components.join("/");
+        Ok(path)
     }
 
     /// get a reference to the [ArxmlFile] containing the current element
@@ -395,7 +482,7 @@ impl Element {
         let mut path = self.path()?.unwrap();
         let mut counter = 1;
 
-        while project.get_element_by_path(&path)?.is_some() {
+        while project.get_element_by_path(&path).is_some() {
             let name = format!("{orig_name}_{counter}");
             counter += 1;
             {
@@ -602,9 +689,9 @@ impl Element {
 
     fn move_element_here_inner(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
         let new_elem_file = new_element.containing_file()?;
-        let ar_data_other = new_elem_file.project()?;
+        let project_other = new_elem_file.project()?;
         let own_ver = self.containing_file().map(|f| f.version())?;
-        let ar_data = self.containing_file().and_then(|f| f.project())?;
+        let project = self.containing_file().and_then(|f| f.project())?;
         let new_elem_ver = new_elem_file.version();
         if own_ver != new_elem_ver {
             return Err(Element::error(ElementActionError::VersionIncompatible));
@@ -649,12 +736,12 @@ impl Element {
 
         // remove all cached references for elements under new_element - they all become invalid as a result of moving it
         for path in original_paths.keys() {
-            ar_data_other.remove_identifiable(path);
+            project_other.remove_identifiable(path);
         }
-        if ar_data != ar_data_other {
+        if project != project_other {
             // delete all reference origin info for elements under new_element
             for (path, elem) in &original_refs {
-                ar_data_other.remove_reference_origin(path, elem.downgrade());
+                project_other.remove_reference_origin(path, elem.downgrade());
             }
         }
 
@@ -668,7 +755,7 @@ impl Element {
 
         // cache references to all the identifiable elements in new_element
         for identifiable_element in original_paths.values() {
-            ar_data.fix_identifiables(None, identifiable_element);
+            project.fix_identifiables(None, identifiable_element);
         }
         // cache all newly added (or modified) reference origins in new_element
         for (old_ref, ref_element) in original_refs {
@@ -682,19 +769,19 @@ impl Element {
                 refstr = ref_target.path()?.unwrap();
                 ref_element.set_character_data(CharacterData::String(refstr.clone()))?;
             }
-            ar_data.fix_reference_origins(&old_ref, &refstr, ref_element.downgrade());
+            project.fix_reference_origins(&old_ref, &refstr, ref_element.downgrade());
         }
         // if the new_element was moved within this autosar project, then we might be able to update other references pointing to it
-        if ar_data == ar_data_other {
-            let mut ar_data_locked = ar_data.0.lock();
+        if project == project_other {
+            let mut project_locked = project.0.lock();
             for (old_path, target_elem) in &original_paths {
-                // the elements under new_element hav already been updated above, this will get any other elements all over the autosar project
-                if let Some(ref_elements) = ar_data_locked.reference_origins.remove(old_path) {
+                // the elements under new_element have already been updated above, this will get any other elements all over the autosar project
+                if let Some(ref_elements) = project_locked.reference_origins.remove(old_path) {
                     let new_ref_path = target_elem.path()?.unwrap();
                     for ref_elem_weak in &ref_elements {
                         if let Some(ref_elem) = ref_elem_weak.upgrade() {
                             let mut ref_elem_locked = ref_elem.0.lock();
-                            // bypass the extra logic in set_character_data, which also wants to manipulate the currently locked ar_data_locked.reference_origins
+                            // bypass the extra logic in set_character_data, which also wants to manipulate the currently locked project_locked.reference_origins
                             ref_elem_locked.content.truncate(0);
                             ref_elem_locked
                                 .content
@@ -703,7 +790,7 @@ impl Element {
                                 )));
                         }
                     }
-                    ar_data_locked.reference_origins.insert(new_ref_path, ref_elements);
+                    project_locked.reference_origins.insert(new_ref_path, ref_elements);
                 }
             }
         }
@@ -747,35 +834,40 @@ impl Element {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
             return Err(Element::error(ElementActionError::ShortNameRemovalForbidden));
         }
-        // remove all the sub-sub-elements. This needs to be done explicitly so that any related cached paths and references can be found and removed
-        for sub_sub_element in sub_element.sub_elements() {
-            // don't care if this succeeds or not
-            let _ = sub_element.remove_sub_element(sub_sub_element);
-        }
+        let path = Cow::from(self.path_unchecked()?);
+        let mut element = self.0.lock();
+        sub_element.remove_internal(&project, path);
+        element.content.remove(pos);
+        Ok(())
+    }
 
-        // if sub_element is a named element, then a reference to it exists in the project.identifiables HashMap
-        if sub_element.is_identifiable() {
-            if let Some(path) = sub_element.path()? {
-                // remove the identifiables-reference (terminology???)
+    // remove all of the content of an element
+    fn remove_internal(&self, project: &AutosarProject, mut path: Cow<str>) {
+        if self.is_identifiable() {
+            if let Some(name) = self.item_name() {
+                let mut new_path = String::with_capacity(path.len() + name.len() + 1);
+                new_path.push_str(&path);
+                new_path.push('/');
+                new_path.push_str(&name);
+                path = Cow::from(new_path.clone());
+
                 project.remove_identifiable(&path);
             }
         }
-        // if the sub_element is a reference, then project.references caches this relation
-        if sub_element.is_reference() {
-            if let Some(CharacterData::String(reference)) = sub_element.character_data() {
+        if self.is_reference() {
+            if let Some(CharacterData::String(reference)) = self.character_data() {
                 // remove the references-reference (ugh. terminology???)
-                project.remove_reference_origin(&reference, sub_element.downgrade());
+                project.remove_reference_origin(&reference, self.downgrade());
             }
         }
-
-        // remove the back-reference to the parent inside the sub_element.
-        // This matters if other references to the sub_element exist, causing it to remain alive
-        let mut sub_element_inner = sub_element.0.lock();
-        sub_element_inner.parent = ElementOrFile::None;
-        sub_element_inner.content.truncate(0);
-
-        self.0.lock().content.remove(pos);
-        Ok(())
+        let mut element = self.0.lock();
+        for item in &element.content {
+            if let ElementContent::Element(sub_element) = item {
+                sub_element.remove_internal(project, Cow::from(path.as_ref()));
+            }
+        }
+        element.content.clear();
+        element.parent = ElementOrFile::None;
     }
 
     /// Set the reference target for the element to target
@@ -812,7 +904,7 @@ impl Element {
             if let Some(CharacterData::String(reference)) = self.character_data() {
                 let project = self.containing_file().and_then(|file| file.project())?;
                 let target_elem = project
-                    .get_element_by_path(&reference)?
+                    .get_element_by_path(&reference)
                     .ok_or_else(|| Element::error(ElementActionError::InvalidReference))?;
 
                 let dest = self
@@ -1299,7 +1391,7 @@ mod test {
         project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
 
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
         let el_compu_method = el_elements
@@ -1321,10 +1413,7 @@ mod test {
         assert_eq!(end_pos, 3); // upper limit is 3 since there are currently 3 elements
 
         // check if create_named_sub_element correctly registered the element in the hashmap so that it can be found
-        let el_compu_method_test = project
-            .get_element_by_path("/TestPackage/TestCompuMethod")
-            .unwrap()
-            .unwrap();
+        let el_compu_method_test = project.get_element_by_path("/TestPackage/TestCompuMethod").unwrap();
         assert_eq!(el_compu_method, el_compu_method_test);
 
         // create more hierarchy
@@ -1357,12 +1446,77 @@ mod test {
     }
 
     #[test]
+    fn element_rename() {
+        let project = AutosarProject::new();
+        let file = project
+            .create_file("test.arxml", AutosarVersion::Autosar_00050)
+            .unwrap();
+        let el_autosar = file.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package")
+            .unwrap();
+        let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
+        let el_can_cluster = el_elements
+            .create_named_sub_element(ElementName::CanCluster, "CanCluster")
+            .unwrap();
+        let el_can_physical_channel = el_can_cluster
+            .create_sub_element(ElementName::CanClusterVariants)
+            .and_then(|ccv| ccv.create_sub_element(ElementName::CanClusterConditional))
+            .and_then(|ccc| ccc.create_sub_element(ElementName::PhysicalChannels))
+            .and_then(|pc| pc.create_named_sub_element(ElementName::CanPhysicalChannel, "CanPhysicalChannel"))
+            .unwrap();
+
+        let el_can_frame_triggering = el_can_physical_channel
+            .create_sub_element(ElementName::FrameTriggerings)
+            .and_then(|ft| ft.create_named_sub_element(ElementName::CanFrameTriggering, "CanFrameTriggering"))
+            .unwrap();
+
+        let el_ar_package2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package2")
+            .unwrap();
+        let el_can_frame = el_ar_package2
+            .create_sub_element(ElementName::Elements)
+            .and_then(|e| e.create_named_sub_element(ElementName::CanFrame, "CanFrame"))
+            .unwrap();
+        let el_frame_ref = el_can_frame_triggering
+            .create_sub_element(ElementName::FrameRef)
+            .unwrap();
+        el_frame_ref.set_reference_target(&el_can_frame);
+
+        // initial value of the reference
+        let refstr = el_frame_ref.character_data().unwrap().string_value().unwrap();
+        assert_eq!(refstr, "/Package2/CanFrame");
+
+        // empty name, renaming should fail
+        let result = el_ar_package.set_item_name("");
+        assert!(result.is_err());
+
+        // rename 1. package
+        el_ar_package.set_item_name("NewPackage").unwrap();
+
+        // duplicate name for Package2, renaming should fail
+        let result = el_ar_package2.set_item_name("NewPackage");
+        assert!(result.is_err());
+
+        // rename package 2 with a valid name
+        el_ar_package2.set_item_name("OtherPackage").unwrap();
+        let refstr = el_frame_ref.character_data().unwrap().string_value().unwrap();
+        assert_eq!(refstr, "/OtherPackage/CanFrame");
+
+        // rename the CanFrame as well
+        el_can_frame.set_item_name("CanFrame_renamed").unwrap();
+        let refstr = el_frame_ref.character_data().unwrap().string_value().unwrap();
+        assert_eq!(refstr, "/OtherPackage/CanFrame_renamed");
+    }
+
+    #[test]
     fn element_copy() {
         let project = AutosarProject::new();
         project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
         let el_compu_method = el_elements
             .create_named_sub_element(ElementName::CompuMethod, "CompuMethod")
@@ -1387,10 +1541,7 @@ mod test {
         el_ar_packages2.create_copied_sub_element(&el_ar_package).unwrap();
 
         // it should be possible to look up the copied compu method by its path
-        let el_compu_method_2 = project2
-            .get_element_by_path("/TestPackage/CompuMethod")
-            .unwrap()
-            .unwrap();
+        let el_compu_method_2 = project2.get_element_by_path("/TestPackage/CompuMethod").unwrap();
 
         // the copy should not refer to the same memory as the original
         assert_ne!(el_compu_method, el_compu_method_2);
@@ -1398,7 +1549,7 @@ mod test {
         assert_eq!(el_compu_method.serialize(), el_compu_method_2.serialize());
 
         // verify that the DDS-SERVICE-INSTANCE-TO-MACHINE-MAPPING element was not copied
-        let result = project2.get_element_by_path("/TestPackage/ApItem").unwrap();
+        let result = project2.get_element_by_path("/TestPackage/ApItem");
         assert!(result.is_none());
     }
 
@@ -1408,9 +1559,9 @@ mod test {
         project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
-        let el_short_name = el_ar_package.sub_elements().next().unwrap();
-        // removing the SHORT-NAME of an identifiable element is formbidden
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
+        let el_short_name = el_ar_package.get_sub_element(ElementName::ShortName).unwrap();
+        // removing the SHORT-NAME of an identifiable element is forbidden
         let result = el_ar_package.remove_sub_element(el_short_name);
         if let Err(AutosarDataError::ElementActionError {
             source: ElementActionError::ShortNameRemovalForbidden,
@@ -1422,6 +1573,8 @@ mod test {
         }
         let el_ar_packages = el_ar_package.parent().unwrap().unwrap();
         let result = el_ar_packages.remove_sub_element(el_ar_package);
+        // deleting identifiable elements should also cause the cached references to them to be removed
+        assert_eq!(project.0.lock().identifiables.len(), 0);
         assert!(result.is_ok());
     }
 
@@ -1436,7 +1589,7 @@ mod test {
         let el_ar_packages = el_autosar.get_sub_element(ElementName::ArPackages).unwrap();
         let el_ar_package = el_ar_packages.get_sub_element(ElementName::ArPackage).unwrap();
 
-        let el_ar_package2 = project.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package2 = project.get_element_by_path("/TestPackage").unwrap();
 
         assert_eq!(el_ar_package, el_ar_package2);
     }
@@ -1486,7 +1639,7 @@ mod test {
         project
             .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
             .unwrap();
-        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap().unwrap();
+        let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
         let el_long_name = el_ar_package.create_sub_element(ElementName::LongName).unwrap();
         assert_eq!(el_long_name.content_type(), ContentType::Elements);
         let el_l_4 = el_long_name.create_sub_element(ElementName::L4).unwrap();
@@ -1543,9 +1696,9 @@ mod test {
             .load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
             .unwrap();
         // get the existing ECU-INSTANCE EcuInstance
-        let ecu_instance = project.get_element_by_path("/Pkg/EcuInstance").unwrap().unwrap();
+        let ecu_instance = project.get_element_by_path("/Pkg/EcuInstance").unwrap();
         // get the existing AR-PACKAGE Pkg2
-        let pkg2 = project.get_element_by_path("/Pkg2").unwrap().unwrap();
+        let pkg2 = project.get_element_by_path("/Pkg2").unwrap();
         // get the ELEMENTS sub element of Pkg2
         let pkg2_elements = pkg2
             .sub_elements()
@@ -1559,7 +1712,7 @@ mod test {
         assert_eq!(ecu_instance.item_name().unwrap(), "EcuInstance_1");
         // assert: The path of the EcuInstance is now "/Pkg2/EcuInstance" instead of "/Pkg/EcuInstance"
         assert_eq!(ecu_instance.path().unwrap().unwrap(), "/Pkg2/EcuInstance_1");
-        let system = project.get_element_by_path("/Pkg/System").unwrap().unwrap();
+        let system = project.get_element_by_path("/Pkg/System").unwrap();
         // get the FIBEX-ELEMENT-REF which has DEST=ECU-INSTANCE
         let (_, fibex_elem_ref) = system
             .elements_dfs()

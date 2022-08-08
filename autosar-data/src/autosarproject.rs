@@ -153,9 +153,9 @@ impl AutosarProject {
     /// get a named element by its Autosar path
     ///
     /// This is a lookup in a hash table and runs in O(1) time
-    pub fn get_element_by_path(&self, path: &str) -> Result<Option<Element>, AutosarDataError> {
+    pub fn get_element_by_path(&self, path: &str) -> Option<Element> {
         let project = self.0.lock();
-        Ok(project.identifiables.get(path).and_then(|element| element.upgrade()))
+        project.identifiables.get(path).and_then(|element| element.upgrade())
     }
 
     /// create a depth-first iterator over all [Element]s in all [ArxmlFile]s
@@ -243,19 +243,17 @@ impl AutosarProject {
         if let Some(old_path) = old_path {
             data.identifiables.remove(&old_path);
 
-            if element.element_name() == ElementName::ArPackage {
-                // a package has been renamed, so it might contain other identifiable elements that are affected by the renaming
-                let keys: Vec<String> = data.identifiables.keys().cloned().collect();
-                for key in keys {
-                    // find keys referring to entries inside the renamed package
-                    if key.starts_with(&old_path) {
-                        // construct the new element path
-                        let (_, suffix) = key.split_at(old_path.len());
-                        let new_key = format!("{new_path}{suffix}");
-                        // fix the identifiables hashmap
-                        let entry = data.identifiables.remove(&key).unwrap();
-                        data.identifiables.insert(new_key, entry);
-                    }
+            // a package has been renamed, so it might contain other identifiable elements that are affected by the renaming
+            let keys: Vec<String> = data.identifiables.keys().cloned().collect();
+            for key in keys {
+                // find keys referring to entries inside the renamed package
+                if key.starts_with(&old_path) {
+                    // construct the new element path
+                    let (_, suffix) = key.split_at(old_path.len());
+                    let new_key = format!("{new_path}{suffix}");
+                    // fix the identifiables hashmap
+                    let entry = data.identifiables.remove(&key).unwrap();
+                    data.identifiables.insert(new_key, entry);
                 }
             }
         }
