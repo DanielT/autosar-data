@@ -179,7 +179,7 @@ pub enum ContentType {
 ///
 /// This enum is used for references to the parent of each element. For all elements other than the
 /// root element, the parent is an element. The root element itself has a referenct to the ArxmlFile structure.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum ElementOrFile {
     Element(WeakElement),
     File(WeakArxmlFile),

@@ -1,5 +1,5 @@
 use smallvec::smallvec;
-use std::{borrow::Cow, str::FromStr};
+use std::{borrow::Cow, str::FromStr, time::Duration};
 
 use crate::iterators::*;
 
@@ -43,6 +43,12 @@ pub enum ElementActionError {
 
     #[error("Duplicate item name")]
     DuplicateItemName,
+
+    #[error("Cannot move an element into its own sub element")]
+    ForbiddenMoveToSubElement,
+
+    #[error("A parent element is currently locked by a different operation")]
+    ParentElementLocked,
 }
 
 impl Element {
@@ -50,21 +56,11 @@ impl Element {
     ///
     /// Returns None if the current element is the root, or if it has been deleted from the element hierarchy
     pub fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
-        let element = self.0.lock();
-        match &element.parent {
-            ElementOrFile::Element(parent) => {
-                // for items that should have a parent, getting it is not allowed to return None
-                let parent = parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
-                Ok(Some(parent))
-            }
-            ElementOrFile::File(_) => Ok(None),
-            ElementOrFile::None => Err(AutosarDataError::ItemDeleted),
-        }
+        self.0.lock().parent()
     }
 
     pub(crate) fn set_parent(&self, new_parent: ElementOrFile) {
-        let mut element = self.0.lock();
-        element.parent = new_parent;
+        self.0.lock().set_parent(new_parent)
     }
 
     /// get the [ElementName] of the element
@@ -85,19 +81,7 @@ impl Element {
     ///
     /// If the element is not identifiable, this function returns None
     pub fn item_name(&self) -> Option<String> {
-        let element = self.0.lock();
-        // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
-        if element.elemtype.is_named() {
-            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = element.content.get(0) {
-                if subelem.element_name() == ElementName::ShortName {
-                    if let Some(CharacterData::String(name)) = subelem.character_data() {
-                        return Some(name);
-                    }
-                }
-            }
-        }
-        None
+        self.0.lock().item_name()
     }
 
     /// Set the item name of this element
@@ -119,79 +103,15 @@ impl Element {
         if new_name.is_empty() {
             return Err(Element::error(ElementActionError::ItemNameRequired));
         }
-
-        if let Some(current_name) = self.item_name() {
-            // bail out early if the name is actually the same
-            if current_name == new_name {
-                return Ok(());
-            }
-
-            let project = self.containing_file().and_then(|f| f.project())?;
-            let old_path = self
-                .path()?
-                .ok_or_else(|| Element::error(ElementActionError::ElementNotIdentifiable))?;
-            let new_path = format!("{}{new_name}", old_path.strip_suffix(&current_name).unwrap());
-            if project.get_element_by_path(&new_path).is_some() {
-                return Err(Element::error(ElementActionError::DuplicateItemName));
-            }
-
-            let element = self.0.lock();
-            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = element.content.get(0).cloned() {
-                if subelem.element_name() == ElementName::ShortName {
-                    drop(element);
-                    subelem.set_character_data(CharacterData::String(new_name.to_owned()))?;
-                    let new_prefix = self.path().unwrap().unwrap();
-                    let mut project_locked = project.0.lock();
-
-                    // check all references and update those that point to this element or its sub elements
-                    let refpaths = project_locked
-                        .reference_origins
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<String>>();
-                    for refpath in refpaths {
-                        // if the existing reference has the old path as a prefix, then it needs to be updated
-                        if let Some(partial_path) = refpath.strip_prefix(&old_path) {
-                            // prevent ref updates from being applied to e.g. /package10 while renaming /package1
-                            if partial_path.is_empty() || partial_path.starts_with('/') {
-                                let reflist = project_locked.reference_origins.remove(&refpath).unwrap();
-                                let refpath_new = format!("{new_prefix}{partial_path}");
-
-                                for weak_ref_elem in &reflist {
-                                    if let Some(ref_elem) = weak_ref_elem.upgrade() {
-                                        let mut ref_elem_locked = ref_elem.0.lock();
-                                        // can't use .set_character_data() here, because the project is locked
-                                        ref_elem_locked.content[0] =
-                                            ElementContent::CharacterData(CharacterData::String(refpath_new.clone()));
-                                    }
-                                }
-                                project_locked.reference_origins.insert(refpath_new, reflist);
-                            }
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        } else {
-            Err(Element::error(ElementActionError::ElementNotIdentifiable))
-        }
+        let file = self.file()?;
+        let project = file.project()?;
+        let version = file.version();
+        self.0.lock().set_item_name(new_name, &project, version)
     }
 
     /// returns true if the element is identifiable
     pub fn is_identifiable(&self) -> bool {
-        let element = self.0.lock();
-        // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
-        if element.elemtype.is_named() {
-            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = element.content.get(0) {
-                if subelem.element_name() == ElementName::ShortName {
-                    return true;
-                }
-            }
-        }
-        false
+        self.0.lock().is_identifiable()
     }
 
     /// returns true if the element references another element
@@ -205,40 +125,18 @@ impl Element {
     ///
     /// returns Some(path) if the element is identifiable, None otherwise
     pub fn path(&self) -> Result<Option<String>, AutosarDataError> {
-        if self.is_identifiable() {
-            let path = self.path_unchecked()?;
-            // even if this element is identifiable, path might still be "" if the current element has been deleted from the element hierarchy
-            if !path.is_empty() {
-                Ok(Some(path))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Err(Element::error(ElementActionError::ElementNotIdentifiable))
-        }
-    }
-
-    fn path_unchecked(&self) -> Result<String, AutosarDataError> {
-        let mut cur_elem_opt = Some(self.clone());
-        let mut path_components = vec![];
-        while let Some(cur_elem) = &cur_elem_opt {
-            if let Some(name) = cur_elem.item_name() {
-                path_components.push(name);
-            }
-            cur_elem_opt = cur_elem.parent()?;
-        }
-        path_components.push(String::new());
-        path_components.reverse();
-        let path = path_components.join("/");
-        Ok(path)
+        self.0.lock().path()
     }
 
     /// get a reference to the [ArxmlFile] containing the current element
-    pub fn containing_file(&self) -> Result<ArxmlFile, AutosarDataError> {
+    pub fn file(&self) -> Result<ArxmlFile, AutosarDataError> {
         let mut cur_elem = self.clone();
         loop {
             let parent = {
-                let element = cur_elem.0.lock();
+                let element = cur_elem
+                    .0
+                    .try_lock_for(std::time::Duration::from_millis(10))
+                    .ok_or_else(|| Element::error(ElementActionError::ParentElementLocked))?;
                 match &element.parent {
                     ElementOrFile::Element(weak_parent) => {
                         weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?
@@ -269,8 +167,10 @@ impl Element {
     /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// It is not possible to create named sub elements with this function; use create_named_sub_element() for that instead.
     pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, AutosarDataError> {
-        let (_start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
-        self.create_sub_element_inner(element_name, end_pos)
+        let version = self.file().map(|f| f.version())?;
+        self.0
+            .lock()
+            .create_sub_element(self.downgrade(), element_name, version)
     }
 
     /// create a sub element at the specified insertion position
@@ -283,39 +183,10 @@ impl Element {
         element_name: ElementName,
         position: usize,
     ) -> Result<Element, AutosarDataError> {
-        let (start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
-        if start_pos <= position && position <= end_pos {
-            self.create_sub_element_inner(element_name, position)
-        } else {
-            Err(Element::error(ElementActionError::InvalidElementPosition))
-        }
-    }
-
-    /// helper function for create_sub_element and create_sub_element_at
-    fn create_sub_element_inner(
-        &self,
-        element_name: ElementName,
-        position: usize,
-    ) -> Result<Element, AutosarDataError> {
-        let version = self.containing_file().map(|f| f.version())?;
-        let elemtype = self.elemtype();
-        let (elemtype, _) = elemtype.find_sub_element(element_name, version as u32).unwrap();
-        if elemtype.is_named_in_version(version) {
-            Err(Element::error(ElementActionError::VersionIncompatible))
-        } else {
-            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                parent: ElementOrFile::Element(self.downgrade()),
-                elemname: element_name,
-                elemtype,
-                content: smallvec![],
-                attributes: smallvec![],
-            })));
-            let mut element = self.0.lock();
-            element
-                .content
-                .insert(position, ElementContent::Element(sub_element.clone()));
-            Ok(sub_element)
-        }
+        let version = self.file().map(|f| f.version())?;
+        self.0
+            .lock()
+            .create_sub_element_at(self.downgrade(), element_name, position, version)
     }
 
     /// create a named/identifiable sub element at a suitable insertion position
@@ -327,8 +198,12 @@ impl Element {
         element_name: ElementName,
         item_name: &str,
     ) -> Result<Element, AutosarDataError> {
-        let (_start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
-        self.create_named_sub_element_inner(element_name, item_name, end_pos)
+        let file = self.file()?;
+        let project = file.project()?;
+        let version = file.version();
+        self.0
+            .lock()
+            .create_named_sub_element(self.downgrade(), element_name, item_name, &project, version)
     }
 
     /// create a named/identifiable sub element at the specified insertion position
@@ -342,53 +217,17 @@ impl Element {
         item_name: &str,
         position: usize,
     ) -> Result<Element, AutosarDataError> {
-        let (start_pos, end_pos) = self.find_element_insert_pos(element_name)?;
-        if start_pos <= position && position <= end_pos {
-            self.create_named_sub_element_inner(element_name, item_name, position)
-        } else {
-            Err(Element::error(ElementActionError::InvalidElementPosition))
-        }
-    }
-
-    /// helper function for create_named_sub_element and create_named_sub_element_at
-    fn create_named_sub_element_inner(
-        &self,
-        element_name: ElementName,
-        item_name: &str,
-        position: usize,
-    ) -> Result<Element, AutosarDataError> {
-        if item_name.is_empty() {
-            return Err(Element::error(ElementActionError::ItemNameRequired));
-        }
-
-        let file = self.containing_file()?;
-        let elemtype = self.elemtype();
-        let (elemtype, _) = elemtype.find_sub_element(element_name, file.version() as u32).unwrap();
-        if elemtype.is_named_in_version(file.version()) {
-            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                parent: ElementOrFile::Element(self.downgrade()),
-                elemname: element_name,
-                elemtype,
-                content: smallvec![],
-                attributes: smallvec![],
-            })));
-            // insert the new sub element
-            {
-                // separate scope to limit the lifetime of the mutex
-                let mut element = self.0.lock();
-                element
-                    .content
-                    .insert(position, ElementContent::Element(sub_element.clone()));
-            }
-            // create a SHORT-NAME for the sub element
-            let shortname_element = sub_element.create_sub_element(ElementName::ShortName)?;
-            shortname_element
-                .set_character_data(CharacterData::String(item_name.to_owned()))
-                .unwrap();
-            Ok(sub_element)
-        } else {
-            Err(Element::error(ElementActionError::VersionIncompatible))
-        }
+        let file = self.file()?;
+        let project = file.project()?;
+        let version = file.version();
+        self.0.lock().create_named_sub_element_at(
+            self.downgrade(),
+            element_name,
+            item_name,
+            position,
+            &project,
+            version,
+        )
     }
 
     /// create a deep copy of the given element and insert it as a sub-element
@@ -404,13 +243,12 @@ impl Element {
     ///
     /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
-        let other_elemname = {
-            // need to do this inside its own scope to limit the lifetime of the mutex
-            let other_element = other.0.lock();
-            other_element.elemname
-        };
-        let (_, end) = self.find_element_insert_pos(other_elemname)?;
-        self.create_copied_sub_element_inner(other, end)
+        let file = self.file()?;
+        let project = file.project()?;
+        let version = file.version();
+        self.0
+            .lock()
+            .create_copied_sub_element(self.downgrade(), other, &project, version)
     }
 
     /// create a deep copy of the given element and insert it as a sub-element at the given position
@@ -426,234 +264,12 @@ impl Element {
     ///
     /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let other_elemname = {
-            // need to do this inside its own scope to limit the lifetime of the mutex
-            let other_element = other.0.lock();
-            other_element.elemname
-        };
-        let (start_pos, end_pos) = self.find_element_insert_pos(other_elemname)?;
-        if start_pos <= position && position <= end_pos {
-            self.create_copied_sub_element_inner(other, position)
-        } else {
-            Err(Element::error(ElementActionError::InvalidElementPosition))
-        }
-    }
-
-    fn create_copied_sub_element_inner(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let version = self.containing_file().map(|f| f.version())?;
-        let project = self.containing_file().and_then(|f| f.project())?;
-
-        // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
-        // Additionally, implementing this manually provides the opportunity to filter out
-        // elements that ae not compatible with the version of the current file.
-        let newelem = other.deep_copy(version)?;
-
-        // set the parent of the newelem - the methods path(), containing_file(), etc become available on newelem
-        newelem.set_parent(ElementOrFile::Element(self.downgrade()));
-        if newelem.is_identifiable() {
-            newelem.make_unique_item_name()?;
-        }
-
-        for (_, sub_elem) in newelem.elements_dfs() {
-            // add all identifiable sub elements to the identifiables hashmap
-            if sub_elem.is_identifiable() {
-                project.fix_identifiables(None, &sub_elem);
-            }
-            // add all references to the reference_origins hashmap
-            if sub_elem.is_reference() {
-                if let Some(CharacterData::String(reference)) = sub_elem.character_data() {
-                    project.add_reference_origin(&reference, sub_elem.downgrade())
-                }
-            }
-        }
-
+        let file = self.file()?;
+        let project = file.project()?;
+        let version = file.version();
         self.0
             .lock()
-            .content
-            .insert(position, ElementContent::Element(newelem.clone()));
-
-        Ok(newelem)
-    }
-
-    /// make_unique_item_name ensures that a copied element has a unique name
-    fn make_unique_item_name(&self) -> Result<(), AutosarDataError> {
-        let project = self.containing_file().and_then(|f| f.project())?;
-        let orig_name = self.item_name().unwrap();
-        let mut path = self.path()?.unwrap();
-        let mut counter = 1;
-
-        while project.get_element_by_path(&path).is_some() {
-            let name = format!("{orig_name}_{counter}");
-            counter += 1;
-            {
-                let element = self.0.lock();
-                // set the name directly by modifying the character content of the short name element
-                // note: the method set_character_data is not suitable here, because it updates the identifiables hashmap
-                if let Some(ElementContent::Element(short_name_elem)) = element.content.get(0) {
-                    let mut sn_element = short_name_elem.0.lock();
-                    if sn_element.elemname != ElementName::ShortName {
-                        return Err(Element::error(ElementActionError::InvalidSubElement));
-                    }
-                    sn_element.content.truncate(0);
-                    sn_element
-                        .content
-                        .push(ElementContent::CharacterData(CharacterData::String(name)));
-                }
-            }
-            path = self.path()?.unwrap();
-        }
-
-        Ok(())
-    }
-
-    /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with target_version
-    fn deep_copy(&self, target_version: AutosarVersion) -> Result<Element, AutosarDataError> {
-        let element = self.0.lock();
-
-        let copy_wrapped = Element(Arc::new(Mutex::new(ElementRaw {
-            elemname: element.elemname,
-            elemtype: element.elemtype,
-            content: SmallVec::with_capacity(element.content.len()),
-            attributes: SmallVec::with_capacity(element.attributes.len()),
-            parent: ElementOrFile::None,
-        })));
-
-        {
-            let mut copy = copy_wrapped.0.lock();
-            for attribute in &element.attributes {
-                // get the specification of the attribute
-                let (cdataspec, required, attr_version_mask) = element
-                    .elemtype
-                    .find_attribute_spec(attribute.attrname)
-                    .ok_or_else(|| Element::error(ElementActionError::VersionIncompatible))?;
-                // check if the attribute is compatible with the target version
-                if target_version.compatible(attr_version_mask)
-                    && attribute
-                        .content
-                        .check_version_compatibility(cdataspec, target_version)
-                        .0
-                {
-                    copy.attributes.push(attribute.clone());
-                } else if required {
-                    return Err(Element::error(ElementActionError::VersionIncompatible));
-                } else {
-                    // no action, the attribute is not compatible, but it's not required either
-                }
-            }
-
-            for content_item in &element.content {
-                match content_item {
-                    ElementContent::Element(sub_elem) => {
-                        let sub_elem_name = sub_elem.element_name();
-                        // since find_sub_element already considers the version, finding the element also means it's valid in the target_version
-                        if element
-                            .elemtype
-                            .find_sub_element(sub_elem_name, target_version as u32)
-                            .is_some()
-                        {
-                            if let Ok(copied_sub_elem) = sub_elem.deep_copy(target_version) {
-                                copied_sub_elem.0.lock().parent = ElementOrFile::Element(copy_wrapped.downgrade());
-                                copy.content.push(ElementContent::Element(copied_sub_elem));
-                            }
-                        }
-                    }
-                    ElementContent::CharacterData(cdata) => {
-                        copy.content.push(ElementContent::CharacterData(cdata.clone()));
-                    }
-                }
-            }
-        }
-
-        Ok(copy_wrapped)
-    }
-
-    /// find the upper and lower bound on the insert position for a sub element
-    fn find_element_insert_pos(&self, element_name: ElementName) -> Result<(usize, usize), AutosarDataError> {
-        let version = self.containing_file().map(|f| f.version())?;
-        let elemtype = self.elemtype();
-        if elemtype.content_mode() == ContentMode::Characters {
-            // cant't insert at all, only character data is permitted
-            return Err(Element::error(ElementActionError::IncorrectContentType));
-        }
-
-        if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
-            let element = self.0.lock();
-            let mut start_pos = 0;
-            let mut end_pos = 0;
-            for (idx, content_item) in element.content.iter().enumerate() {
-                if let ElementContent::Element(subelement) = content_item {
-                    let (_, existing_element_indices) = elemtype
-                        .find_sub_element(subelement.element_name(), version as u32)
-                        .unwrap();
-                    let group_type = elemtype.find_common_group(&new_element_indices, &existing_element_indices);
-                    match group_type.content_mode() {
-                        ContentMode::Sequence => {
-                            // decide where to insert
-                            match new_element_indices.cmp(&existing_element_indices) {
-                                std::cmp::Ordering::Less => {
-                                    // new element is smaller than the existing one
-                                    // this means that all plausible insert positions have already been seen
-                                    break;
-                                }
-                                std::cmp::Ordering::Equal => {
-                                    // new element is not smaller than the current one, so set the end position
-                                    end_pos = idx + 1;
-                                    // are identical elements of this type allowed at all?
-                                    if let Some(multiplicity) =
-                                        elemtype.get_sub_element_multiplicity(&new_element_indices)
-                                    {
-                                        if multiplicity != ElementMultiplicity::Any {
-                                            // the new element is identical to an existing one, but repetitions are not allowed
-                                            return Err(Element::error(ElementActionError::ElementInsertionConflict));
-                                        }
-                                    }
-                                }
-                                std::cmp::Ordering::Greater => {
-                                    // new element is greater (i.e. later in the sequence) than the current one
-                                    // the erliest possible insert position is aftet the current element
-                                    start_pos = idx + 1;
-                                    end_pos = idx + 1;
-                                }
-                            }
-                        }
-                        ContentMode::Choice => {
-                            // can insert elements that ar identical to the existing element, if more than one of this element is allowed
-                            // can't insert anything else
-                            if new_element_indices == existing_element_indices {
-                                if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(&new_element_indices)
-                                {
-                                    if multiplicity != ElementMultiplicity::Any {
-                                        // the new element is identical to an existing one, but repetitions are not allowed
-                                        return Err(Element::error(ElementActionError::ElementInsertionConflict));
-                                    }
-                                } else {
-                                    panic!(); // can't happen
-                                }
-                                // the existing element and the new element are equal in positioning
-                                // start_pos remains at its current value (< current position), while
-                                // end_pos is increased to allow inserting before or after this element
-                                end_pos = idx + 1;
-                            } else {
-                                return Err(Element::error(ElementActionError::ElementInsertionConflict));
-                            }
-                        }
-                        ContentMode::Bag | ContentMode::Mixed => {
-                            // can insert before or after the current element
-                            end_pos = idx + 1;
-                        }
-                        ContentMode::Characters => {
-                            panic!(); // impossible on sub-groups
-                        }
-                    }
-                } else if let ElementContent::CharacterData(_) = content_item {
-                    end_pos = idx + 1;
-                }
-            }
-
-            Ok((start_pos, end_pos))
-        } else {
-            Err(Element::error(ElementActionError::InvalidSubElement))
-        }
+            .create_copied_sub_element_at(self.downgrade(), other, position, &project, version)
     }
 
     /// take an `element` from it's current location and place it in this element as a sub element
@@ -664,10 +280,17 @@ impl Element {
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
     /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
     pub fn move_element_here(&self, new_element: &Element) -> Result<Element, AutosarDataError> {
-        let new_elementname = new_element.element_name();
-        let (_, end_pos) = self.find_element_insert_pos(new_elementname)?;
-
-        self.move_element_here_inner(new_element, end_pos)
+        let new_elem_file = new_element.file()?;
+        let project_other = new_elem_file.project()?;
+        let version = self.file().map(|f| f.version())?;
+        let project = self.file().and_then(|f| f.project())?;
+        let version_other = new_elem_file.version();
+        if version != version_other {
+            return Err(Element::error(ElementActionError::VersionIncompatible));
+        }
+        self.0
+            .lock()
+            .move_element_here(self.downgrade(), new_element, &project, &project_other, version)
     }
 
     /// take an `element` from it's current location and place it at the given position in this element as a sub element
@@ -678,132 +301,22 @@ impl Element {
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
     /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
     pub fn move_element_here_at(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let new_elementname = new_element.element_name();
-        let (start_pos, end_pos) = self.find_element_insert_pos(new_elementname)?;
-        if start_pos <= position && position <= end_pos {
-            self.move_element_here_inner(new_element, position)
-        } else {
-            Err(Element::error(ElementActionError::InvalidElementPosition))
-        }
-    }
-
-    fn move_element_here_inner(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let new_elem_file = new_element.containing_file()?;
+        let new_elem_file = new_element.file()?;
         let project_other = new_elem_file.project()?;
-        let own_ver = self.containing_file().map(|f| f.version())?;
-        let project = self.containing_file().and_then(|f| f.project())?;
-        let new_elem_ver = new_elem_file.version();
-        if own_ver != new_elem_ver {
+        let version = self.file().map(|f| f.version())?;
+        let project = self.file().and_then(|f| f.project())?;
+        let version_other = new_elem_file.version();
+        if version != version_other {
             return Err(Element::error(ElementActionError::VersionIncompatible));
         }
-
-        // collect the paths of all identifiable elements under new_element before moving it
-        let original_paths: FxHashMap<String, Element> = new_element
-            .elements_dfs()
-            .filter(|(_, e)| e.is_identifiable())
-            .map(|(_, e)| (e.path().unwrap().unwrap(), e))
-            .collect();
-        // collect all reference targets and referring elements under new_element
-        let original_refs: Vec<(String, Element)> = new_element
-            .elements_dfs()
-            .filter(|(_, e)| e.is_reference())
-            .filter_map(|(_, e)| e.character_data().map(|data| (data.to_string(), e)))
-            .collect();
-
-        let new_elem_parent = new_element
-            .parent()?
-            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
-
-        // limit the lifetime of the mutex on new_elem_parent
-        {
-            // lock the parent of the new element and remove it from the parent's content list
-            let mut new_elem_parent_locked = new_elem_parent.0.lock();
-            let idx = new_elem_parent_locked
-                .content
-                .iter()
-                .enumerate()
-                .find(|(_, item)| {
-                    if let ElementContent::Element(elem) = item {
-                        *elem == *new_element
-                    } else {
-                        false
-                    }
-                })
-                .map(|(idx, _)| idx)
-                .unwrap();
-            new_elem_parent_locked.content.remove(idx);
-        }
-
-        // remove all cached references for elements under new_element - they all become invalid as a result of moving it
-        for path in original_paths.keys() {
-            project_other.remove_identifiable(path);
-        }
-        if project != project_other {
-            // delete all reference origin info for elements under new_element
-            for (path, elem) in &original_refs {
-                project_other.remove_reference_origin(path, elem.downgrade());
-            }
-        }
-
-        {
-            // set the parent of the new element to the current element
-            let mut new_element_locked = new_element.0.lock();
-            new_element_locked.parent = ElementOrFile::Element(self.downgrade());
-        }
-
-        new_element.make_unique_item_name()?;
-
-        // cache references to all the identifiable elements in new_element
-        for identifiable_element in original_paths.values() {
-            project.fix_identifiables(None, identifiable_element);
-        }
-        // cache all newly added (or modified) reference origins in new_element
-        for (old_ref, ref_element) in original_refs {
-            let mut refstr = if let Some(CharacterData::String(refstr)) = ref_element.character_data() {
-                refstr
-            } else {
-                String::new()
-            };
-            // if the reference points to a known old path, then update it to use the new path instead
-            if let Some(ref_target) = original_paths.get(&refstr) {
-                refstr = ref_target.path()?.unwrap();
-                ref_element.set_character_data(CharacterData::String(refstr.clone()))?;
-            }
-            project.fix_reference_origins(&old_ref, &refstr, ref_element.downgrade());
-        }
-        // if the new_element was moved within this autosar project, then we might be able to update other references pointing to it
-        if project == project_other {
-            let mut project_locked = project.0.lock();
-            for (old_path, target_elem) in &original_paths {
-                // the elements under new_element have already been updated above, this will get any other elements all over the autosar project
-                if let Some(ref_elements) = project_locked.reference_origins.remove(old_path) {
-                    let new_ref_path = target_elem.path()?.unwrap();
-                    for ref_elem_weak in &ref_elements {
-                        if let Some(ref_elem) = ref_elem_weak.upgrade() {
-                            let mut ref_elem_locked = ref_elem.0.lock();
-                            // bypass the extra logic in set_character_data, which also wants to manipulate the currently locked project_locked.reference_origins
-                            ref_elem_locked.content.truncate(0);
-                            ref_elem_locked
-                                .content
-                                .push(ElementContent::CharacterData(CharacterData::String(
-                                    new_ref_path.clone(),
-                                )));
-                        }
-                    }
-                    project_locked.reference_origins.insert(new_ref_path, ref_elements);
-                }
-            }
-        }
-
-        // insert new_element
-        {
-            let mut self_locked = self.0.lock();
-            self_locked
-                .content
-                .insert(position, ElementContent::Element(new_element.clone()));
-        }
-
-        Ok(new_element.clone())
+        self.0.lock().move_element_here_at(
+            self.downgrade(),
+            new_element,
+            position,
+            &project,
+            &project_other,
+            version,
+        )
     }
 
     /// remove the sub element sub_element
@@ -811,90 +324,45 @@ impl Element {
     /// The sub_element will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
     /// Since all elements are reference counted, they might not be deallocated immediately, however they do become invalid and unusable immediately.
     pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), AutosarDataError> {
-        // find the position of sub_element in the parent element first to verify that sub_element actuall *is* a sub element
-        let pos = {
-            // lock the mutext inside this scope, so that the lock gets dropped again after the position has been found
-            let element = self.0.lock();
-            element
-                .content
-                .iter()
-                .enumerate()
-                .find(|(_, item)| {
-                    if let ElementContent::Element(elem) = item {
-                        *elem == sub_element
-                    } else {
-                        false
-                    }
-                })
-                .map(|(idx, _)| idx)
-                .ok_or_else(|| Element::error(ElementActionError::ElementNotFound))?
-        };
-        let project = self.containing_file().and_then(|f| f.project())?;
-        if self.is_identifiable() && sub_element.element_name() == ElementName::ShortName {
-            // may not remove the SHORT-NAME, because that would leave the data in an invalid state
-            return Err(Element::error(ElementActionError::ShortNameRemovalForbidden));
-        }
-        let path = Cow::from(self.path_unchecked()?);
-        let mut element = self.0.lock();
-        sub_element.remove_internal(&project, path);
-        element.content.remove(pos);
-        Ok(())
-    }
-
-    // remove all of the content of an element
-    fn remove_internal(&self, project: &AutosarProject, mut path: Cow<str>) {
-        if self.is_identifiable() {
-            if let Some(name) = self.item_name() {
-                let mut new_path = String::with_capacity(path.len() + name.len() + 1);
-                new_path.push_str(&path);
-                new_path.push('/');
-                new_path.push_str(&name);
-                path = Cow::from(new_path.clone());
-
-                project.remove_identifiable(&path);
-            }
-        }
-        if self.is_reference() {
-            if let Some(CharacterData::String(reference)) = self.character_data() {
-                // remove the references-reference (ugh. terminology???)
-                project.remove_reference_origin(&reference, self.downgrade());
-            }
-        }
-        let mut element = self.0.lock();
-        for item in &element.content {
-            if let ElementContent::Element(sub_element) = item {
-                sub_element.remove_internal(project, Cow::from(path.as_ref()));
-            }
-        }
-        element.content.clear();
-        element.parent = ElementOrFile::None;
+        let project = self.file().and_then(|f| f.project())?;
+        self.0.lock().remove_sub_element(sub_element, &project)
     }
 
     /// Set the reference target for the element to target
     ///
     /// When the reference is updated, the DEST attribute is also updated to match the referenced element.
     /// The current element must be a reference element, otherwise the function fails.
-    pub fn set_reference_target(&self, target: &Element) {
+    pub fn set_reference_target(&self, target: &Element) -> Result<(), AutosarDataError> {
         // the current element must be a reference
         if self.is_reference() {
             // the target element must be identifiable, i.e. it has an autosar path
-            if let Ok(Some(new_ref)) = target.path() {
+            if let Some(new_ref) = target.path()? {
                 // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
                 if let Ok(enum_item) = EnumItem::from_str(target.element_name().to_str()) {
-                    // need a reference to the AutosarProject struct all this is part of - shouldn't ever fail
-                    if let Ok(data) = self.containing_file().and_then(|f| f.project()) {
+                    let file = self.file()?;
+                    let project = file.project()?;
+                    let version = file.version();
+                    let mut element = self.0.lock();
+                    // set the DEST attribute first - this could fail if the target element has the wrong type
+                    if element.set_attribute_internal(AttributeName::Dest, CharacterData::Enum(enum_item), version) {
                         // if this reference previously referenced some other element, update
-                        if let Some(CharacterData::String(old_ref)) = self.character_data() {
-                            data.fix_reference_origins(&old_ref, &new_ref, self.downgrade());
+                        if let Some(CharacterData::String(old_ref)) = element.character_data() {
+                            project.fix_reference_origins(&old_ref, &new_ref, self.downgrade());
                         } else {
                             // else initialise the new reference
-                            data.add_reference_origin(&new_ref, self.downgrade());
+                            project.add_reference_origin(&new_ref, self.downgrade());
                         }
+                        element.set_character_data(CharacterData::String(new_ref), version)?;
                     }
-                    let _ = self.set_character_data(CharacterData::String(new_ref));
-                    self.set_attribute(AttributeName::Dest, CharacterData::Enum(enum_item));
+                    Ok(())
+                } else {
+                    Err(Element::error(ElementActionError::InvalidReference))
                 }
+            } else {
+                Err(Element::error(ElementActionError::ElementNotFound))
             }
+        } else {
+            Err(Element::error(ElementActionError::NotReferenceElement))
         }
     }
 
@@ -902,7 +370,7 @@ impl Element {
     pub fn get_reference_target(&self) -> Result<Element, AutosarDataError> {
         if self.is_reference() {
             if let Some(CharacterData::String(reference)) = self.character_data() {
-                let project = self.containing_file().and_then(|file| file.project())?;
+                let project = self.file().and_then(|file| file.project())?;
                 let target_elem = project
                     .get_element_by_path(&reference)
                     .ok_or_else(|| Element::error(ElementActionError::InvalidReference))?;
@@ -930,8 +398,8 @@ impl Element {
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters {
             if let Some(cdata_spec) = elemtype.chardata_spec() {
-                let project = self.containing_file().and_then(|file| file.project())?;
-                let version = self.containing_file().map(|f| f.version())?;
+                let project = self.file().and_then(|file| file.project())?;
+                let version = self.file().map(|f| f.version())?;
                 if CharacterData::check_value(&chardata, cdata_spec, version) {
                     // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
                     let mut prev_path = None;
@@ -946,11 +414,7 @@ impl Element {
 
                     // if this is a reference, then some extra effort is needed there too
                     let old_refval = if elemtype.is_ref() {
-                        if let Some(CharacterData::String(refval)) = self.character_data() {
-                            Some(refval)
-                        } else {
-                            None
-                        }
+                        self.character_data().and_then(|cdata| cdata.string_value())
                     } else {
                         None
                     };
@@ -966,9 +430,11 @@ impl Element {
                     }
 
                     // short-name: make sure the hashmap in the top-level AutosarProject is updated so that this element can still be found
-                    if self.element_name() == ElementName::ShortName {
+                    if let Some(prev_path) = prev_path {
                         if let Some(parent) = self.parent()? {
-                            project.fix_identifiables(prev_path, &parent);
+                            if let Some(new_path) = parent.path()? {
+                                project.fix_identifiables(&prev_path, &new_path);
+                            }
                         }
                     }
 
@@ -1030,13 +496,7 @@ impl Element {
     ///
     /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
     pub fn character_data(&self) -> Option<CharacterData> {
-        let element = self.0.lock();
-        if let ContentMode::Characters = element.elemtype.content_mode() {
-            if let Some(ElementContent::CharacterData(cdata)) = element.content.get(0) {
-                return Some(cdata.clone());
-            }
-        }
-        None
+        self.0.lock().character_data()
     }
 
     /// create an iterator over all of the content of this element
@@ -1086,39 +546,28 @@ impl Element {
 
     /// get a single attribute by name
     pub fn get_attribute(&self, attrname: AttributeName) -> Option<CharacterData> {
-        let element = self.0.lock();
-        if let Some(attr) = element.attributes.iter().find(|attr| attr.attrname == attrname) {
-            return Some(attr.content.clone());
-        }
-        None
+        self.0.lock().get_attribute(attrname)
     }
 
     /// get the content of a named attribute as a string
     pub fn get_attribute_string(&self, attrname: AttributeName) -> Option<String> {
-        if let Some(chardata) = self.get_attribute(attrname) {
-            match chardata {
-                CharacterData::String(stringval) => return Some(stringval),
-                other => return Some(other.to_string()),
-            }
-        }
-        None
+        self.0.lock().get_attribute_string(attrname)
     }
 
     /// set the value of a named attribute
     ///
     /// If no attribute by that name exists, and the attribute is a valid attribute of the element, then the attribute will be created
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> bool {
-        if let Ok(version) = self.containing_file().map(|f| f.version()) {
-            return self.set_attribute_internal(attrname, value, version);
+        if let Ok(version) = self.file().map(|f| f.version()) {
+            return self.0.lock().set_attribute_internal(attrname, value, version);
         }
         false
     }
 
     /// set the value of a named attribute from a string
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> bool {
-        if let Ok(version) = self.containing_file().map(|f| f.version()) {
+        if let Ok(version) = self.file().map(|f| f.version()) {
             let mut locked_elem = self.0.lock();
-            // let attr_types = DATATYPES[locked_elem.type_id].attributes;
             if let Some((character_data_spec, _, _)) = locked_elem.elemtype.find_attribute_spec(attrname) {
                 if let Some(value) = CharacterData::parse(stringvalue, character_data_spec, version) {
                     if let Some(attr) = locked_elem.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
@@ -1136,53 +585,9 @@ impl Element {
         false
     }
 
-    pub(crate) fn set_attribute_internal(
-        &self,
-        attrname: AttributeName,
-        value: CharacterData,
-        file_version: AutosarVersion,
-    ) -> bool {
-        // find the attribute specification in the item type
-        if let Some((spec, _, _)) = self.elemtype().find_attribute_spec(attrname) {
-            // find the attribute the element's attribute list
-            let mut element = self.0.lock();
-            if let Some(attr) = element.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
-                // the existing attribute gets updated
-                if CharacterData::check_value(&value, spec, file_version) {
-                    attr.content = value;
-                    return true;
-                }
-            } else {
-                // the attribute didn't exist yet, so it is created here
-                if CharacterData::check_value(&value, spec, file_version) {
-                    element.attributes.push(Attribute {
-                        attrname,
-                        content: value,
-                    });
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     /// remove an attribute from the element
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
-        let mut element = self.0.lock();
-        // find the index of the attribute in the attribute list of the element
-        for idx in 0..element.attributes.len() {
-            if element.attributes[idx].attrname == attrname {
-                // find the definition of this attribute in the specification
-                if let Some((_, required, _)) = element.elemtype.find_attribute_spec(attrname) {
-                    // the attribute can only be removed if it is optional
-                    if !required {
-                        element.attributes.remove(idx);
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+        self.0.lock().remove_attribute(attrname)
     }
 
     /// serialize the element and all of its content to a string
@@ -1279,7 +684,7 @@ impl Element {
     }
 
     /// check if the sub elements and attributes of this element are compatible with some target_version
-    pub fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
+    pub(crate) fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
         let mut compat_errors = Vec::new();
         let mut overall_version_mask = u32::MAX;
 
@@ -1334,11 +739,11 @@ impl Element {
         let etype = self.0.lock().elemtype;
         let mut valid_sub_elements = Vec::new();
 
-        if let Ok(version) = self.containing_file().map(|f| f.version()) {
+        if let Ok(version) = self.file().map(|f| f.version()) {
             for (element_name, _, version_mask, named_mask) in etype.sub_element_spec_iter() {
                 if version.compatible(version_mask) {
                     let named = version.compatible(named_mask);
-                    let available = self.find_element_insert_pos(element_name).is_ok();
+                    let available = self.0.lock().find_element_insert_pos(element_name, version).is_ok();
                     valid_sub_elements.push((element_name, named, available));
                 }
             }
@@ -1349,6 +754,962 @@ impl Element {
 
     fn error(err: ElementActionError) -> AutosarDataError {
         AutosarDataError::ElementActionError { source: err }
+    }
+}
+
+impl ElementRaw {
+    /// get the parent element of the current element
+    pub(crate) fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
+        match &self.parent {
+            ElementOrFile::Element(parent) => {
+                // for items that should have a parent, getting it is not allowed to return None
+                let parent = parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
+                Ok(Some(parent))
+            }
+            ElementOrFile::File(_) => Ok(None),
+            ElementOrFile::None => Err(AutosarDataError::ItemDeleted),
+        }
+    }
+
+    pub(crate) fn set_parent(&mut self, new_parent: ElementOrFile) {
+        self.parent = new_parent;
+    }
+
+    /// get the [ElementName] of the element
+    pub(crate) fn element_name(&self) -> ElementName {
+        self.elemname
+    }
+
+    /// get the name of an identifiable element
+    pub(crate) fn item_name(&self) -> Option<String> {
+        // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
+        if self.elemtype.is_named() {
+            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
+            if let Some(ElementContent::Element(subelem)) = self.content.get(0) {
+                // why use try_lock? It is possible that we're calling path() while already holding the lock on subelem.
+                // In this case path() descends to the parent, then calls item_name() and would deadlock.
+                // This case happens when subelem is *not* a ShortName but elemtype.is_named() returns true because there
+                // is a name in some other version, so it is acceptable to return None when locking fails
+                if let Some(subelem_locked) = subelem.0.try_lock_for(Duration::from_millis(10)) {
+                    if subelem_locked.elemname == ElementName::ShortName {
+                        if let Some(CharacterData::String(name)) = subelem_locked.character_data() {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Set the item name of this element
+    pub(crate) fn set_item_name(
+        &self,
+        new_name: &str,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<(), AutosarDataError> {
+        // a new name is required
+        if new_name.is_empty() {
+            return Err(Element::error(ElementActionError::ItemNameRequired));
+        }
+
+        if let Some(current_name) = self.item_name() {
+            // bail out early if the name is actually the same
+            if current_name == new_name {
+                return Ok(());
+            }
+
+            let old_path = self
+                .path()?
+                .ok_or_else(|| Element::error(ElementActionError::ElementNotIdentifiable))?;
+            let new_path = format!("{}{new_name}", old_path.strip_suffix(&current_name).unwrap());
+            if project.get_element_by_path(&new_path).is_some() {
+                return Err(Element::error(ElementActionError::DuplicateItemName));
+            }
+
+            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
+            if let Some(ElementContent::Element(subelem_wrapped)) = self.content.get(0) {
+                let mut subelem = subelem_wrapped.0.lock();
+                if subelem.element_name() == ElementName::ShortName {
+                    subelem.set_character_data(CharacterData::String(new_name.to_owned()), version)?;
+                    project.fix_identifiables(&old_path, &new_path);
+                    let new_prefix = new_path;
+                    let mut project_locked = project.0.lock();
+
+                    // check all references and update those that point to this element or its sub elements
+                    let refpaths = project_locked
+                        .reference_origins
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<String>>();
+                    for refpath in refpaths {
+                        // if the existing reference has the old path as a prefix, then it needs to be updated
+                        if let Some(partial_path) = refpath.strip_prefix(&old_path) {
+                            // prevent ref updates from being applied to e.g. /package10 while renaming /package1
+                            if partial_path.is_empty() || partial_path.starts_with('/') {
+                                if let Some(reflist) = project_locked.reference_origins.remove(&refpath) {
+                                    let refpath_new = format!("{new_prefix}{partial_path}");
+
+                                    for weak_ref_elem in &reflist {
+                                        if let Some(ref_elem) = weak_ref_elem.upgrade() {
+                                            let mut ref_elem_locked = ref_elem.0.lock();
+                                            // can't use .set_character_data() here, because the project is locked
+                                            ref_elem_locked.content[0] = ElementContent::CharacterData(
+                                                CharacterData::String(refpath_new.clone()),
+                                            );
+                                        }
+                                    }
+                                    project_locked.reference_origins.insert(refpath_new, reflist);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        } else {
+            Err(Element::error(ElementActionError::ElementNotIdentifiable))
+        }
+    }
+
+    /// returns true if the element is identifiable
+    pub(crate) fn is_identifiable(&self) -> bool {
+        // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
+        if self.elemtype.is_named() {
+            // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
+            if let Some(ElementContent::Element(subelem)) = self.content.get(0) {
+                if subelem.element_name() == ElementName::ShortName {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// get the Autosar path of an identifiable element
+    ///
+    /// returns Some(path) if the element is identifiable, None otherwise
+    pub(crate) fn path(&self) -> Result<Option<String>, AutosarDataError> {
+        if self.is_identifiable() {
+            let path = self.path_unchecked()?;
+            // even if this element is identifiable, path might still be "" if the current element has been deleted from the element hierarchy
+            if !path.is_empty() {
+                Ok(Some(path))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Err(Element::error(ElementActionError::ElementNotIdentifiable))
+        }
+    }
+
+    fn path_unchecked(&self) -> Result<String, AutosarDataError> {
+        let mut path_components = vec![];
+
+        if let Some(name) = self.item_name() {
+            path_components.push(name);
+        }
+
+        let mut cur_elem_opt = self.parent()?;
+        while let Some(cur_elem) = &cur_elem_opt {
+            if let Some(name) = cur_elem
+                .0
+                .try_lock_for(std::time::Duration::from_millis(10))
+                .ok_or_else(|| Element::error(ElementActionError::ParentElementLocked))?
+                .item_name()
+            {
+                path_components.push(name);
+            }
+            cur_elem_opt = cur_elem.parent()?;
+        }
+        path_components.push(String::new());
+        path_components.reverse();
+        let path = path_components.join("/");
+        Ok(path)
+    }
+
+    /// create a sub element at a suitable insertion position
+    ///
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use create_named_sub_element() for that instead.
+    pub(crate) fn create_sub_element(
+        &mut self,
+        self_weak: WeakElement,
+        element_name: ElementName,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let (_start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        self.create_sub_element_inner(self_weak, element_name, end_pos, version)
+    }
+
+    /// create a sub element at the specified insertion position
+    ///
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use create_named_sub_element_at() for that instead.
+    /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
+    pub(crate) fn create_sub_element_at(
+        &mut self,
+        self_weak: WeakElement,
+        element_name: ElementName,
+        position: usize,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let (start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        if start_pos <= position && position <= end_pos {
+            self.create_sub_element_inner(self_weak, element_name, position, version)
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    /// helper function for create_sub_element and create_sub_element_at
+    fn create_sub_element_inner(
+        &mut self,
+        self_weak: WeakElement,
+        element_name: ElementName,
+        position: usize,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let (elemtype, _) = self
+            .elemtype
+            .find_sub_element(element_name, version as u32)
+            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+        if elemtype.is_named_in_version(version) {
+            Err(Element::error(ElementActionError::VersionIncompatible))
+        } else {
+            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+                parent: ElementOrFile::Element(self_weak),
+                elemname: element_name,
+                elemtype,
+                content: smallvec![],
+                attributes: smallvec![],
+            })));
+            self.content
+                .insert(position, ElementContent::Element(sub_element.clone()));
+            Ok(sub_element)
+        }
+    }
+
+    /// create a named/identifiable sub element at a suitable insertion position
+    ///
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// This method can only be used to create identifiable sub elements.
+    pub(crate) fn create_named_sub_element(
+        &mut self,
+        self_weak: WeakElement,
+        element_name: ElementName,
+        item_name: &str,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let (_start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        self.create_named_sub_element_inner(self_weak, element_name, item_name, end_pos, project, version)
+    }
+
+    /// create a named/identifiable sub element at the specified insertion position
+    ///
+    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
+    /// This method can only be used to create identifiable sub elements.
+    pub(crate) fn create_named_sub_element_at(
+        &mut self,
+        self_weak: WeakElement,
+        element_name: ElementName,
+        item_name: &str,
+        position: usize,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let (start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        if start_pos <= position && position <= end_pos {
+            self.create_named_sub_element_inner(self_weak, element_name, item_name, position, project, version)
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    /// helper function for create_named_sub_element and create_named_sub_element_at
+    fn create_named_sub_element_inner(
+        &mut self,
+        self_weak: WeakElement,
+        element_name: ElementName,
+        item_name: &str,
+        position: usize,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        if item_name.is_empty() {
+            return Err(Element::error(ElementActionError::ItemNameRequired));
+        }
+        let item_name_cdata = CharacterData::String(item_name.to_owned());
+
+        let (elemtype, _) = self
+            .elemtype
+            .find_sub_element(element_name, version as u32)
+            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+
+        if elemtype.is_named_in_version(version) {
+            // verify that the given item_name is actually a valid name
+            if !elemtype
+                .find_sub_element(ElementName::ShortName, version as u32)
+                .and_then(|(se_type, _)| se_type.chardata_spec())
+                .map(|cdata_spec| CharacterData::check_value(&item_name_cdata, cdata_spec, version))
+                .unwrap_or(false)
+            {
+                return Err(Element::error(ElementActionError::IncorrectContentType));
+            }
+
+            let parent_path = self.path_unchecked()?;
+            let path = format!("{parent_path}/{item_name}");
+            // verify that the name is unique: there must be no existing element that already has this autosar path
+            if project.get_element_by_path(&path).is_some() {
+                return Err(Element::error(ElementActionError::DuplicateItemName));
+            }
+
+            // create the new element
+            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+                parent: ElementOrFile::Element(self_weak),
+                elemname: element_name,
+                elemtype,
+                content: smallvec![],
+                attributes: smallvec![],
+            })));
+            self.content
+                .insert(position, ElementContent::Element(sub_element.clone()));
+            // create a SHORT-NAME for the sub element
+            let shortname_element =
+                sub_element
+                    .0
+                    .lock()
+                    .create_sub_element(sub_element.downgrade(), ElementName::ShortName, version)?;
+            let _ = shortname_element.0.lock().set_character_data(item_name_cdata, version);
+            project.add_identifiable(path, sub_element.downgrade());
+            Ok(sub_element)
+        } else {
+            Err(Element::error(ElementActionError::VersionIncompatible))
+        }
+    }
+
+    /// create a deep copy of the given element and insert it as a sub-element
+    pub(crate) fn create_copied_sub_element(
+        &mut self,
+        self_weak: WeakElement,
+        other: &Element,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let other_elemname = {
+            // need to do this inside its own scope to limit the lifetime of the mutex
+            let other_element = other.0.lock();
+            other_element.elemname
+        };
+        let (_, end) = self.find_element_insert_pos(other_elemname, version)?;
+        self.create_copied_sub_element_inner(self_weak, other, end, project, version)
+    }
+
+    /// create a deep copy of the given element and insert it as a sub-element at the given position
+    pub(crate) fn create_copied_sub_element_at(
+        &mut self,
+        self_weak: WeakElement,
+        other: &Element,
+        position: usize,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let other_elemname = {
+            // need to do this inside its own scope to limit the lifetime of the mutex
+            let other_element = other.0.lock();
+            other_element.elemname
+        };
+        let (start_pos, end_pos) = self.find_element_insert_pos(other_elemname, version)?;
+        if start_pos <= position && position <= end_pos {
+            self.create_copied_sub_element_inner(self_weak, other, position, project, version)
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    fn create_copied_sub_element_inner(
+        &mut self,
+        self_weak: WeakElement,
+        other: &Element,
+        position: usize,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
+        // Additionally, implementing this manually provides the opportunity to filter out
+        // elements that ae not compatible with the version of the current file.
+        let newelem = other.0.lock().deep_copy(version)?;
+        let path = self.path_unchecked()?;
+
+        // set the parent of the newelem - the methods path(), containing_file(), etc become available on newelem
+        newelem.set_parent(ElementOrFile::Element(self_weak));
+        if newelem.is_identifiable() {
+            newelem.0.lock().make_unique_item_name(project, &path)?;
+        }
+
+        let mut path_parts: Vec<Option<String>> = vec![Some(path)];
+        for (depth, sub_elem) in newelem.elements_dfs() {
+            while path_parts.len() > depth + 1 {
+                path_parts.pop();
+            }
+            // add each identifiable sub element to the identifiables hashmap
+            if sub_elem.is_identifiable() {
+                path_parts.push(sub_elem.item_name());
+                let sub_elem_path = path_parts
+                    .iter()
+                    .filter_map(|x| x.clone())
+                    .collect::<Vec<String>>()
+                    .join("/");
+                project.add_identifiable(sub_elem_path, sub_elem.downgrade());
+            } else {
+                path_parts.push(None);
+            }
+            // add all references to the reference_origins hashmap
+            if sub_elem.is_reference() {
+                if let Some(CharacterData::String(reference)) = sub_elem.character_data() {
+                    project.add_reference_origin(&reference, sub_elem.downgrade())
+                }
+            }
+        }
+
+        self.content.insert(position, ElementContent::Element(newelem.clone()));
+
+        Ok(newelem)
+    }
+
+    /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with target_version
+    fn deep_copy(&self, target_version: AutosarVersion) -> Result<Element, AutosarDataError> {
+        let copy_wrapped = Element(Arc::new(Mutex::new(ElementRaw {
+            elemname: self.elemname,
+            elemtype: self.elemtype,
+            content: SmallVec::with_capacity(self.content.len()),
+            attributes: SmallVec::with_capacity(self.attributes.len()),
+            parent: ElementOrFile::None,
+        })));
+
+        {
+            let mut copy = copy_wrapped.0.lock();
+            // copy all the attributes
+            for attribute in &self.attributes {
+                // get the specification of the attribute
+                let (cdataspec, required, attr_version_mask) = self
+                    .elemtype
+                    .find_attribute_spec(attribute.attrname)
+                    .ok_or_else(|| Element::error(ElementActionError::VersionIncompatible))?;
+                // check if the attribute is compatible with the target version
+                if target_version.compatible(attr_version_mask)
+                    && attribute
+                        .content
+                        .check_version_compatibility(cdataspec, target_version)
+                        .0
+                {
+                    copy.attributes.push(attribute.clone());
+                } else if required {
+                    return Err(Element::error(ElementActionError::VersionIncompatible));
+                } else {
+                    // no action, the attribute is not compatible, but it's not required either
+                }
+            }
+
+            // copy all content: sub elements and text items
+            for content_item in &self.content {
+                match content_item {
+                    ElementContent::Element(sub_elem) => {
+                        let sub_elem_name = sub_elem.element_name();
+                        // since find_sub_element already considers the version, finding the element also means it's valid in the target_version
+                        if self
+                            .elemtype
+                            .find_sub_element(sub_elem_name, target_version as u32)
+                            .is_some()
+                        {
+                            if let Ok(copied_sub_elem) = sub_elem.0.lock().deep_copy(target_version) {
+                                copied_sub_elem.0.lock().parent = ElementOrFile::Element(copy_wrapped.downgrade());
+                                copy.content.push(ElementContent::Element(copied_sub_elem));
+                            }
+                        }
+                    }
+                    ElementContent::CharacterData(cdata) => {
+                        copy.content.push(ElementContent::CharacterData(cdata.clone()));
+                    }
+                }
+            }
+        }
+
+        Ok(copy_wrapped)
+    }
+
+    /// make_unique_item_name ensures that a copied element has a unique name
+    fn make_unique_item_name(&self, project: &AutosarProject, parent_path: &str) -> Result<String, AutosarDataError> {
+        let orig_name = self
+            .item_name()
+            .ok_or_else(|| Element::error(ElementActionError::ElementNotIdentifiable))?;
+        let mut name = orig_name.clone();
+        let mut counter = 1;
+
+        let mut path = format!("{parent_path}/{orig_name}");
+        while project.get_element_by_path(&path).is_some() {
+            name = format!("{orig_name}_{counter}");
+            counter += 1;
+            path = format!("{parent_path}/{name}");
+        }
+
+        if counter > 1 {
+            // set the name directly by modifying the character content of the short name element
+            // note: the method set_character_data is not suitable here, because it updates the identifiables hashmap
+            if let Some(ElementContent::Element(short_name_elem)) = self.content.get(0) {
+                let mut sn_element = short_name_elem.0.lock();
+                if sn_element.elemname != ElementName::ShortName {
+                    return Err(Element::error(ElementActionError::InvalidSubElement));
+                }
+                sn_element.content.clear();
+                sn_element
+                    .content
+                    .push(ElementContent::CharacterData(CharacterData::String(name.clone())));
+            }
+        }
+
+        Ok(name)
+    }
+
+    /// take an `element` from it's current location and place it in this element as a sub element
+    ///
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarProject
+    ///
+    /// Restrictions:
+    /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
+    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    pub(crate) fn move_element_here(
+        &mut self,
+        self_weak: WeakElement,
+        new_element: &Element,
+        project: &AutosarProject,
+        project_other: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let new_elementname = new_element.element_name();
+        let (_, end_pos) = self.find_element_insert_pos(new_elementname, version)?;
+
+        self.move_element_here_inner(self_weak, new_element, end_pos, project, project_other)
+    }
+
+    /// take an `element` from it's current location and place it at the given position in this element as a sub element
+    ///
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarProject
+    ///
+    /// Restrictions:
+    /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
+    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    pub(crate) fn move_element_here_at(
+        &mut self,
+        self_weak: WeakElement,
+        new_element: &Element,
+        position: usize,
+        project: &AutosarProject,
+        project_other: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let new_elementname = new_element.element_name();
+        let (start_pos, end_pos) = self.find_element_insert_pos(new_elementname, version)?;
+        if start_pos <= position && position <= end_pos {
+            self.move_element_here_inner(self_weak, new_element, position, project, project_other)
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    fn move_element_here_inner(
+        &mut self,
+        self_weak: WeakElement,
+        new_element: &Element,
+        position: usize,
+        project: &AutosarProject,
+        project_other: &AutosarProject,
+    ) -> Result<Element, AutosarDataError> {
+        // check if self (target of the move) is a sub element of new_element
+        // if it is, then the move is not allowed
+        let mut wrapped_parent = self.parent.clone();
+        while let ElementOrFile::Element(weak_parent) = wrapped_parent {
+            let parent = weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
+            if parent == *new_element {
+                return Err(Element::error(ElementActionError::ForbiddenMoveToSubElement));
+            }
+            wrapped_parent = parent.0.lock().parent.clone();
+        }
+
+        let new_elem_parent = new_element
+            .parent()?
+            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+
+        if new_elem_parent.downgrade() == self_weak {
+            return Ok(new_element.clone());
+        }
+
+        let new_elem_path = new_element.0.lock().path_unchecked()?;
+        let path = self.path_unchecked()?;
+
+        // collect the paths of all identifiable elements under new_element before moving it
+        let original_paths: FxHashMap<String, Element> = new_element
+            .elements_dfs()
+            .filter_map(|(_, e)| e.path().ok().flatten().map(|path| (path, e)))
+            .collect();
+        // collect all reference targets and referring elements under new_element
+        let original_refs: Vec<(String, Element)> = new_element
+            .elements_dfs()
+            .filter(|(_, e)| e.is_reference())
+            .filter_map(|(_, e)| e.character_data().map(|data| (data.to_string(), e)))
+            .collect();
+
+        // limit the lifetime of the mutex on new_elem_parent
+        {
+            // lock the parent of the new element and remove it from the parent's content list
+            let mut new_elem_parent_locked = new_elem_parent.0.lock();
+            let idx = new_elem_parent_locked
+                .content
+                .iter()
+                .enumerate()
+                .find(|(_, item)| {
+                    if let ElementContent::Element(elem) = item {
+                        *elem == *new_element
+                    } else {
+                        false
+                    }
+                })
+                .map(|(idx, _)| idx)
+                .unwrap();
+            new_elem_parent_locked.content.remove(idx);
+        }
+
+        // remove all cached references for elements under new_element - they all become invalid as a result of moving it
+        for path in original_paths.keys() {
+            project_other.remove_identifiable(path);
+        }
+        if project != project_other {
+            // delete all reference origin info for elements under new_element
+            for (path, elem) in &original_refs {
+                project_other.remove_reference_origin(path, elem.downgrade());
+            }
+        }
+
+        {
+            // set the parent of the new element to the current element
+            let mut new_element_locked = new_element.0.lock();
+            new_element_locked.parent = ElementOrFile::Element(self_weak);
+        }
+
+        let new_name = new_element.0.lock().make_unique_item_name(project, &path)?;
+
+        // cache references to all the identifiable elements in new_element
+        for (orig_path, identifiable_element) in &original_paths {
+            if let Some(suffix) = orig_path.strip_prefix(&new_elem_path) {
+                let path = format!("{path}/{new_name}{suffix}");
+                project.add_identifiable(path, identifiable_element.downgrade());
+            }
+        }
+        // cache all newly added (or modified) reference origins in new_element
+        for (old_ref, ref_element) in original_refs {
+            let mut refstr = old_ref.clone();
+            // if the reference points to a known old path, then update it to use the new path instead
+            if original_paths.contains_key(&old_ref) {
+                if let Some(suffix) = old_ref.strip_prefix(&new_elem_path) {
+                    refstr = format!("{path}/{new_name}{suffix}");
+                }
+                ref_element.set_character_data(CharacterData::String(refstr.clone()))?;
+            }
+            project.fix_reference_origins(&old_ref, &refstr, ref_element.downgrade());
+        }
+        // if the new_element was moved within this autosar project, then we might be able to update other references pointing to it
+        if project == project_other {
+            let mut project_locked = project.0.lock();
+            for old_path in original_paths.keys() {
+                // the elements under new_element have already been updated above, this will get any other elements all over the autosar project
+                if let Some(ref_elements) = project_locked.reference_origins.remove(old_path) {
+                    if let Some(suffix) = old_path.strip_prefix(&new_elem_path) {
+                        let new_ref_path = format!("{path}/{new_name}{suffix}");
+                        for ref_elem_weak in &ref_elements {
+                            if let Some(ref_elem) = ref_elem_weak.upgrade() {
+                                let mut ref_elem_locked = ref_elem.0.lock();
+                                // bypass the extra logic in set_character_data, which also wants to manipulate the currently locked project_locked.reference_origins
+                                ref_elem_locked.content.truncate(0);
+                                ref_elem_locked
+                                    .content
+                                    .push(ElementContent::CharacterData(CharacterData::String(
+                                        new_ref_path.clone(),
+                                    )));
+                            }
+                        }
+                        project_locked.reference_origins.insert(new_ref_path, ref_elements);
+                    }
+                }
+            }
+        }
+
+        // insert new_element
+        self.content
+            .insert(position, ElementContent::Element(new_element.clone()));
+
+        Ok(new_element.clone())
+    }
+
+    /// find the upper and lower bound on the insert position for a sub element
+    fn find_element_insert_pos(
+        &self,
+        element_name: ElementName,
+        version: AutosarVersion,
+    ) -> Result<(usize, usize), AutosarDataError> {
+        let elemtype = self.elemtype;
+        if self.elemtype.content_mode() == ContentMode::Characters {
+            // cant't insert at all, only character data is permitted
+            return Err(Element::error(ElementActionError::IncorrectContentType));
+        }
+
+        if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
+            let mut start_pos = 0;
+            let mut end_pos = 0;
+            for (idx, content_item) in self.content.iter().enumerate() {
+                if let ElementContent::Element(subelement) = content_item {
+                    let (_, existing_element_indices) = elemtype
+                        .find_sub_element(subelement.element_name(), version as u32)
+                        .unwrap();
+                    let group_type = elemtype.find_common_group(&new_element_indices, &existing_element_indices);
+                    match group_type.content_mode() {
+                        ContentMode::Sequence => {
+                            // decide where to insert
+                            match new_element_indices.cmp(&existing_element_indices) {
+                                std::cmp::Ordering::Less => {
+                                    // new element is smaller than the existing one
+                                    // this means that all plausible insert positions have already been seen
+                                    break;
+                                }
+                                std::cmp::Ordering::Equal => {
+                                    // new element is not smaller than the current one, so set the end position
+                                    end_pos = idx + 1;
+                                    // are identical elements of this type allowed at all?
+                                    if let Some(multiplicity) =
+                                        elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                    {
+                                        if multiplicity != ElementMultiplicity::Any {
+                                            // the new element is identical to an existing one, but repetitions are not allowed
+                                            return Err(Element::error(ElementActionError::ElementInsertionConflict));
+                                        }
+                                    }
+                                }
+                                std::cmp::Ordering::Greater => {
+                                    // new element is greater (i.e. later in the sequence) than the current one
+                                    // the erliest possible insert position is aftet the current element
+                                    start_pos = idx + 1;
+                                    end_pos = idx + 1;
+                                }
+                            }
+                        }
+                        ContentMode::Choice => {
+                            // can insert elements that ar identical to the existing element, if more than one of this element is allowed
+                            // can't insert anything else
+                            if new_element_indices == existing_element_indices {
+                                if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                {
+                                    if multiplicity != ElementMultiplicity::Any {
+                                        // the new element is identical to an existing one, but repetitions are not allowed
+                                        return Err(Element::error(ElementActionError::ElementInsertionConflict));
+                                    }
+                                } else {
+                                    panic!(); // can't happen
+                                }
+                                // the existing element and the new element are equal in positioning
+                                // start_pos remains at its current value (< current position), while
+                                // end_pos is increased to allow inserting before or after this element
+                                end_pos = idx + 1;
+                            } else {
+                                return Err(Element::error(ElementActionError::ElementInsertionConflict));
+                            }
+                        }
+                        ContentMode::Bag | ContentMode::Mixed => {
+                            // can insert before or after the current element
+                            end_pos = idx + 1;
+                        }
+                        ContentMode::Characters => {
+                            panic!(); // impossible on sub-groups
+                        }
+                    }
+                } else if let ElementContent::CharacterData(_) = content_item {
+                    end_pos = idx + 1;
+                }
+            }
+
+            Ok((start_pos, end_pos))
+        } else {
+            Err(Element::error(ElementActionError::InvalidSubElement))
+        }
+    }
+
+    /// remove the sub element sub_element
+    ///
+    /// The sub_element will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
+    /// Since all elements are reference counted, they might not be deallocated immediately, however they do become invalid and unusable immediately.
+    pub(crate) fn remove_sub_element(
+        &mut self,
+        sub_element: Element,
+        project: &AutosarProject,
+    ) -> Result<(), AutosarDataError> {
+        let path = Cow::from(self.path_unchecked()?);
+        let mut sub_element_locked = sub_element.0.lock();
+        // find the position of sub_element in the parent element first to verify that sub_element actuall *is* a sub element
+        let pos = self
+            .content
+            .iter()
+            .enumerate()
+            .find(|(_, item)| {
+                if let ElementContent::Element(elem) = item {
+                    *elem == sub_element
+                } else {
+                    false
+                }
+            })
+            .map(|(idx, _)| idx)
+            .ok_or_else(|| Element::error(ElementActionError::ElementNotFound))?;
+        if self.elemtype.is_named() && sub_element_locked.elemname == ElementName::ShortName {
+            // may not remove the SHORT-NAME, because that would leave the data in an invalid state
+            return Err(Element::error(ElementActionError::ShortNameRemovalForbidden));
+        }
+        sub_element_locked.remove_internal(sub_element.downgrade(), project, path);
+        self.content.remove(pos);
+        Ok(())
+    }
+
+    // remove all of the content of an element
+    fn remove_internal(&mut self, self_weak: WeakElement, project: &AutosarProject, mut path: Cow<str>) {
+        if self.is_identifiable() {
+            if let Some(name) = self.item_name() {
+                let mut new_path = String::with_capacity(path.len() + name.len() + 1);
+                new_path.push_str(&path);
+                new_path.push('/');
+                new_path.push_str(&name);
+                path = Cow::from(new_path.clone());
+
+                project.remove_identifiable(&path);
+            }
+        }
+        if self.elemtype.is_ref() {
+            if let Some(CharacterData::String(reference)) = self.character_data() {
+                // remove the references-reference (ugh. terminology???)
+                project.remove_reference_origin(&reference, self_weak);
+            }
+        }
+        for item in &self.content {
+            if let ElementContent::Element(sub_element) = item {
+                sub_element
+                    .0
+                    .lock()
+                    .remove_internal(sub_element.downgrade(), project, Cow::from(path.as_ref()));
+            }
+        }
+        self.content.clear();
+        self.parent = ElementOrFile::None;
+    }
+
+    /// set the character data of this element
+    ///
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
+    pub(crate) fn set_character_data(
+        &mut self,
+        chardata: CharacterData,
+        version: AutosarVersion,
+    ) -> Result<(), AutosarDataError> {
+        if self.elemtype.content_mode() == ContentMode::Characters {
+            if let Some(cdata_spec) = self.elemtype.chardata_spec() {
+                if CharacterData::check_value(&chardata, cdata_spec, version) {
+                    // update the character data
+                    if self.content.is_empty() {
+                        self.content.push(ElementContent::CharacterData(chardata));
+                    } else {
+                        self.content[0] = ElementContent::CharacterData(chardata);
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        Err(Element::error(ElementActionError::IncorrectContentType))
+    }
+
+    /// get the character content of the element
+    ///
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
+    pub(crate) fn character_data(&self) -> Option<CharacterData> {
+        if let ContentMode::Characters = self.elemtype.content_mode() {
+            if let Some(ElementContent::CharacterData(cdata)) = self.content.get(0) {
+                return Some(cdata.clone());
+            }
+        }
+        None
+    }
+
+    /// get a single attribute by name
+    pub(crate) fn get_attribute(&self, attrname: AttributeName) -> Option<CharacterData> {
+        if let Some(attr) = self.attributes.iter().find(|attr| attr.attrname == attrname) {
+            return Some(attr.content.clone());
+        }
+        None
+    }
+
+    /// get the content of a named attribute as a string
+    pub(crate) fn get_attribute_string(&self, attrname: AttributeName) -> Option<String> {
+        if let Some(chardata) = self.get_attribute(attrname) {
+            match chardata {
+                CharacterData::String(stringval) => return Some(stringval),
+                other => return Some(other.to_string()),
+            }
+        }
+        None
+    }
+
+    pub(crate) fn set_attribute_internal(
+        &mut self,
+        attrname: AttributeName,
+        value: CharacterData,
+        file_version: AutosarVersion,
+    ) -> bool {
+        // find the attribute specification in the item type
+        if let Some((spec, _, _)) = self.elemtype.find_attribute_spec(attrname) {
+            // find the attribute the element's attribute list
+            if let Some(attr) = self.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
+                // the existing attribute gets updated
+                if CharacterData::check_value(&value, spec, file_version) {
+                    attr.content = value;
+                    return true;
+                }
+            } else {
+                // the attribute didn't exist yet, so it is created here
+                if CharacterData::check_value(&value, spec, file_version) {
+                    self.attributes.push(Attribute {
+                        attrname,
+                        content: value,
+                    });
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// remove an attribute from the element
+    pub(crate) fn remove_attribute(&mut self, attrname: AttributeName) -> bool {
+        // find the index of the attribute in the attribute list of the element
+        for idx in 0..self.attributes.len() {
+            if self.attributes[idx].attrname == attrname {
+                // find the definition of this attribute in the specification
+                if let Some((_, required, _)) = self.elemtype.find_attribute_spec(attrname) {
+                    // the attribute can only be removed if it is optional
+                    if !required {
+                        self.attributes.remove(idx);
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -1408,7 +1769,11 @@ mod test {
         assert_eq!(count, 3);
 
         // inserting another COMPU-METHOD into ELEMENTS hould be allowed at any position
-        let (start_pos, end_pos) = el_elements.find_element_insert_pos(ElementName::CompuMethod).unwrap();
+        let (start_pos, end_pos) = el_elements
+            .0
+            .lock()
+            .find_element_insert_pos(ElementName::CompuMethod, AutosarVersion::Autosar_00050)
+            .unwrap();
         assert_eq!(start_pos, 0);
         assert_eq!(end_pos, 3); // upper limit is 3 since there are currently 3 elements
 
@@ -1427,12 +1792,20 @@ mod test {
         el_compu_scale.create_sub_element(ElementName::Desc).unwrap();
 
         // SHORT-LABEL should only be allowed before DESC inside COMPU-SCALE
-        let (start_pos, end_pos) = el_compu_scale.find_element_insert_pos(ElementName::ShortLabel).unwrap();
+        let (start_pos, end_pos) = el_compu_scale
+            .0
+            .lock()
+            .find_element_insert_pos(ElementName::ShortLabel, AutosarVersion::Autosar_00050)
+            .unwrap();
         assert_eq!(start_pos, 0);
         assert_eq!(end_pos, 0);
 
         // COMPU-CONST should only be allowed after DESC inside COMPU-SCALE
-        let (start_pos, end_pos) = el_compu_scale.find_element_insert_pos(ElementName::CompuConst).unwrap();
+        let (start_pos, end_pos) = el_compu_scale
+            .0
+            .lock()
+            .find_element_insert_pos(ElementName::CompuConst, AutosarVersion::Autosar_00050)
+            .unwrap();
         assert_eq!(start_pos, 1);
         assert_eq!(end_pos, 1);
 
@@ -1441,7 +1814,10 @@ mod test {
             .create_sub_element(ElementName::CompuRationalCoeffs)
             .unwrap();
         // try to insert COMPU-CONST anyway
-        let result = el_compu_scale.find_element_insert_pos(ElementName::CompuConst);
+        let result = el_compu_scale
+            .0
+            .lock()
+            .find_element_insert_pos(ElementName::CompuConst, AutosarVersion::Autosar_00050);
         assert!(result.is_err());
     }
 
@@ -1482,7 +1858,7 @@ mod test {
         let el_frame_ref = el_can_frame_triggering
             .create_sub_element(ElementName::FrameRef)
             .unwrap();
-        el_frame_ref.set_reference_target(&el_can_frame);
+        let _ = el_frame_ref.set_reference_target(&el_can_frame);
 
         // initial value of the reference
         let refstr = el_frame_ref.character_data().unwrap().string_value().unwrap();
@@ -1664,7 +2040,7 @@ mod test {
     }
 
     #[test]
-    fn move_element_here() {
+    fn element_move() {
         const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
         <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME>

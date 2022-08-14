@@ -234,36 +234,32 @@ impl AutosarProject {
         WeakAutosarProject(Arc::downgrade(&self.0))
     }
 
-    pub(crate) fn fix_identifiables(&self, old_path: Option<String>, element: &Element) {
-        let mut data = self.0.lock();
-        let new_path = match element.path() {
-            Ok(Some(path)) => path,
-            _ => return,
-        };
-        if let Some(old_path) = old_path {
-            data.identifiables.remove(&old_path);
+    pub(crate) fn add_identifiable(&self, new_path: String, elem: WeakElement) {
+        let mut project = self.0.lock();
+        project.identifiables.insert(new_path, elem);
+    }
 
-            // a package has been renamed, so it might contain other identifiable elements that are affected by the renaming
-            let keys: Vec<String> = data.identifiables.keys().cloned().collect();
-            for key in keys {
-                // find keys referring to entries inside the renamed package
-                if key.starts_with(&old_path) {
-                    // construct the new element path
-                    let (_, suffix) = key.split_at(old_path.len());
+    pub(crate) fn fix_identifiables(&self, old_path: &str, new_path: &str) {
+        let mut project = self.0.lock();
+
+        // the renamed element might contain other identifiable elements that are affected by the renaming
+        let keys: Vec<String> = project.identifiables.keys().cloned().collect();
+        for key in keys {
+            // find keys referring to entries inside the renamed package
+            if let Some(suffix) = key.strip_prefix(old_path) {
+                if suffix.is_empty() || suffix.starts_with('/') {
                     let new_key = format!("{new_path}{suffix}");
                     // fix the identifiables hashmap
-                    let entry = data.identifiables.remove(&key).unwrap();
-                    data.identifiables.insert(new_key, entry);
+                    let entry = project.identifiables.remove(&key).unwrap();
+                    project.identifiables.insert(new_key, entry);
                 }
             }
         }
-        // insert under the new name regardless of whether an old name existed or not
-        data.identifiables.insert(new_path, element.downgrade());
     }
 
     pub(crate) fn remove_identifiable(&self, path: &str) {
-        let mut data = self.0.lock();
-        data.identifiables.remove(path);
+        let mut project = self.0.lock();
+        project.identifiables.remove(path);
     }
 
     pub(crate) fn add_reference_origin(&self, new_ref: &str, origin: WeakElement) {
