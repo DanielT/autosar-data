@@ -279,18 +279,18 @@ impl Element {
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
     /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
-    pub fn move_element_here(&self, new_element: &Element) -> Result<Element, AutosarDataError> {
-        let new_elem_file = new_element.file()?;
-        let project_other = new_elem_file.project()?;
+    pub fn move_element_here(&self, move_element: &Element) -> Result<Element, AutosarDataError> {
+        let file_src = move_element.file()?;
+        let project_src = file_src.project()?;
         let version = self.file().map(|f| f.version())?;
         let project = self.file().and_then(|f| f.project())?;
-        let version_other = new_elem_file.version();
-        if version != version_other {
+        let version_src = file_src.version();
+        if version != version_src {
             return Err(Element::error(ElementActionError::VersionIncompatible));
         }
         self.0
             .lock()
-            .move_element_here(self.downgrade(), new_element, &project, &project_other, version)
+            .move_element_here(self.downgrade(), move_element, &project, &project_src, version)
     }
 
     /// take an `element` from it's current location and place it at the given position in this element as a sub element
@@ -300,21 +300,21 @@ impl Element {
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
     /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
-    pub fn move_element_here_at(&self, new_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let new_elem_file = new_element.file()?;
-        let project_other = new_elem_file.project()?;
+    pub fn move_element_here_at(&self, move_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        let file_src = move_element.file()?;
+        let project_src = file_src.project()?;
         let version = self.file().map(|f| f.version())?;
         let project = self.file().and_then(|f| f.project())?;
-        let version_other = new_elem_file.version();
-        if version != version_other {
+        let version_src = file_src.version();
+        if version != version_src {
             return Err(Element::error(ElementActionError::VersionIncompatible));
         }
         self.0.lock().move_element_here_at(
             self.downgrade(),
-            new_element,
+            move_element,
             position,
             &project,
-            &project_other,
+            &project_src,
             version,
         )
     }
@@ -1285,15 +1285,28 @@ impl ElementRaw {
     pub(crate) fn move_element_here(
         &mut self,
         self_weak: WeakElement,
-        new_element: &Element,
+        move_element: &Element,
         project: &AutosarProject,
-        project_other: &AutosarProject,
+        project_src: &AutosarProject,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let new_elementname = new_element.element_name();
-        let (_, end_pos) = self.find_element_insert_pos(new_elementname, version)?;
+        let move_element_name = move_element.element_name();
+        let (_, end_pos) = self.find_element_insert_pos(move_element_name, version)?;
 
-        self.move_element_here_inner(self_weak, new_element, end_pos, project, project_other)
+        if project == project_src {
+            let src_parent = move_element
+                .parent()?
+                .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+            if src_parent.downgrade() == self_weak {
+                Ok(move_element.clone())
+            } else {
+                // move the element within the same project
+                self.move_element_local(self_weak, move_element, end_pos, project, version)
+            }
+        } else {
+            // move the element between different projects
+            self.move_element_full(self_weak, move_element, end_pos, project, project_src, version)
+        }
     }
 
     /// take an `element` from it's current location and place it at the given position in this element as a sub element
@@ -1306,152 +1319,281 @@ impl ElementRaw {
     pub(crate) fn move_element_here_at(
         &mut self,
         self_weak: WeakElement,
-        new_element: &Element,
+        move_element: &Element,
         position: usize,
         project: &AutosarProject,
-        project_other: &AutosarProject,
+        project_src: &AutosarProject,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let new_elementname = new_element.element_name();
-        let (start_pos, end_pos) = self.find_element_insert_pos(new_elementname, version)?;
+        let move_element_name = move_element.element_name();
+        let (start_pos, end_pos) = self.find_element_insert_pos(move_element_name, version)?;
+
         if start_pos <= position && position <= end_pos {
-            self.move_element_here_inner(self_weak, new_element, position, project, project_other)
+            if project == project_src {
+                let src_parent = move_element
+                    .parent()?
+                    .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+                if src_parent.downgrade() == self_weak {
+                    // move new_element to a different position within the current element
+                    self.move_element_position(move_element, position)
+                } else {
+                    // move the element within the same project
+                    self.move_element_local(self_weak, move_element, position, project, version)
+                }
+            } else {
+                // move the element between different projects
+                self.move_element_full(self_weak, move_element, position, project, project_src, version)
+            }
         } else {
             Err(Element::error(ElementActionError::InvalidElementPosition))
         }
     }
 
-    fn move_element_here_inner(
-        &mut self,
-        self_weak: WeakElement,
-        new_element: &Element,
-        position: usize,
-        project: &AutosarProject,
-        project_other: &AutosarProject,
-    ) -> Result<Element, AutosarDataError> {
-        // check if self (target of the move) is a sub element of new_element
-        // if it is, then the move is not allowed
-        let mut wrapped_parent = self.parent.clone();
-        while let ElementOrFile::Element(weak_parent) = wrapped_parent {
-            let parent = weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
-            if parent == *new_element {
-                return Err(Element::error(ElementActionError::ForbiddenMoveToSubElement));
-            }
-            wrapped_parent = parent.0.lock().parent.clone();
-        }
-
-        let new_elem_parent = new_element
-            .parent()?
-            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
-
-        if new_elem_parent.downgrade() == self_weak {
-            return Ok(new_element.clone());
-        }
-
-        let new_elem_path = new_element.0.lock().path_unchecked()?;
-        let path = self.path_unchecked()?;
-
-        // collect the paths of all identifiable elements under new_element before moving it
-        let original_paths: FxHashMap<String, Element> = new_element
-            .elements_dfs()
-            .filter_map(|(_, e)| e.path().ok().flatten().map(|path| (path, e)))
-            .collect();
-        // collect all reference targets and referring elements under new_element
-        let original_refs: Vec<(String, Element)> = new_element
-            .elements_dfs()
-            .filter(|(_, e)| e.is_reference())
-            .filter_map(|(_, e)| e.character_data().map(|data| (data.to_string(), e)))
-            .collect();
-
-        // limit the lifetime of the mutex on new_elem_parent
-        {
-            // lock the parent of the new element and remove it from the parent's content list
-            let mut new_elem_parent_locked = new_elem_parent.0.lock();
-            let idx = new_elem_parent_locked
+    /// move a sub element within the current element to a different position
+    fn move_element_position(&mut self, move_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        // need to check self.content.len() here, because find_element_insert_pos() will allow values up to len()+1
+        // that's correct when adding elements to self.content, but not strict enough here
+        if position < self.content.len() {
+            let current_position = self
                 .content
                 .iter()
                 .enumerate()
                 .find(|(_, item)| {
                     if let ElementContent::Element(elem) = item {
-                        *elem == *new_element
+                        *elem == *move_element
                     } else {
                         false
                     }
                 })
                 .map(|(idx, _)| idx)
                 .unwrap();
-            new_elem_parent_locked.content.remove(idx);
+
+            if current_position < position {
+                // the first element in the subslice is moved to the last position by rotate_left
+                self.content[current_position..=position].rotate_left(1);
+            } else {
+                // the last element in the subslice is moved to the first position by rotate_right
+                self.content[position..=current_position].rotate_right(1);
+            }
+
+            Ok(move_element.clone())
+        } else {
+            Err(Element::error(ElementActionError::InvalidElementPosition))
+        }
+    }
+
+    // remove an element from its current parent and make it a sub element of this element
+    // the current location must be within the same project
+    // All references to the moved sub element will be updated to refer to the new path
+    fn move_element_local(
+        &mut self,
+        self_weak: WeakElement,
+        move_element: &Element,
+        position: usize,
+        project: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        // check if self (target of the move) is a sub element of new_element
+        // if it is, then the move is not allowed
+        let mut wrapped_parent = self.parent.clone();
+        while let ElementOrFile::Element(weak_parent) = wrapped_parent {
+            let parent = weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
+            if parent == *move_element {
+                return Err(Element::error(ElementActionError::ForbiddenMoveToSubElement));
+            }
+            wrapped_parent = parent.0.lock().parent.clone();
         }
 
-        // remove all cached references for elements under new_element - they all become invalid as a result of moving it
-        for path in original_paths.keys() {
-            project_other.remove_identifiable(path);
+        let src_parent = move_element
+            .parent()?
+            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+
+        if src_parent.downgrade() == self_weak {
+            return Ok(move_element.clone());
         }
-        if project != project_other {
-            // delete all reference origin info for elements under new_element
-            for (path, elem) in &original_refs {
-                project_other.remove_reference_origin(path, elem.downgrade());
+
+        // collect the paths of all identifiable elements under new_element before moving it
+        let original_paths: Vec<String> = move_element
+            .elements_dfs()
+            .filter_map(|(_, e)| e.path().ok().flatten())
+            .collect();
+
+        let src_path_prefix = move_element.0.lock().path_unchecked()?;
+        let dest_path_prefix = self.path_unchecked()?;
+
+        // limit the lifetime of the mutex on src_parent
+        {
+            // lock the source parent element and remove the move_element from its content list
+            let mut src_parent_locked = src_parent.0.lock();
+            let idx = src_parent_locked
+                .content
+                .iter()
+                .enumerate()
+                .find(|(_, item)| {
+                    if let ElementContent::Element(elem) = item {
+                        *elem == *move_element
+                    } else {
+                        false
+                    }
+                })
+                .map(|(idx, _)| idx)
+                .unwrap();
+            src_parent_locked.content.remove(idx);
+        }
+
+        // set the parent of the new element to the current element
+        move_element.0.lock().parent = ElementOrFile::Element(self_weak);
+        let dest_path = if move_element.is_identifiable() {
+            let new_name = move_element
+                .0
+                .lock()
+                .make_unique_item_name(project, &dest_path_prefix)?;
+            format!("{dest_path_prefix}/{new_name}")
+        } else {
+            dest_path_prefix
+        };
+
+        // fix the identifiables cache
+        if move_element.is_identifiable() {
+            // simple case: the moved element is identifiable; fix_identifiables automatically handles the sub-elements
+            project.fix_identifiables(&src_path_prefix, &dest_path);
+        } else {
+            // the moved element is not identifiable, so its identifiable sub-elements must be fixed individually
+            for orig_path in &original_paths {
+                if let Some(suffix) = orig_path.strip_prefix(&src_path_prefix) {
+                    let updated_path = format!("{dest_path}{suffix}");
+                    project.fix_identifiables(orig_path, &updated_path);
+                }
             }
         }
 
-        {
-            // set the parent of the new element to the current element
-            let mut new_element_locked = new_element.0.lock();
-            new_element_locked.parent = ElementOrFile::Element(self_weak);
+        // the move_element was moved within this autosar project, so we can update all other references pointing to it
+        let mut project_locked = project.0.lock();
+        for orig_ref in &original_paths {
+            if let Some(suffix) = orig_ref.strip_prefix(&src_path_prefix) {
+                // e.g. orig_ref = "/Pkg/Foo/Sub/Element" and src_path_prefix = "/Pkg/Foo" then suffix = "/Sub/Element"
+                // strip prefix can't fail, because all original_paths have the src_path_prefix
+                if let Some(ref_elements) = project_locked.reference_origins.remove(orig_ref) {
+                    let refstr = format!("{dest_path}{suffix}");
+                    for ref_element_weak in &ref_elements {
+                        if let Some(ref_element) = ref_element_weak.upgrade() {
+                            ref_element
+                                .0
+                                .lock()
+                                .set_character_data(CharacterData::String(refstr.clone()), version)?;
+                        }
+                    }
+                    project_locked.reference_origins.insert(refstr, ref_elements);
+                }
+            }
         }
 
-        let new_name = new_element.0.lock().make_unique_item_name(project, &path)?;
+        // insert move_element
+        self.content
+            .insert(position, ElementContent::Element(move_element.clone()));
 
-        // cache references to all the identifiable elements in new_element
+        Ok(move_element.clone())
+    }
+
+    // remove an element from its current parent and make it a sub element of this element
+    // This is a move between two different projects
+    // If the moved sub element contains its own tree of sub elements, then references within that tree will be updated
+    fn move_element_full(
+        &mut self,
+        self_weak: WeakElement,
+        move_element: &Element,
+        position: usize,
+        project: &AutosarProject,
+        project_src: &AutosarProject,
+        version: AutosarVersion,
+    ) -> Result<Element, AutosarDataError> {
+        let src_path_prefix = move_element.0.lock().path_unchecked()?;
+        let dest_path_prefix = self.path_unchecked()?;
+        let src_parent = move_element
+            .parent()?
+            .ok_or_else(|| Element::error(ElementActionError::InvalidSubElement))?;
+
+        // collect the paths of all identifiable elements under move_element before moving it
+        let original_paths: FxHashMap<String, Element> = move_element
+            .elements_dfs()
+            .filter_map(|(_, e)| e.path().ok().flatten().map(|path| (path, e)))
+            .collect();
+        // collect all reference targets and referring elements under move_element
+        let original_refs: Vec<(String, Element)> = move_element
+            .elements_dfs()
+            .filter(|(_, e)| e.is_reference())
+            .filter_map(|(_, e)| e.character_data().map(|data| (data.to_string(), e)))
+            .collect();
+
+        // limit the lifetime of the mutex on src_parent
+        {
+            // lock the parent of the new element and remove it from the parent's content list
+            let mut src_parent_locked = src_parent.0.lock();
+            let idx = src_parent_locked
+                .content
+                .iter()
+                .enumerate()
+                .find(|(_, item)| {
+                    if let ElementContent::Element(elem) = item {
+                        *elem == *move_element
+                    } else {
+                        false
+                    }
+                })
+                .map(|(idx, _)| idx)
+                .unwrap();
+            src_parent_locked.content.remove(idx);
+        }
+
+        // remove all cached references for elements under move_element - they all become invalid as a result of moving it
+        for path in original_paths.keys() {
+            project_src.remove_identifiable(path);
+        }
+        // delete all reference origin info for elements under move_element
+        for (path, elem) in &original_refs {
+            project_src.remove_reference_origin(path, elem.downgrade());
+        }
+
+        // set the parent of the new element to the current element
+        move_element.0.lock().parent = ElementOrFile::Element(self_weak);
+        let dest_path = if move_element.is_identifiable() {
+            let new_name = move_element
+                .0
+                .lock()
+                .make_unique_item_name(project, &dest_path_prefix)?;
+            format!("{dest_path_prefix}/{new_name}")
+        } else {
+            dest_path_prefix
+        };
+
+        // cache references to all the identifiable elements in move_element
         for (orig_path, identifiable_element) in &original_paths {
-            if let Some(suffix) = orig_path.strip_prefix(&new_elem_path) {
-                let path = format!("{path}/{new_name}{suffix}");
+            if let Some(suffix) = orig_path.strip_prefix(&src_path_prefix) {
+                let path = format!("{dest_path}{suffix}");
                 project.add_identifiable(path, identifiable_element.downgrade());
             }
         }
-        // cache all newly added (or modified) reference origins in new_element
+        // cache all newly added reference origins under move_element
         for (old_ref, ref_element) in original_refs {
-            let mut refstr = old_ref.clone();
             // if the reference points to a known old path, then update it to use the new path instead
             if original_paths.contains_key(&old_ref) {
-                if let Some(suffix) = old_ref.strip_prefix(&new_elem_path) {
-                    refstr = format!("{path}/{new_name}{suffix}");
+                let mut refstr = old_ref.clone();
+                if let Some(suffix) = old_ref.strip_prefix(&src_path_prefix) {
+                    refstr = format!("{dest_path}{suffix}");
+                    ref_element
+                        .0
+                        .lock()
+                        .set_character_data(CharacterData::String(refstr.clone()), version)?;
                 }
-                ref_element.set_character_data(CharacterData::String(refstr.clone()))?;
-            }
-            project.fix_reference_origins(&old_ref, &refstr, ref_element.downgrade());
-        }
-        // if the new_element was moved within this autosar project, then we might be able to update other references pointing to it
-        if project == project_other {
-            let mut project_locked = project.0.lock();
-            for old_path in original_paths.keys() {
-                // the elements under new_element have already been updated above, this will get any other elements all over the autosar project
-                if let Some(ref_elements) = project_locked.reference_origins.remove(old_path) {
-                    if let Some(suffix) = old_path.strip_prefix(&new_elem_path) {
-                        let new_ref_path = format!("{path}/{new_name}{suffix}");
-                        for ref_elem_weak in &ref_elements {
-                            if let Some(ref_elem) = ref_elem_weak.upgrade() {
-                                let mut ref_elem_locked = ref_elem.0.lock();
-                                // bypass the extra logic in set_character_data, which also wants to manipulate the currently locked project_locked.reference_origins
-                                ref_elem_locked.content.truncate(0);
-                                ref_elem_locked
-                                    .content
-                                    .push(ElementContent::CharacterData(CharacterData::String(
-                                        new_ref_path.clone(),
-                                    )));
-                            }
-                        }
-                        project_locked.reference_origins.insert(new_ref_path, ref_elements);
-                    }
-                }
+                project.add_reference_origin(&refstr, ref_element.downgrade());
             }
         }
 
-        // insert new_element
+        // insert move_element
         self.content
-            .insert(position, ElementContent::Element(new_element.clone()));
+            .insert(position, ElementContent::Element(move_element.clone()));
 
-        Ok(new_element.clone())
+        Ok(move_element.clone())
     }
 
     /// find the upper and lower bound on the insert position for a sub element
@@ -2066,6 +2208,7 @@ mod test {
                 <ECU-INSTANCE><SHORT-NAME>EcuInstance</SHORT-NAME></ECU-INSTANCE>
             </ELEMENTS>
         </AR-PACKAGE>
+        <AR-PACKAGE><SHORT-NAME>Pkg3</SHORT-NAME></AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let project = AutosarProject::new();
         project
@@ -2076,10 +2219,7 @@ mod test {
         // get the existing AR-PACKAGE Pkg2
         let pkg2 = project.get_element_by_path("/Pkg2").unwrap();
         // get the ELEMENTS sub element of Pkg2
-        let pkg2_elements = pkg2
-            .sub_elements()
-            .find(|e| e.element_name() == ElementName::Elements)
-            .unwrap();
+        let pkg2_elements = pkg2.get_sub_element(ElementName::Elements).unwrap();
         // move the EcuInstance into Pkg2
         pkg2_elements.move_element_here(&ecu_instance).unwrap();
         // assert: pkg2 is now the parent of EcuInstance
@@ -2104,5 +2244,52 @@ mod test {
             fibex_elem_ref.character_data().unwrap().to_string(),
             "/Pkg2/EcuInstance_1"
         );
+        // move a non-identifiable element
+        let pkg3 = project.get_element_by_path("/Pkg3").unwrap();
+        let result = pkg3.move_element_here_at(&pkg2_elements, 0);
+        assert!(result.is_err()); // bad position, can't move to position 0 in front of the SHORT-NAME
+        let result = pkg3.move_element_here_at(&pkg2_elements, 1);
+        assert!(result.is_ok());
+
+        // move a tree of elements between two projects
+        let project2 = AutosarProject::new();
+        let file = project2.create_file("test2", AutosarVersion::Autosar_00050).unwrap();
+        let root2 = file.root_element();
+        let autosar_packages = project
+            .files()
+            .next()
+            .unwrap()
+            .root_element()
+            .get_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let result = root2.move_element_here(&autosar_packages);
+        assert!(result.is_ok());
+        assert!(project2.get_element_by_path("/Pkg/System").is_some());
+        assert!(project2.get_element_by_path("/Pkg2").is_some());
+        assert!(project2.get_element_by_path("/Pkg3/EcuInstance").is_some());
+        assert!(project2.get_element_by_path("/Pkg3/EcuInstance_1").is_some());
+        // everything has been moved to project2, so the original project is empty now
+        assert!(project.0.lock().identifiables.is_empty());
+        assert!(project.0.lock().reference_origins.is_empty());
+
+        // move a sub-element to a different position
+        let ar_packages = pkg3.parent().unwrap().unwrap();
+        // confirm the current order inside ar_packages:
+        // 1: AR-PACKAGE ("Pkg"), 2: AR-PACKAGE ("Pkg2"), 3: AR-PACKAGE ("Pkg3")
+        let mut sub_elem_iter = ar_packages.sub_elements();
+        assert_eq!(sub_elem_iter.next().unwrap().item_name().unwrap(), "Pkg");
+        assert_eq!(sub_elem_iter.next().unwrap().item_name().unwrap(), "Pkg2");
+        assert_eq!(sub_elem_iter.next().unwrap().item_name().unwrap(), "Pkg3");
+        let result = ar_packages.move_element_here_at(&pkg3, 0);
+        assert!(result.is_ok());
+        // now the order is: 1: AR-PACKAGE ("Pkg3"), 2: AR-PACKAGE ("Pkg"), 3: AR-PACKAGE ("Pkg2")
+        let mut sub_elem_iter = ar_packages.sub_elements();
+        assert_eq!(sub_elem_iter.next().unwrap().item_name().unwrap(), "Pkg3");
+        // move to last position, should succeed
+        let result = ar_packages.move_element_here_at(&pkg3, 2);
+        assert!(result.is_ok());
+        // move 1 past the last position, should fail
+        let result = ar_packages.move_element_here_at(&pkg3, 3);
+        assert!(result.is_err());
     }
 }

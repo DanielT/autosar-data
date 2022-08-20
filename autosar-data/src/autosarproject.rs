@@ -292,10 +292,15 @@ impl AutosarProject {
 
     pub(crate) fn remove_reference_origin(&self, reference: &str, element: WeakElement) {
         let mut data = self.0.lock();
+        let mut count = 1;
         if let Some(referrer_list) = data.reference_origins.get_mut(reference) {
             if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == element) {
                 referrer_list.swap_remove(index);
             }
+            count = referrer_list.len();
+        }
+        if count == 0 {
+            data.reference_origins.remove(reference);
         }
     }
 }
