@@ -45,7 +45,7 @@ fn extract_bus_info(project: AutosarProject) {
                 display_can_cluster(&element);
             }
             ElementName::EthernetCluster => {
-                println!("display of ethernet clusters is not implemented");
+                display_ethernet_cluster(&element);
             }
             ElementName::FlexrayCluster => {
                 display_flexray_cluster(&element);
@@ -106,12 +106,16 @@ fn display_can_cluster(cluster_element: &Element) -> Option<()> {
             .filter(|se| se.element_name() == ElementName::CanPhysicalChannel)
     })? {
         println!("  Can Physical Channel: {}", phys_channel.item_name()?);
-        let frame_triggerings = phys_channel.get_sub_element(ElementName::FrameTriggerings)?;
-        for ft in frame_triggerings.sub_elements() {
-            display_can_ft(&ft);
+        if let Some(frame_triggerings) = phys_channel.get_sub_element(ElementName::FrameTriggerings) {
+            for ft in frame_triggerings.sub_elements() {
+                display_can_ft(&ft);
+            }
+        } else {
+            println!("    No frames are defined for this bus!");
         }
     }
 
+    println!();
     Some(())
 }
 
@@ -178,6 +182,7 @@ fn display_j1939_cluster(cluster_element: &Element) -> Option<()> {
         }
     }
 
+    println!();
     Some(())
 }
 
@@ -396,12 +401,16 @@ fn display_flexray_cluster(cluster_element: &Element) -> Option<()> {
             .filter(|se| se.element_name() == ElementName::FlexrayPhysicalChannel)
     })? {
         println!("  Flexray Physical Channel: {}", phys_channel.item_name()?);
-        let frame_triggerings = phys_channel.get_sub_element(ElementName::FrameTriggerings)?;
-        for ft in frame_triggerings.sub_elements() {
-            display_flexray_ft(&ft);
+        if let Some(frame_triggerings) = phys_channel.get_sub_element(ElementName::FrameTriggerings) {
+            for ft in frame_triggerings.sub_elements() {
+                display_flexray_ft(&ft);
+            }
+        } else {
+            println!("    No frames are defined for this bus!");
         }
     }
 
+    println!();
     Some(())
 }
 
@@ -515,6 +524,39 @@ fn display_flexray_ft(frame_triggering: &Element) -> Option<()> {
     }
     println!("");
 
+    Some(())
+}
+
+// display the cluster information for an ethernet cluster
+// The ethernet cluster information looks like this:
+// <ETHERNET-CLUSTER>
+//   <SHORT-NAME>Ethernet_Cluster</SHORT-NAME>
+//   <ETHERNET-CLUSTER-VARIANTS>
+//     <ETHERNET-CLUSTER-CONDITIONAL>
+//       <PHYSICAL-CHANNELS>
+//         <ETHERNET-PHYSICAL-CHANNEL>
+//           ...
+//         </ETHERNET-PHYSICAL-CHANNEL>
+//         ...
+//       </PHYSICAL-CHANNELS>
+fn display_ethernet_cluster(cluster_element: &Element) -> Option<()> {
+    let cluster_name = cluster_element.item_name()?;
+
+    let ecc = cluster_element
+        .get_sub_element(ElementName::EthernetClusterVariants)
+        .and_then(|ecv| ecv.get_sub_element(ElementName::EthernetClusterConditional))?;
+    println!("Ethernet Cluster: {cluster_name}");
+    println!("  Note: there is only limited support for Ethernet");
+
+    for phys_channel in ecc.get_sub_element(ElementName::PhysicalChannels).map(|elem| {
+        elem.sub_elements()
+            .filter(|se| se.element_name() == ElementName::EthernetPhysicalChannel)
+    })? {
+        println!("  Ethernet Physical Channel: {}", phys_channel.item_name()?);
+        display_ethernet_channel(&phys_channel);
+    }
+
+    println!();
     Some(())
 }
 
@@ -1150,6 +1192,49 @@ fn display_secured_ipdu(pdu: &Element, indent: usize) {
         println!("{indentation}  {}: {pdu_name}", secured_pdu.element_name());
         display_pdu(&secured_pdu, indent + 1);
     }
+}
+
+// <ETHERNET-PHYSICAL-CHANNEL>
+//   <SHORT-NAME>Ethernet_Physical_Channel</SHORT-NAME>
+//   <CATEGORY>WIRED</CATEGORY>
+//   <NETWORK-ENDPOINTS>
+//     ...
+//   </NETWORK-ENDPOINTS>
+//   ...
+//   <SO-AD-CONFIG>
+//     ...
+//   </SO-AD-CONFIG>
+//   <VLAN>
+//     ...
+//   </VLAN>
+// </ETHERNET-PHYSICAL-CHANNEL>
+fn display_ethernet_channel(channel: &Element) -> Option<()> {
+    if let Some(network_endpoints) = channel.get_sub_element(ElementName::NetworkEndpoints) {
+        for network_endpoint in network_endpoints.sub_elements() {
+            println!("    Network endpoint: {}", network_endpoint.item_name().unwrap());
+            if let Some(ipv4_address) = network_endpoint
+                .get_sub_element(ElementName::NetworkEndpointAddresses)
+                .and_then(|elem| elem.get_sub_element(ElementName::Ipv4Configuration))
+                .and_then(|elem| elem.get_sub_element(ElementName::Ipv4Address))
+                .and_then(|elem| elem.character_data())
+                .and_then(|cdata| cdata.string_value())
+            {
+                println!("      IPv4 address: {ipv4_address}")
+            }
+            if let Some(ipv4_address) = network_endpoint
+                .get_sub_element(ElementName::NetworkEndpointAddresses)
+                .and_then(|elem| elem.get_sub_element(ElementName::Ipv6Configuration))
+                .and_then(|elem| elem.get_sub_element(ElementName::Ipv6Address))
+                .and_then(|elem| elem.character_data())
+                .and_then(|cdata| cdata.string_value())
+            {
+                println!("      IPv6 address: {ipv4_address}")
+            }
+        }
+    }
+
+    println!();
+    Some(())
 }
 
 // decode a string into an integer
