@@ -128,7 +128,7 @@ fn create_value(elem: &Element, version: AutosarVersion) {
         elem.set_character_data(cdata.clone())
             .unwrap_or_else(|err| panic!("error {err} while setting {cdata} with spec {spec:?}",));
     } else if elem.content_type() == ContentType::Mixed {
-        elem.insert_character_content_item("xXxXx", 0);
+        let _ = elem.insert_character_content_item("xXxXx", 0);
     }
 }
 

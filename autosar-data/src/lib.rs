@@ -1,9 +1,78 @@
 //! Crate autosar-data
 //!
-//! This crate provides functionality to read, modify and write Autosar arxml files, both separately and as collections.
+//! This crate provides functionality to read, modify and write Autosar arxml files,
+//! both separately and in projects consisting of mutliple files.
+//!
+//! Features:
+//!
+//!  - read and write arxml files
+//!  - fully validate all data when it is loaded
+//!  - non-strict mode so that invalid but structurally sound data can be loaded
+//!  - various element operations to modify and create sub-elements, data and attributes
+//!  - support for Autosar paths and cross references
+//!  - all operations are thread safe, e.g. it is possible to load mutliple files on separate threads
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use autosar_data::*;
+//! # fn main() -> Result<(), AutosarDataError> {
+//! /* load a multi-file project */
+//! let project = AutosarProject::new();
+//! let (file_1, warnings_1) = project.load_arxml_file("some_file.arxml", false)?;
+//! let (file_2, warnings_2) = project.load_arxml_file("other_file.arxml", false)?;
+//! /* load a buffer */
+//! # let buffer = b"";
+//! let (file_3, _) = project.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
+//!
+//! /* write all files of the project */
+//! project.write()?;
+//!
+//! /* alternatively: */
+//! for file in project.files() {
+//!     let file_data = file.serialize();
+//!     // do something with file_data
+//! }
+//!
+//! /* iterate over all elements in all files */
+//! for (depth, element) in project.elements_dfs() {
+//!     if element.is_identifiable() {
+//!         /* the element is identifiable using an Autosar path */
+//!         println!("{depth}: {}, {}", element.element_name(), element.path()?);
+//!     } else {
+//!         println!("{depth}: {}", element.element_name());
+//!     }
+//! }
+//!
+//! /* get an element by its Autosar path */
+//! let pdu_element = project.get_element_by_path("/Package/Mid/PduName").unwrap();
+//!
+//! /* work with the content of elements */
+//! if let Some(length) = pdu_element
+//!     .get_sub_element(ElementName::Length)
+//!     .and_then(|elem| elem.character_data())
+//!     .and_then(|cdata| cdata.string_value())
+//! {
+//!     println!("Pdu Length: {length}");
+//! }
+//!
+//! /* modify the attributes of an element */
+//! pdu_element.set_attribute_string(AttributeName::Uuid, "12ab34cd-1234-1234-1234-12ab34cd56ef");
+//! pdu_element.remove_attribute(AttributeName::Uuid);
+//!
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Example Programs
+//!
+//! Two complete example programs can be found in the examples directory of the source repostitory. They are:
+//!
+//!  - businfo, which extracts information about bus settings, frames, pdus and signals from an autosar ECU extract
+//!  - generate_files, which for each Autosar version generates an arxml file containing a least one instance of every specified element
+//!
 
 use autosar_data_specification::*;
-use element::ElementActionError;
 use iterators::*;
 use lexer::*;
 use parking_lot::Mutex;
@@ -58,12 +127,19 @@ pub enum AutosarDataError {
     /// IoErrorRead: An IoError that occurred while reading a file
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorRead { filename: PathBuf, ioerror: std::io::Error },
+
     /// IoErrorOpen: an IoError that occurres while opening a file
     #[error("Failed to open {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorOpen { filename: PathBuf, ioerror: std::io::Error },
+
+    /// IoErrorWrite: An IoError that occurred while writing a file
+    #[error("Failed to write {}: {ioerror}", .filename.to_string_lossy())]
+    IoErrorWrite { filename: PathBuf, ioerror: std::io::Error },
+
     /// DuplicateFilenameError,
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
     DuplicateFilenameError { verb: &'static str, filename: PathBuf },
+
     /// LexerError: An error originating in the lexer, such as unclodes strings, mismatched '<' and '>', etc
     #[error("Failed to tokenize {} on line {line}: {source}", .filename.to_string_lossy())]
     LexerError {
@@ -71,6 +147,7 @@ pub enum AutosarDataError {
         line: usize,
         source: ArxmlLexerError,
     },
+
     /// ParserError: A parser error
     #[error("Failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
     ParserError {
@@ -78,14 +155,70 @@ pub enum AutosarDataError {
         line: usize,
         source: ArxmlParserError,
     },
+
+    /// A file could not be loaded into the project, because the Autosar paths of the new data overlapped with the Autosar paths of the existing data
     #[error("Loading failed: element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
     OverlappingDataError { filename: PathBuf, path: String },
 
-    #[error("Element operation failed: {source}")]
-    ElementActionError { source: ElementActionError },
-
+    /// An operation failed because one of the elements involved is in the deleted state and will be freed once its reference count reaches zero
     #[error("Operation failed: the item has been deleted")]
     ItemDeleted,
+
+    /// A sub element could not be created at or moved to the given position
+    #[error("Invalid position for an element of this kind")]
+    InvalidPosition,
+
+    /// The Autosar version of the containing file was not compatible
+    #[error("Version is not compatible")]
+    VersionIncompatible,
+
+    /// A function that only applies to identifiable elements was called on an element which is not identifiable
+    #[error("The Element is not identifiable")]
+    ElementNotIdentifiable,
+
+    /// An item name is required to perform this action
+    #[error("An item name is required")]
+    ItemNameRequired,
+
+    /// The element has the wrong content type for the requested operation, e.g. inserting elements when the content type only allows character data
+    #[error("Incorrect content type")]
+    IncorrectContentType,
+
+    /// Could not insert a sub element, because it conflicts with an existing sub element
+    #[error("Element insertion conflict")]
+    ElementInsertionConflict,
+
+    /// The ElementName is not a valid sub element according to the specification.
+    #[error("Invalid sub element")]
+    InvalidSubElement,
+
+    /// Remove operation failed: the given element is not a sub element of the element from which it was supposed to be removed
+    #[error("element not found")]
+    ElementNotFound,
+
+    /// Remove_sub_element cannot remove the SHORT-NAME of identifiable elements, as this would render the data invalid
+    #[error("the SHORT-NAME sub element may not be removed")]
+    ShortNameRemovalForbidden,
+
+    /// get/set reference target was called for an element that is not a reference
+    #[error("The current element is not a reference")]
+    NotReferenceElement,
+
+    /// The reference is invalid
+    #[error("The reference is not valid")]
+    InvalidReference,
+
+    /// An element could not be renamed, since this item name is already used by a different element
+    #[error("Duplicate item name")]
+    DuplicateItemName,
+
+    /// Cannot move an element into its own sub element
+    #[error("Cannot move an element into its own sub element")]
+    ForbiddenMoveToSubElement,
+
+    /// A parent element is currently locked by a different operation. The operation wa aborted to avoid a deadlock.
+    #[error("A parent element is currently locked by a different operation")]
+    ParentElementLocked,
 }
 
 /// An Autosar arxml file
@@ -136,8 +269,8 @@ pub(crate) struct ElementRaw {
 /// A single attribute of an arxml element
 #[derive(Debug, Clone)]
 pub struct Attribute {
-    pub(crate) attrname: AttributeName,
-    pub(crate) content: CharacterData,
+    pub attrname: AttributeName,
+    pub content: CharacterData,
 }
 
 /// One content item inside an arxml element
@@ -188,15 +321,15 @@ pub(crate) enum ElementOrFile {
 
 /// Possible kinds of compatibility errors that can be found by `ArxmlFile::check_version_compatibility()`
 pub enum CompatibilityError {
-    IncompatibleElement {
-        element: Element,
-        version_mask: u32,
-    },
+    /// The element is not allowed in the target version
+    IncompatibleElement { element: Element, version_mask: u32 },
+    /// The attribute is not allowed in the target version
     IncompatibleAttribute {
         element: Element,
         attribute: AttributeName,
         version_mask: u32,
     },
+    /// The attribute value is not allowed in the target version
     IncompatibleAttributeValue {
         element: Element,
         attribute: AttributeName,

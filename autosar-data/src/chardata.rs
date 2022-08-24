@@ -122,6 +122,9 @@ impl CharacterData {
         }
     }
 
+    /// Get the contained enum value
+    ///
+    /// Returns the enum value if the content is an enum, or None otherwise
     pub fn enum_value(&self) -> Option<EnumItem> {
         if let CharacterData::Enum(item) = self {
             Some(*item)
@@ -130,6 +133,9 @@ impl CharacterData {
         }
     }
 
+    /// Get the contained string
+    ///
+    /// Returns the string if the content is a string, or None otherwise
     pub fn string_value(&self) -> Option<String> {
         if let CharacterData::String(value) = self {
             Some(value.to_owned())
@@ -138,6 +144,9 @@ impl CharacterData {
         }
     }
 
+    /// Get the contained unsigned integer
+    ///
+    /// Returns the string if the content is a string, or None otherwise
     pub fn unsigned_integer_value(&self) -> Option<u64> {
         if let CharacterData::UnsignedInteger(uintval) = self {
             Some(*uintval)
@@ -146,6 +155,9 @@ impl CharacterData {
         }
     }
 
+    /// Get the contained double
+    ///
+    /// Returns the value content is a double, or None otherwise
     pub fn double_value(&self) -> Option<f64> {
         if let CharacterData::Double(value) = self {
             Some(*value)
