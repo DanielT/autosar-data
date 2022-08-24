@@ -1,4 +1,73 @@
 //! Specification of the Autosar arxml file format in the form of rust data structures
+//!
+//! This crate exists to support the autosar-data crate.
+//!
+//! The Autosar data model is originally specified as .xsd files - one for each version of the standard.
+//! All these separate xsd files were parsed into data structures and combined; this crate contains the
+//! combined specification data of all 18 Autosar 4 standard revisions.
+//!
+//! ## Supported standards:
+//!
+//! | xsd filename      | description               |
+//! |-------------------|---------------------------|
+//! | AUTOSAR_4-0-1.xsd | AUTOSAR 4.0.1             |
+//! | AUTOSAR_4-0-2.xsd | AUTOSAR 4.0.2             |
+//! | AUTOSAR_4-0-3.xsd | AUTOSAR 4.0.3             |
+//! | AUTOSAR_4-1-1.xsd | AUTOSAR 4.1.1             |
+//! | AUTOSAR_4-1-2.xsd | AUTOSAR 4.1.2             |
+//! | AUTOSAR_4-1-3.xsd | AUTOSAR 4.1.3             |
+//! | AUTOSAR_4-2-1.xsd | AUTOSAR 4.2.1             |
+//! | AUTOSAR_4-2-2.xsd | AUTOSAR 4.2.2             |
+//! | AUTOSAR_4-3-0.xsd | AUTOSAR 4.3.0             |
+//! | AUTOSAR_00042.xsd | AUTOSAR Adaptive 17-03    |
+//! | AUTOSAR_00043.xsd | AUTOSAR Adaptive 17-10    |
+//! | AUTOSAR_00044.xsd | AUTOSAR Classic 4.3.1     |
+//! | AUTOSAR_00045.xsd | AUTOSAR Adaptive 18-03    |
+//! | AUTOSAR_00046.xsd | AUTOSAR Classic 4.4.0 / Adaptive 18-10 |
+//! | AUTOSAR_00047.xsd | AUTOSAR Adaptive 19-03    |
+//! | AUTOSAR_00048.xsd | AUTOSAR 4.5.0             |
+//! | AUTOSAR_00049.xsd | AUTOSAR 4.6.0             |
+//! | AUTOSAR_00050.xsd | AUTOSAR 4.7.0             |
+//!
+//! Since the raw data is rather opaque, it is not exposed directly, but rather there are functions to interact with it.
+//!
+//! ## Using the crate
+//!
+//! The main datatype is the [ElementType]. The type of the <AUTOSAR> element at the root of every arxml file is
+//! available as ElementType::ROOT.
+//!
+//! ## Note
+//!
+//! It is not possible to directly convert between [ElementName]s and [ElementType]s, since this is an n:m mapping.
+//! If the content of two differently named elements is structurally identical, then they have the same [ElementType];
+//! on the other side there are several elements that have different content depending in the context in which they appear.
+//!
+//! ## Example
+//!
+//! ```
+//! # use autosar_data_specification::*;
+//! # use std::str::FromStr;
+//! let root_type = ElementType::ROOT;
+//!
+//! // parsing an element
+//! let element_name_text = "AR-PACKAGES";
+//! let element_name = ElementName::from_str(element_name_text).unwrap();
+//! assert_eq!(element_name, ElementName::ArPackages);
+//!
+//! let version_mask = AutosarVersion::Autosar_4_3_0 as u32;
+//! if let Some((element_type, index_list)) = root_type.find_sub_element(
+//!     element_name,
+//!     version_mask
+//! ) {
+//!     // parsing an attribute
+//!     let attribute_name = AttributeName::from_str("UUID").unwrap();
+//!     if let Some(attribute_spec) = element_type.find_attribute_spec(attribute_name) {
+//!         // ...
+//!     }
+//!
+//!     // ...
+//! }
+//! ```
 
 mod attributename;
 mod autosarversion;
@@ -167,7 +236,7 @@ impl ElementType {
 
     /// get the ContentMode of the container of a sub element of the current ElementType
     ///
-    /// The sub element is identified by an indx list, as returned by `find_sub_element()`
+    /// The sub element is identified by an index list, as returned by `find_sub_element()`
     pub fn get_sub_element_container_mode(&self, element_indices: &[usize]) -> ContentMode {
         if element_indices.len() < 2 {
             // length == 1: this element is a direct sub element, without any groups;
@@ -350,6 +419,7 @@ impl ElementType {
     pub const ROOT: Self = ElementType(ROOT_DATATYPE);
 }
 
+/// Iterator for attribute definitions
 pub struct AttrDefinitionsIter {
     type_id: usize,
     pos: usize,
@@ -371,6 +441,9 @@ impl Iterator for AttrDefinitionsIter {
     }
 }
 
+/// Iterator over sub element definitions
+///
+/// returns the tuple (name: ElementName, etype: ElementType, version_mask: u32, name_version_mask: u32)
 pub struct SubelemDefinitionsIter {
     type_id_stack: Vec<usize>,
     indices: Vec<usize>,
