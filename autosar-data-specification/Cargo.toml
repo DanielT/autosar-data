@@ -5,6 +5,6 @@ authors = ["Daniel Thaler <daniel@dthaler.de>"]
 edition = "2021"
 description = "specification of the Autosar arxml file format as rust data structures"
 license = "MIT OR Apache-2.0"
-keywords = ["arxml", "file", "file-format", "Autosar"]
+keywords = ["arxml", "automotive", "file-format", "Autosar"]
 categories = ["parser-implementations"]
 repository = "https://github.com/DanielT/autosar-data"

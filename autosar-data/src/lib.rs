@@ -1,7 +1,7 @@
 //! Crate autosar-data
 //!
 //! This crate provides functionality to read, modify and write Autosar arxml files,
-//! both separately and in projects consisting of mutliple files.
+//! both separately and in projects consisting of multiple files.
 //!
 //! Features:
 //!
