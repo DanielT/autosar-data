@@ -494,7 +494,7 @@ impl Iterator for SubelemDefinitionsIter {
     }
 }
 
-// manually implement Debug for CharacterDataSpec; deriving it is not possible, because that fails on the chack_fn field in ::Pattern.
+// manually implement Debug for CharacterDataSpec; deriving it is not possible, because that fails on the check_fn field in ::Pattern.
 // The check_fn field is simply omitted here.
 impl std::fmt::Debug for CharacterDataSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -547,6 +547,8 @@ pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use super::*;
 
     fn get_prm_char_element_type() -> ElementType {
@@ -611,12 +613,18 @@ mod test {
         let prm_char_type = get_prm_char_element_type();
         let (abs_type, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
-        if let Some((SubElement::Element { name, elemtype, .. }, _)) = sub_elem_spec {
+        let (sub_element, _) = sub_elem_spec.unwrap();
+        if let SubElement::Element { name, elemtype, .. } = sub_element {
             assert_eq!(*name, ElementName::Abs);
             assert_eq!(ElementType(*elemtype), abs_type);
-        } else {
-            panic!("incorrect return value from get_sub_element_spec()");
         }
+
+        // the element_indices passed to get_sub_element_spec may not be empty
+        let sub_elem_spec2 = prm_char_type.get_sub_element_spec(&[]);
+        assert!(sub_elem_spec2.is_none());
+        // element_indices is nonsense
+        let sub_elem_spec2 = prm_char_type.get_sub_element_spec(&[0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert!(sub_elem_spec2.is_none());
     }
 
     #[test]
@@ -657,7 +665,9 @@ mod test {
 
     #[test]
     fn find_attribute_spec() {
-        let (_, req, ver) = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
+        let (spec, req, ver) = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
+        let spec_dbgstr = format!("{:#?}", spec);
+        assert!(!spec_dbgstr.is_empty());
         // xmlns in AUTOSAR is required
         assert_eq!(req, true);
         // must be specified both in the first and latest versions (and every one in between - not tested)
@@ -687,5 +697,81 @@ mod test {
             .filter(|(_, _, version_mask, _)| AutosarVersion::Autosar_00050.compatible(*version_mask))
             .count();
         assert_eq!(compatible_count, 9);
+    }
+
+    #[test]
+    fn autosar_version() {
+        /* do all the version descriptions exist & make sense?  */
+        assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_0_2.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_0_3.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_1_1.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_1_2.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_1_3.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_2_1.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_2_2.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_4_3_0.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00042.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00043.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00044.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00045.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00046.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00047.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00048.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00049.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00050.describe().starts_with("AUTOSAR"));
+
+        /* do all the xsd file names exist?  */
+        assert!(AutosarVersion::Autosar_4_0_1.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_0_2.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_0_3.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_1_1.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_1_2.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_1_3.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_2_1.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_2_2.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_4_3_0.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00042.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00043.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00044.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00045.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00046.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00047.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00048.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00049.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00050.filename().ends_with(".xsd"));
+
+        /* to_string() should give the same result as describe() */
+        assert_eq!(AutosarVersion::Autosar_4_0_1.to_string(), AutosarVersion::Autosar_4_0_1.describe());
+    }
+
+    #[test]
+    fn attribute_name_basics() {
+        /* attribute name round trip: enum -> str -> enum */
+        assert_eq!(AttributeName::Uuid, AttributeName::from_str(AttributeName::Uuid.to_str()).unwrap());
+
+        /* attribute parse error */
+        let error = AttributeName::from_str("unknown attribute name");
+        assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseAttributeNameError");
+    }
+
+    #[test]
+    fn element_name_basics() {
+        /* element name round trip: enum -> str -> enum */
+        assert_eq!(ElementName::Autosar, ElementName::from_str(ElementName::Autosar.to_str()).unwrap());
+
+        /* attribute parse error */
+        let error = ElementName::from_str("unknown element name");
+        assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseElementNameError");
+    }
+
+    #[test]
+    fn enum_item_basics() {
+        /* enum item round trip: enum -> str -> enum */
+        assert_eq!(EnumItem::Default, EnumItem::from_str(EnumItem::Default.to_str()).unwrap());
+
+        /* enum item parse error */
+        let error = EnumItem::from_str("unknown enum item");
+        assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseEnumItemError");
     }
 }

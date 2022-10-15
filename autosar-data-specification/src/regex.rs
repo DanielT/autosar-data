@@ -3238,3 +3238,385 @@ pub(crate) fn validate_regex_28(s: &[u8]) -> bool {
     }
     matches!(state, 4)
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_regex_1() {
+        /* regex: ^(0x[0-9a-z]*)$ */
+        assert_eq!(validate_regex_1(b""), false);
+        assert_eq!(validate_regex_1(b"0x1234567890"), true);
+        assert_eq!(validate_regex_1(b"0xaAbBcCdDeEfF"), true);
+        assert_eq!(validate_regex_1(b"12345"), false);
+    }
+
+    #[test]
+    fn test_regex_2() {
+        /* regex: ^([1-9][0-9]*|0[xX][0-9a-fA-F]*|0[bB][0-1]+|0[0-7]*|UNSPECIFIED|UNKNOWN|BOOLEAN|PTR)$ */
+        /* empty string */
+        assert_eq!(validate_regex_2(b""), false);
+        /* decimal */
+        assert_eq!(validate_regex_2(b"1234567890"), true);
+        /* hex */
+        assert_eq!(validate_regex_2(b"0x1234567890abcdefABCDEF"), true);
+        /* octal */
+        assert_eq!(validate_regex_2(b"01234567"), true);
+        /* other */
+        assert_eq!(validate_regex_2(b"UNSPECIFIED"), true);
+        assert_eq!(validate_regex_2(b"UNKNOWN"), true);
+        assert_eq!(validate_regex_2(b"BOOLEAN"), true);
+        assert_eq!(validate_regex_2(b"PTR"), true);
+        /* invalid hex */
+        assert_eq!(validate_regex_2(b"0xghij"), false);
+        /* invalid octal */
+        assert_eq!(validate_regex_2(b"08"), false);
+        /* invalid other */
+        assert_eq!(validate_regex_2(b"hello world"), false);
+    }
+
+    #[test]
+    fn test_regex_3() {
+        /* regex: ^([1-9][0-9]*|0[xX][0-9a-fA-F]+|0[0-7]*|0[bB][0-1]+|ANY|ALL)$ */
+        /* empty string */
+        assert_eq!(validate_regex_3(b""), false);
+        /* decimal */
+        assert_eq!(validate_regex_3(b"1234567890"), true);
+        /* hex */
+        assert_eq!(validate_regex_3(b"0x1234567890abcdefABCDEF"), true);
+        /* octal */
+        assert_eq!(validate_regex_3(b"01234567"), true);
+        /* other */
+        assert_eq!(validate_regex_3(b"ANY"), true);
+        assert_eq!(validate_regex_3(b"ALL"), true);
+        /* invalid hex */
+        assert_eq!(validate_regex_3(b"0xghij"), false);
+        /* invalid octal */
+        assert_eq!(validate_regex_3(b"08"), false);
+        /* invalid other */
+        assert_eq!(validate_regex_3(b"hello world"), false);
+    }
+
+    #[test]
+    fn test_regex_4() {
+        /* regex: ^([0-9]+|ANY)$ */
+        /* matching: */
+        assert_eq!(validate_regex_4(b"ANY"), true);
+        assert_eq!(validate_regex_4(b"1234567890"), true);
+        assert_eq!(validate_regex_4(b"0123456789"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_4(b""), false);
+        assert_eq!(validate_regex_4(b"hello world"), false);
+    }
+
+    #[test]
+    fn test_regex_5() {
+        /* regex ^([0-9]+|STRING|ARRAY)$ */
+        /* matching: */
+        assert_eq!(validate_regex_5(b"STRING"), true);
+        assert_eq!(validate_regex_5(b"ARRAY"), true);
+        assert_eq!(validate_regex_5(b"1234567890"), true);
+        assert_eq!(validate_regex_5(b"0123456789"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_5(b""), false);
+        assert_eq!(validate_regex_5(b"hello world"), false);
+    }
+
+    #[test]
+    fn test_regex_6() {
+        /* regex ^(0|1|true|false)$ */
+        /* matching */
+        assert_eq!(validate_regex_6(b"0"), true);
+        assert_eq!(validate_regex_6(b"1"), true);
+        assert_eq!(validate_regex_6(b"true"), true);
+        assert_eq!(validate_regex_6(b"false"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_6(b""), false);
+        assert_eq!(validate_regex_6(b"2"), false);
+        assert_eq!(validate_regex_6(b"hello world"), false);
+    }
+
+    #[test]
+    fn test_regex_7() {
+        /* regex ^([a-zA-Z_][a-zA-Z0-9_]*)$ */
+        /* matching */
+        assert_eq!(validate_regex_7(b"Text_0"), true);
+        assert_eq!(validate_regex_7(b"_Text_1"), true);
+        assert_eq!(validate_regex_7(b"TEXT_9"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_7(b""), false);
+        assert_eq!(validate_regex_7(b"0Text_0"), false);
+        assert_eq!(validate_regex_7(b"Text Text"), false);
+    }
+
+    #[test]
+    fn test_regex_8() {
+        /* regex ^([a-zA-Z][a-zA-Z0-9_]*)$ */
+        /* matching */
+        assert_eq!(validate_regex_8(b"Text_0"), true);
+        assert_eq!(validate_regex_8(b"TEXT_9"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_8(b""), false);
+        assert_eq!(validate_regex_8(b"_Text_1"), false);
+        assert_eq!(validate_regex_8(b"0Text_0"), false);
+        assert_eq!(validate_regex_8(b"Text Text"), false);
+    }
+
+    #[test]
+    fn test_regex_9() {
+        /* regex ^(([0-9]{4}-[0-9]{2}-[0-9]{2})(T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|([+\-][0-9]{2}:[0-9]{2})))?)$ */
+        /* matching */
+        assert_eq!(validate_regex_9(b"2022-01-01T12:00:00Z"), true);
+        assert_eq!(validate_regex_9(b"2022-01-01T12:00:00+01:30"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_9(b""), false);
+        assert_eq!(validate_regex_9(b"202-01-01T12:00:00Z"), false);
+    }
+
+    #[test]
+    fn test_regex_10() {
+        /* regex ^([a-zA-Z][a-zA-Z0-9-]*)$ */
+        /* matching */
+        assert_eq!(validate_regex_10(b"Text-0"), true);
+        assert_eq!(validate_regex_10(b"TEXT-9"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_10(b""), false);
+        assert_eq!(validate_regex_10(b"-"), false);
+        assert_eq!(validate_regex_10(b"-Text-1"), false);
+        assert_eq!(validate_regex_10(b"0Text_0"), false);
+        assert_eq!(validate_regex_10(b"Text Text"), false);
+    }
+
+    #[test]
+    fn test_regex_11() {
+        /* regex ^([0-9a-zA-Z_\-]+)$ */
+        /* matching */
+        assert_eq!(validate_regex_11(b"Text-0"), true);
+        assert_eq!(validate_regex_11(b"TEXT-9"), true);
+        assert_eq!(validate_regex_11(b"-"), true);
+        assert_eq!(validate_regex_11(b"_"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_11(b""), false);
+        assert_eq!(validate_regex_11(b"hello world"), false);
+    }
+
+    #[test]
+    fn test_regex_12() {
+        /* regex ^(%[ \-+#]?[0-9]*(\.[0-9]+)?[diouxXfeEgGcs])$ */
+        /* matching */
+        assert_eq!(validate_regex_12(b"%d"), true);
+        assert_eq!(validate_regex_12(b"% 9.9f"), true);
+        assert_eq!(validate_regex_12(b"%s"), true);
+        assert_eq!(validate_regex_12(b"%#.9X"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_12(b""), false);
+        assert_eq!(validate_regex_12(b"d"), false);
+    }
+
+    #[test]
+    fn test_regex_13() {
+        /* regex ^(0|[\+\-]?[1-9][0-9]*|0[xX][0-9a-fA-F]+|0[bB][0-1]+|0[0-7]+)$ */
+        /* matching */
+        assert_eq!(validate_regex_13(b"0"), true);
+        assert_eq!(validate_regex_13(b"-19"), true);
+        assert_eq!(validate_regex_13(b"0XDEADBEEF"), true);
+        assert_eq!(validate_regex_13(b"0b010101"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_13(b""), false);
+        assert_eq!(validate_regex_13(b"-019"), false);
+        assert_eq!(validate_regex_13(b"0XDEADBEEG"), false);
+        assert_eq!(validate_regex_13(b"0b010102"), false);
+    }
+
+    #[test]
+    fn test_regex_14() {
+        /* regex ^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|ANY)$ */
+        /* matching */
+        assert_eq!(validate_regex_14(b"192.168.0.1"), true);
+        assert_eq!(validate_regex_14(b"255.255.255.0"), true);
+        assert_eq!(validate_regex_14(b"ANY"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_14(b""), false);
+        assert_eq!(validate_regex_14(b"255.255.255.255.255"), false);
+    }
+
+    #[test]
+    fn test_regex_15() {
+        /* regex ^([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4}){7,7}|ANY)$ */
+        /* matching */
+        assert_eq!(validate_regex_15(b"fe80:0:abcd:1234:0:0:0:1"), true);
+        assert_eq!(validate_regex_15(b"ANY"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_15(b""), false);
+        assert_eq!(validate_regex_15(b"fe80::abcd:1234::::1"), false);
+    }
+
+    #[test]
+    fn test_regex_16() {
+        /* regex ^((0[xX][0-9a-fA-F]+)|(0[0-7]+)|(0[bB][0-1]+)|(([+\-]?[1-9][0-9]+(\.[0-9]+)?|[+\-]?[0-9](\.[0-9]+)?)([eE]([+\-]?)[0-9]+)?)|\.0|INF|-INF|NaN)$ */
+        /* matching */
+        assert_eq!(validate_regex_16(b"0xC0"), true);
+        assert_eq!(validate_regex_16(b"0777"), true);
+        assert_eq!(validate_regex_16(b"+1234"), true);
+        assert_eq!(validate_regex_16(b"-3.1415e-42"), true);
+        assert_eq!(validate_regex_16(b"INF"), true);
+        assert_eq!(validate_regex_16(b"NaN"), true);
+
+        /* non-matching */
+        assert_eq!(validate_regex_16(b""), false);
+        assert_eq!(validate_regex_16(b"text"), false);
+    }
+
+    #[test]
+    fn test_regex_17() {
+        /* regex ^(([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})$ */
+        /* matching */
+        assert_eq!(validate_regex_17(b"0A:1B:2C:3D:4E:5F"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_17(b""), false);
+        assert_eq!(validate_regex_17(b"0A:1B:2C:3D:4E"), false);
+    }
+
+    #[test]
+    fn test_regex_18() {
+        /* regex ^([a-zA-Z_][a-zA-Z0-9_]*(\[([a-zA-Z_][a-zA-Z0-9_]*|[0-9]+)\])*(\.[a-zA-Z_][a-zA-Z0-9_]*(\[([a-zA-Z_][a-zA-Z0-9_]*|[0-9]+)\])*)*)$ */
+        /* matching */
+        assert_eq!(validate_regex_18(b"aabb9_cd[x][y].cde"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_18(b""), false);
+        assert_eq!(validate_regex_18(b"42"), false);
+    }
+
+    #[test]
+    fn test_regex_19() {
+        /* regex ^([A-Z][a-zA-Z0-9_]*)$ */
+        /* matching */
+        assert_eq!(validate_regex_19(b"Text_Text"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_19(b""), false);
+        assert_eq!(validate_regex_19(b"text"), false);
+        assert_eq!(validate_regex_19(b"Text Text"), false);
+    }
+
+    #[test]
+    fn test_regex_20() {
+        /* regex  ^([1-9][0-9]*)$ */
+        /* matching */
+        assert_eq!(validate_regex_20(b"123"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_20(b""), false);
+        assert_eq!(validate_regex_20(b"abcd"), false);
+        assert_eq!(validate_regex_20(b"0x123"), false);
+    }
+
+    #[test]
+    fn test_regex_21() {
+        /* regex ^(0|[\+]?[1-9][0-9]*|0[xX][0-9a-fA-F]+|0[bB][0-1]+|0[0-7]+)$ */
+        /* matching */
+        assert_eq!(validate_regex_21(b"0"), true);
+        assert_eq!(validate_regex_21(b"+19"), true);
+        assert_eq!(validate_regex_21(b"0xbadcafe"), true);
+        assert_eq!(validate_regex_21(b"0b1010"), true);
+        assert_eq!(validate_regex_21(b"0777"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_21(b""), false);
+        assert_eq!(validate_regex_21(b"-19"), false);
+        assert_eq!(validate_regex_21(b"1.23"), false);
+        assert_eq!(validate_regex_21(b"text"), false);
+    }
+
+    #[test]
+    fn test_regex_22() {
+        /* regex ^([a-zA-Z]([a-zA-Z0-9]|_[a-zA-Z0-9])*_?)$ */
+        /* matching */
+        assert_eq!(validate_regex_22(b"text"), true);
+        assert_eq!(validate_regex_22(b"text_text"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_22(b""), false);
+        assert_eq!(validate_regex_22(b"_text"), false);
+        assert_eq!(validate_regex_22(b"text__text"), false);
+    }
+
+    #[test]
+    fn test_regex_23() {
+        /* regex ^(-?([0-9]+|MAX-TEXT-SIZE|ARRAY-SIZE))$ */
+        /* matching */
+        assert_eq!(validate_regex_23(b"-000"), true);
+        assert_eq!(validate_regex_23(b"33"), true);
+        assert_eq!(validate_regex_23(b"MAX-TEXT-SIZE"), true);
+        assert_eq!(validate_regex_23(b"ARRAY-SIZE"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_23(b""), false);
+        assert_eq!(validate_regex_23(b"text"), false);
+        assert_eq!(validate_regex_23(b"1.23"), false);
+    }
+
+    #[test]
+    fn test_regex_24() {
+        /* regex ^(/?[a-zA-Z][a-zA-Z0-9_]{0,127}(/[a-zA-Z][a-zA-Z0-9_]{0,127})*)$ */
+        /* matching */
+        assert_eq!(validate_regex_24(b"/path/to/element"), true);
+        assert_eq!(validate_regex_24(b"element_name"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_24(b""), false);
+        assert_eq!(validate_regex_24(b"1234"), false);
+    }
+
+    #[test]
+    fn test_regex_25() {
+        /* regex ^([0-9]+\.[0-9]+\.[0-9]+([\._;].*)?)$ */
+        /* matching */
+        assert_eq!(validate_regex_25(b"0.1.2_text"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_25(b""), false);
+        assert_eq!(validate_regex_25(b"text"), false);
+        assert_eq!(validate_regex_25(b"12"), false);
+    }
+
+    #[test]
+    fn test_regex_26() {
+        /* regex ^((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-((0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*))?)$ */
+        /* matching */
+        assert_eq!(validate_regex_26(b"0.0.0-ab-c.0.0+zz-Z"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_26(b""), false);
+        assert_eq!(validate_regex_26(b"0"), false);
+        assert_eq!(validate_regex_26(b"text"), false);
+    }
+
+    #[test]
+    fn test_regex_27() {
+        /* regex ^([0-1])$ */
+        /* matching */
+        assert_eq!(validate_regex_27(b"0"), true);
+        assert_eq!(validate_regex_27(b"1"), true);
+        /* non-matching */
+        assert_eq!(validate_regex_27(b""), false);
+        assert_eq!(validate_regex_27(b"text"), false);
+        assert_eq!(validate_regex_27(b"10"), false);
+    }
+
+    #[test]
+    fn test_regex_28() {
+        /* regex ^((-?[a-zA-Z_]+)(( )+-?[a-zA-Z_]+)*)$ */
+        /* matching */
+        assert_eq!(validate_regex_28(b"-text_text-Z__Z"), false);
+        /* non-matching */
+        assert_eq!(validate_regex_28(b""), false);
+        assert_eq!(validate_regex_28(b"--"), false);
+        assert_eq!(validate_regex_28(b"1"), false);
+    }
+}
