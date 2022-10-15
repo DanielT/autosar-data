@@ -631,13 +631,27 @@ mod test {
     fn get_sub_element_version_mask() {
         let prm_char_type = get_prm_char_element_type();
         let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
-        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
+        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices).unwrap();
         let version_mask2 = prm_char_type.get_sub_element_version_mask(&indices).unwrap();
-        if let Some((_, version_mask)) = sub_elem_spec {
-            assert_eq!(version_mask, version_mask2);
-        } else {
-            panic!("incorrect return value from get_sub_element_version_mask()");
+        let (_, version_mask) = sub_elem_spec;
+        assert_eq!(version_mask, version_mask2);
+
+        let no_result = prm_char_type.get_sub_element_version_mask(&[]);
+        assert!(no_result.is_none());
+    }
+
+    #[test]
+    fn get_sub_element_multiplicity() {
+        let prm_char_type = get_prm_char_element_type();
+        let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
+        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
+        let multiplicity2 = prm_char_type.get_sub_element_multiplicity(&indices).unwrap();
+        if let Some((SubElement::Element { multiplicity, .. }, ..)) = sub_elem_spec {
+            assert_eq!(*multiplicity, multiplicity2);
         }
+
+        let no_result = prm_char_type.get_sub_element_multiplicity(&[]);
+        assert!(no_result.is_none());
     }
 
     #[test]
@@ -756,6 +770,9 @@ mod test {
             AttributeName::from_str(AttributeName::Uuid.to_str()).unwrap()
         );
 
+        // to_string()
+        assert_eq!(AttributeName::Uuid.to_string(), "UUID");
+
         /* attribute parse error */
         let error = AttributeName::from_str("unknown attribute name");
         assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseAttributeNameError");
@@ -769,6 +786,9 @@ mod test {
             ElementName::from_str(ElementName::Autosar.to_str()).unwrap()
         );
 
+        // to_string()
+        assert_eq!(ElementName::Autosar.to_string(), "AUTOSAR");
+
         /* attribute parse error */
         let error = ElementName::from_str("unknown element name");
         assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseElementNameError");
@@ -781,6 +801,9 @@ mod test {
             EnumItem::Default,
             EnumItem::from_str(EnumItem::Default.to_str()).unwrap()
         );
+
+        // to_string()
+        assert_eq!(EnumItem::Default.to_string(), "DEFAULT");
 
         /* enum item parse error */
         let error = EnumItem::from_str("unknown enum item");
