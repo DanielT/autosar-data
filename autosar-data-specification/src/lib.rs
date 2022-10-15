@@ -526,7 +526,7 @@ pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
     let mut f1 = 0x33143C63u32;
     let mut f2 = 0x88B0B21Eu32;
     while data.len() >= 4 {
-        let val = u32::from_ne_bytes(data[..4].try_into().unwrap()) as u32;
+        let val = u32::from_ne_bytes(data[..4].try_into().unwrap());
         f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
         f2 = f2.rotate_left(6).bitxor(val).wrapping_mul(HASHCONST2);
         data = &data[4..];
@@ -742,13 +742,19 @@ mod test {
         assert!(AutosarVersion::Autosar_00050.filename().ends_with(".xsd"));
 
         /* to_string() should give the same result as describe() */
-        assert_eq!(AutosarVersion::Autosar_4_0_1.to_string(), AutosarVersion::Autosar_4_0_1.describe());
+        assert_eq!(
+            AutosarVersion::Autosar_4_0_1.to_string(),
+            AutosarVersion::Autosar_4_0_1.describe()
+        );
     }
 
     #[test]
     fn attribute_name_basics() {
         /* attribute name round trip: enum -> str -> enum */
-        assert_eq!(AttributeName::Uuid, AttributeName::from_str(AttributeName::Uuid.to_str()).unwrap());
+        assert_eq!(
+            AttributeName::Uuid,
+            AttributeName::from_str(AttributeName::Uuid.to_str()).unwrap()
+        );
 
         /* attribute parse error */
         let error = AttributeName::from_str("unknown attribute name");
@@ -758,7 +764,10 @@ mod test {
     #[test]
     fn element_name_basics() {
         /* element name round trip: enum -> str -> enum */
-        assert_eq!(ElementName::Autosar, ElementName::from_str(ElementName::Autosar.to_str()).unwrap());
+        assert_eq!(
+            ElementName::Autosar,
+            ElementName::from_str(ElementName::Autosar.to_str()).unwrap()
+        );
 
         /* attribute parse error */
         let error = ElementName::from_str("unknown element name");
@@ -768,7 +777,10 @@ mod test {
     #[test]
     fn enum_item_basics() {
         /* enum item round trip: enum -> str -> enum */
-        assert_eq!(EnumItem::Default, EnumItem::from_str(EnumItem::Default.to_str()).unwrap());
+        assert_eq!(
+            EnumItem::Default,
+            EnumItem::from_str(EnumItem::Default.to_str()).unwrap()
+        );
 
         /* enum item parse error */
         let error = EnumItem::from_str("unknown enum item");

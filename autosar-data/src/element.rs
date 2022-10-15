@@ -227,7 +227,7 @@ impl Element {
                 let element = cur_elem
                     .0
                     .try_lock_for(std::time::Duration::from_millis(10))
-                    .ok_or_else(|| AutosarDataError::ParentElementLocked)?;
+                    .ok_or(AutosarDataError::ParentElementLocked)?;
                 match &element.parent {
                     ElementOrFile::Element(weak_parent) => {
                         weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?
@@ -767,11 +767,11 @@ impl Element {
                 let project = self.file().and_then(|file| file.project())?;
                 let target_elem = project
                     .get_element_by_path(&reference)
-                    .ok_or_else(|| AutosarDataError::InvalidReference)?;
+                    .ok_or(AutosarDataError::InvalidReference)?;
 
                 let dest = self
                     .attribute_string(AttributeName::Dest)
-                    .ok_or_else(|| AutosarDataError::InvalidReference)?;
+                    .ok_or(AutosarDataError::InvalidReference)?;
                 if dest == target_elem.element_name().to_str() {
                     Ok(target_elem)
                 } else {
@@ -1573,7 +1573,7 @@ impl ElementRaw {
             if let Some(name) = cur_elem
                 .0
                 .try_lock_for(std::time::Duration::from_millis(10))
-                .ok_or_else(|| AutosarDataError::ParentElementLocked)?
+                .ok_or(AutosarDataError::ParentElementLocked)?
                 .item_name()
             {
                 path_components.push(name);
@@ -1631,7 +1631,7 @@ impl ElementRaw {
         let (elemtype, _) = self
             .elemtype
             .find_sub_element(element_name, version as u32)
-            .ok_or_else(|| AutosarDataError::InvalidSubElement)?;
+            .ok_or(AutosarDataError::InvalidSubElement)?;
         if elemtype.is_named_in_version(version) {
             Err(AutosarDataError::ItemNameRequired)
         } else {
@@ -1704,7 +1704,7 @@ impl ElementRaw {
         let (elemtype, _) = self
             .elemtype
             .find_sub_element(element_name, version as u32)
-            .ok_or_else(|| AutosarDataError::InvalidSubElement)?;
+            .ok_or(AutosarDataError::InvalidSubElement)?;
 
         if elemtype.is_named_in_version(version) {
             // verify that the given item_name is actually a valid name
@@ -1855,7 +1855,7 @@ impl ElementRaw {
                 let (cdataspec, required, attr_version_mask) = self
                     .elemtype
                     .find_attribute_spec(attribute.attrname)
-                    .ok_or_else(|| AutosarDataError::VersionIncompatible)?;
+                    .ok_or(AutosarDataError::VersionIncompatible)?;
                 // check if the attribute is compatible with the target version
                 if target_version.compatible(attr_version_mask)
                     && attribute
@@ -1900,9 +1900,7 @@ impl ElementRaw {
 
     /// make_unique_item_name ensures that a copied element has a unique name
     fn make_unique_item_name(&self, project: &AutosarProject, parent_path: &str) -> Result<String, AutosarDataError> {
-        let orig_name = self
-            .item_name()
-            .ok_or_else(|| AutosarDataError::ElementNotIdentifiable)?;
+        let orig_name = self.item_name().ok_or(AutosarDataError::ElementNotIdentifiable)?;
         let mut name = orig_name.clone();
         let mut counter = 1;
 
@@ -1950,9 +1948,7 @@ impl ElementRaw {
         let (_, end_pos) = self.find_element_insert_pos(move_element_name, version)?;
 
         if project == project_src {
-            let src_parent = move_element
-                .parent()?
-                .ok_or_else(|| AutosarDataError::InvalidSubElement)?;
+            let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
             if src_parent.downgrade() == self_weak {
                 Ok(move_element.clone())
             } else {
@@ -1986,9 +1982,7 @@ impl ElementRaw {
 
         if start_pos <= position && position <= end_pos {
             if project == project_src {
-                let src_parent = move_element
-                    .parent()?
-                    .ok_or_else(|| AutosarDataError::InvalidSubElement)?;
+                let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
                 if src_parent.downgrade() == self_weak {
                     // move new_element to a different position within the current element
                     self.move_element_position(move_element, position)
@@ -2060,9 +2054,7 @@ impl ElementRaw {
             wrapped_parent = parent.0.lock().parent.clone();
         }
 
-        let src_parent = move_element
-            .parent()?
-            .ok_or_else(|| AutosarDataError::InvalidSubElement)?;
+        let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
 
         if src_parent.downgrade() == self_weak {
             return Ok(move_element.clone());
@@ -2080,7 +2072,7 @@ impl ElementRaw {
             let mut src_parent_locked = src_parent
                 .0
                 .try_lock_for(Duration::from_millis(10))
-                .ok_or_else(|| AutosarDataError::ParentElementLocked)?;
+                .ok_or(AutosarDataError::ParentElementLocked)?;
             let idx = src_parent_locked
                 .content
                 .iter()
@@ -2165,9 +2157,7 @@ impl ElementRaw {
     ) -> Result<Element, AutosarDataError> {
         let src_path_prefix = move_element.0.lock().path_unchecked()?;
         let dest_path_prefix = self.path_unchecked()?;
-        let src_parent = move_element
-            .parent()?
-            .ok_or_else(|| AutosarDataError::InvalidSubElement)?;
+        let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
 
         // collect the paths of all identifiable elements under move_element before moving it
         let original_paths: FxHashMap<String, Element> = move_element
@@ -2187,7 +2177,7 @@ impl ElementRaw {
             let mut src_parent_locked = src_parent
                 .0
                 .try_lock_for(Duration::from_millis(10))
-                .ok_or_else(|| AutosarDataError::ParentElementLocked)?;
+                .ok_or(AutosarDataError::ParentElementLocked)?;
             let idx = src_parent_locked
                 .content
                 .iter()
@@ -2370,7 +2360,7 @@ impl ElementRaw {
                 }
             })
             .map(|(idx, _)| idx)
-            .ok_or_else(|| AutosarDataError::ElementNotFound)?;
+            .ok_or(AutosarDataError::ElementNotFound)?;
         if self.elemtype.is_named() && sub_element_locked.elemname == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
             return Err(AutosarDataError::ShortNameRemovalForbidden);

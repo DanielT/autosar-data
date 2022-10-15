@@ -179,7 +179,7 @@ impl Display for CharacterData {
 }
 
 fn escape_text(input: &str) -> Cow<str> {
-    if input.contains(&['&', '>', '<', '\'', '"']) {
+    if input.contains(['&', '>', '<', '\'', '"']) {
         let mut escaped = String::with_capacity(input.len() + 6);
 
         for c in input.chars() {
