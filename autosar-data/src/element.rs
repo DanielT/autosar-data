@@ -1204,7 +1204,7 @@ impl Element {
     ///
     /// If no attribute by that name exists, and the attribute is a valid attribute of the element, then the attribute will be created.
     ///
-    /// Returns true if the attribute was set.
+    /// Returns Ok(()) if the attribute was set, otherwise the Err indicates why setting the attribute failed.
     ///
     /// ```
     /// # use autosar_data::*;
@@ -1214,6 +1214,12 @@ impl Element {
     /// let result = element.set_attribute(AttributeName::S, CharacterData::String("1234-5678".to_string()));
     /// # assert!(result.is_ok());
     /// ```
+    ///
+    /// # Possible Errors
+    ///
+    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
+    ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> Result<(), AutosarDataError> {
         let version = self.file().map(|f| f.version())?;
         self.0.lock().set_attribute_internal(attrname, value, version)
@@ -1223,7 +1229,7 @@ impl Element {
     ///
     /// The function tries to convert the string to the correct data type for the attribute
     ///
-    /// Returns true if the attribute was set.
+    /// Returns Ok(()) if the attribute was set, otherwise the Err indicates why setting the attribute failed.
     ///
     /// ```
     /// # use autosar_data::*;
@@ -1233,6 +1239,12 @@ impl Element {
     /// let result = element.set_attribute_string(AttributeName::T, "2022-01-31T13:59:59Z");
     /// # assert!(result.is_ok());
     /// ```
+    ///
+    /// # Possible Errors
+    ///
+    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
+    ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> Result<(), AutosarDataError> {
         let version = self.file().map(|f| f.version())?;
         self.0.lock().set_attribute_string(attrname, stringvalue, version)
