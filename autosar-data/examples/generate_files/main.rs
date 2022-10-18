@@ -38,9 +38,10 @@ fn main() {
         let mut counter = 1;
         create_sub_elements(&autosar_element, &mut counter, &mut completed, version);
 
-        autosar_element.set_attribute_string(AttributeName::xmlns, "http://autosar.org/schema/r4.0");
-        autosar_element.set_attribute_string(AttributeName::xmlnsXsi, "http://www.w3.org/2001/XMLSchema-instance");
-        autosar_element.set_attribute_string(
+        let _ = autosar_element.set_attribute_string(AttributeName::xmlns, "http://autosar.org/schema/r4.0");
+        let _ =
+            autosar_element.set_attribute_string(AttributeName::xmlnsXsi, "http://www.w3.org/2001/XMLSchema-instance");
+        let _ = autosar_element.set_attribute_string(
             AttributeName::xsiSchemalocation,
             &format!("http://autosar.org/schema/r4.0 {}", version.filename()),
         );
@@ -135,7 +136,7 @@ fn create_value(elem: &Element, version: AutosarVersion) {
 fn create_attributes(elem: &Element, version: AutosarVersion) {
     for (attr_name, spec, required) in elem.element_type().attribute_spec_iter() {
         if required {
-            elem.set_attribute(attr_name, make_cdata(spec, version));
+            let _ = elem.set_attribute(attr_name, make_cdata(spec, version));
         }
     }
 }

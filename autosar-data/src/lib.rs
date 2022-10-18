@@ -219,6 +219,14 @@ pub enum AutosarDataError {
     /// A parent element is currently locked by a different operation. The operation wa aborted to avoid a deadlock.
     #[error("A parent element is currently locked by a different operation")]
     ParentElementLocked,
+
+    /// The attribute is invalid here
+    #[error("The attribute is not valid for this element")]
+    InvalidAttribute,
+
+    /// The attribute value is invalid
+    #[error("The given value is not valid for this attribute")]
+    InvalidAttributeValue,
 }
 
 /// An Autosar arxml file

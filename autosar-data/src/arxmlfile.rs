@@ -114,7 +114,7 @@ impl ArxmlFile {
             file.version = new_ver;
             let attribute_value =
                 CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
-            file.root_element.0.lock().set_attribute_internal(
+            let _ = file.root_element.0.lock().set_attribute_internal(
                 AttributeName::xsiSchemalocation,
                 attribute_value,
                 new_ver,
