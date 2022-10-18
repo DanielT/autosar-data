@@ -104,20 +104,29 @@ impl AutosarProject {
         filename: P,
         strict: bool,
     ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
-        if self.files().any(|file| file.filename() == filename.as_ref()) {
+        self.load_named_arxml_buffer_internal(buffer, filename.as_ref().to_path_buf(), strict)
+    }
+
+    fn load_named_arxml_buffer_internal(
+        &self,
+        buffer: &[u8],
+        filename: PathBuf,
+        strict: bool,
+    ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
+        if self.files().any(|file| file.filename() == filename) {
             return Err(AutosarDataError::DuplicateFilenameError {
                 verb: "load",
-                filename: filename.as_ref().to_path_buf(),
+                filename: filename.clone(),
             });
         }
 
-        let mut parser = ArxmlParser::new(filename.as_ref().to_path_buf(), buffer, strict);
+        let mut parser = ArxmlParser::new(filename.clone(), buffer, strict);
         let root_element = parser.parse_arxml()?;
 
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
             project: self.downgrade(),
             version: parser.get_fileversion(),
-            filename: filename.as_ref().to_path_buf(),
+            filename: filename.clone(),
             root_element,
         })));
         // graft on the back-link from the root element to the file
@@ -130,7 +139,7 @@ impl AutosarProject {
             if let Some(existing) = data.identifiables.insert(key, value) {
                 if let Some(element) = existing.upgrade() {
                     return Err(AutosarDataError::OverlappingDataError {
-                        filename: filename.as_ref().to_path_buf(),
+                        filename,
                         path: element.path().unwrap_or_else(|_| "".to_owned()),
                     });
                 }
@@ -544,11 +553,16 @@ impl AutosarProject {
     pub(crate) fn fix_reference_origins(&self, old_ref: &str, new_ref: &str, origin: WeakElement) {
         if old_ref != new_ref {
             let mut data = self.0.lock();
+            let mut remove_list = false;
             // remove the old entry
             if let Some(referrer_list) = data.reference_origins.get_mut(old_ref) {
                 if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == origin) {
                     referrer_list.swap_remove(index);
+                    remove_list = referrer_list.is_empty();
                 }
+            }
+            if remove_list {
+                data.reference_origins.remove(old_ref);
             }
             // add the new entry
             if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
@@ -601,16 +615,42 @@ mod test {
         let project = AutosarProject::new();
         let file = project.create_file("test", AutosarVersion::Autosar_00050);
         assert!(file.is_ok());
+        // error: duplicate file name
+        let file = project.create_file("test", AutosarVersion::Autosar_00050);
+        assert!(file.is_err());
     }
 
     #[test]
     fn load_buffer() {
         const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-        <AR-PACKAGES></AR-PACKAGES></AUTOSAR>"#;
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        const FILEBUF2: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>OtherPkg</SHORT-NAME></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
         let project = AutosarProject::new();
+        // succefully load a buffer
         let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_ok());
+        // succefully load a second buffer
+        let result = project.load_named_arxml_buffer(FILEBUF2.as_bytes(), "other", true);
+        assert!(result.is_ok());
+        // error: duplicate file name
+        let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
+        assert!(result.is_err());
+        // error: overlapping autosar paths
+        let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test2", true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_file() {
+        let project = AutosarProject::new();
+        assert!(project.load_arxml_file("nonexistent", true).is_err());
     }
 
     #[test]
@@ -632,8 +672,8 @@ mod test {
     }
 
     #[test]
-    fn references() {
-        let project = AutosarProject::new();
+    fn refcount() {
+        let project = AutosarProject::default();
         let weak = project.downgrade();
         let project2 = weak.upgrade();
         assert_eq!(Arc::strong_count(&project.0), 2);
@@ -702,12 +742,26 @@ mod test {
         assert_eq!(invalid_refs.len(), 2);
         let ref0 = invalid_refs[0].upgrade().unwrap();
         assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
-        if let CharacterData::String(refpath) = ref0.character_data().unwrap() {
-            if refpath != "/Pkg/System" && refpath != "/Some/Invalid/Path" {
-                panic!("unexpected path: {refpath}");
-            }
-        } else {
-            panic!("did not get a reference path where it was expected")
+        let refpath = ref0.character_data().and_then(|cdata| cdata.string_value()).unwrap();
+        if refpath != "/Pkg/System" && refpath != "/Some/Invalid/Path" {
+            panic!("unexpected path: {refpath}");
         }
+        project.get_element_by_path("/Pkg/EcuInstance").unwrap();
+        let refs = project.get_references_to("/Pkg/EcuInstance");
+        assert_eq!(refs.len(), 1);
+        let refs = project.get_references_to("nonexistent");
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn serialize_files() {
+        let project = AutosarProject::default();
+        let file1 = project.create_file("filename1", AutosarVersion::Autosar_00042).unwrap();
+        let file2 = project.create_file("filename2", AutosarVersion::Autosar_00042).unwrap();
+
+        let result = project.serialize_files();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get(&PathBuf::from("filename1")).unwrap(), &file1.serialize());
+        assert_eq!(result.get(&PathBuf::from("filename2")).unwrap(), &file2.serialize());
     }
 }

@@ -1,4 +1,5 @@
 
+#[derive(Debug)]
 /// Error type returned when from_str / parse for AutosarVersion fails
 pub struct ParseAutosarVersionError;
 

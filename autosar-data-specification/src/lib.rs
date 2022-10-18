@@ -547,7 +547,7 @@ pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
+    use std::{collections::HashSet, str::FromStr};
 
     use super::*;
 
@@ -715,7 +715,27 @@ mod test {
 
     #[test]
     fn autosar_version() {
-        /* do all the version descriptions exist & make sense?  */
+        // does from_str work correctly?
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-0-1.xsd").unwrap(), AutosarVersion::Autosar_4_0_1);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-0-2.xsd").unwrap(), AutosarVersion::Autosar_4_0_2);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-0-3.xsd").unwrap(), AutosarVersion::Autosar_4_0_3);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-1-1.xsd").unwrap(), AutosarVersion::Autosar_4_1_1);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-1-2.xsd").unwrap(), AutosarVersion::Autosar_4_1_2);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-1-3.xsd").unwrap(), AutosarVersion::Autosar_4_1_3);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-2-1.xsd").unwrap(), AutosarVersion::Autosar_4_2_1);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-2-2.xsd").unwrap(), AutosarVersion::Autosar_4_2_2);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-3-0.xsd").unwrap(), AutosarVersion::Autosar_4_3_0);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00042.xsd").unwrap(), AutosarVersion::Autosar_00042);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00043.xsd").unwrap(), AutosarVersion::Autosar_00043);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00044.xsd").unwrap(), AutosarVersion::Autosar_00044);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00045.xsd").unwrap(), AutosarVersion::Autosar_00045);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00046.xsd").unwrap(), AutosarVersion::Autosar_00046);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00047.xsd").unwrap(), AutosarVersion::Autosar_00047);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00048.xsd").unwrap(), AutosarVersion::Autosar_00048);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00049.xsd").unwrap(), AutosarVersion::Autosar_00049);
+        assert_eq!(AutosarVersion::from_str("AUTOSAR_00050.xsd").unwrap(), AutosarVersion::Autosar_00050);
+
+        // do all the version descriptions exist & make sense?
         assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_4_0_2.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_4_0_3.describe().starts_with("AUTOSAR"));
@@ -735,7 +755,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00049.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00050.describe().starts_with("AUTOSAR"));
 
-        /* do all the xsd file names exist?  */
+        // do all the xsd file names exist?
         assert!(AutosarVersion::Autosar_4_0_1.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_4_0_2.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_4_0_3.filename().ends_with(".xsd"));
@@ -755,16 +775,28 @@ mod test {
         assert!(AutosarVersion::Autosar_00049.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00050.filename().ends_with(".xsd"));
 
-        /* to_string() should give the same result as describe() */
+        // to_string() should give the same result as describe()
         assert_eq!(
             AutosarVersion::Autosar_4_0_1.to_string(),
             AutosarVersion::Autosar_4_0_1.describe()
         );
+
+        // clone impl exists
+        let cloned = AutosarVersion::Autosar_00050.clone();
+        assert_eq!(cloned, AutosarVersion::Autosar_00050);
+
+        // version parse error
+        let error = AutosarVersion::from_str("something else");
+        assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseAutosarVersionError");
+
+        //Autosar version implements Hash and can be inserted into HashSet / HashMap
+        let mut hashset = HashSet::<AutosarVersion>::new();
+        hashset.insert(AutosarVersion::Autosar_00050);
     }
 
     #[test]
     fn attribute_name_basics() {
-        /* attribute name round trip: enum -> str -> enum */
+        // attribute name round trip: enum -> str -> enum
         assert_eq!(
             AttributeName::Uuid,
             AttributeName::from_str(AttributeName::Uuid.to_str()).unwrap()
@@ -773,14 +805,22 @@ mod test {
         // to_string()
         assert_eq!(AttributeName::Uuid.to_string(), "UUID");
 
-        /* attribute parse error */
+        // clone impl exists
+        let cloned = AttributeName::Uuid.clone();
+        assert_eq!(cloned, AttributeName::Uuid);
+
+        // attribute parse error
         let error = AttributeName::from_str("unknown attribute name");
         assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseAttributeNameError");
+
+        // attribute names implement Hash and can be inserted into HashSet / HashMap
+        let mut hashset = HashSet::<AttributeName>::new();
+        hashset.insert(AttributeName::Dest);
     }
 
     #[test]
     fn element_name_basics() {
-        /* element name round trip: enum -> str -> enum */
+        // element name round trip: enum -> str -> enum
         assert_eq!(
             ElementName::Autosar,
             ElementName::from_str(ElementName::Autosar.to_str()).unwrap()
@@ -789,14 +829,22 @@ mod test {
         // to_string()
         assert_eq!(ElementName::Autosar.to_string(), "AUTOSAR");
 
-        /* attribute parse error */
+        // clone impl exists
+        let cloned = ElementName::Autosar.clone();
+        assert_eq!(cloned, ElementName::Autosar);
+
+        // element name parse error
         let error = ElementName::from_str("unknown element name");
         assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseElementNameError");
+
+        // element names implement Hash and can be inserted into HashSet / HashMap
+        let mut hashset = HashSet::<ElementName>::new();
+        hashset.insert(ElementName::Autosar);
     }
 
     #[test]
     fn enum_item_basics() {
-        /* enum item round trip: enum -> str -> enum */
+        // enum item round trip: enum -> str -> enum
         assert_eq!(
             EnumItem::Default,
             EnumItem::from_str(EnumItem::Default.to_str()).unwrap()
@@ -805,8 +853,16 @@ mod test {
         // to_string()
         assert_eq!(EnumItem::Default.to_string(), "DEFAULT");
 
-        /* enum item parse error */
+        // clone impl exists
+        let cloned = EnumItem::Abstract.clone();
+        assert_eq!(cloned, EnumItem::Abstract);
+
+        // enum item parse error
         let error = EnumItem::from_str("unknown enum item");
         assert_eq!(format!("{:#?}", error.unwrap_err()), "ParseEnumItemError");
+
+        // enum items implement Hash and can be inserted into HashSet / HashMap
+        let mut hashset = HashSet::<EnumItem>::new();
+        hashset.insert(EnumItem::Abstract);
     }
 }
