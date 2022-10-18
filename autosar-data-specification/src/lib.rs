@@ -716,24 +716,78 @@ mod test {
     #[test]
     fn autosar_version() {
         // does from_str work correctly?
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-0-1.xsd").unwrap(), AutosarVersion::Autosar_4_0_1);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-0-2.xsd").unwrap(), AutosarVersion::Autosar_4_0_2);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-0-3.xsd").unwrap(), AutosarVersion::Autosar_4_0_3);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-1-1.xsd").unwrap(), AutosarVersion::Autosar_4_1_1);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-1-2.xsd").unwrap(), AutosarVersion::Autosar_4_1_2);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-1-3.xsd").unwrap(), AutosarVersion::Autosar_4_1_3);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-2-1.xsd").unwrap(), AutosarVersion::Autosar_4_2_1);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-2-2.xsd").unwrap(), AutosarVersion::Autosar_4_2_2);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_4-3-0.xsd").unwrap(), AutosarVersion::Autosar_4_3_0);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00042.xsd").unwrap(), AutosarVersion::Autosar_00042);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00043.xsd").unwrap(), AutosarVersion::Autosar_00043);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00044.xsd").unwrap(), AutosarVersion::Autosar_00044);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00045.xsd").unwrap(), AutosarVersion::Autosar_00045);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00046.xsd").unwrap(), AutosarVersion::Autosar_00046);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00047.xsd").unwrap(), AutosarVersion::Autosar_00047);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00048.xsd").unwrap(), AutosarVersion::Autosar_00048);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00049.xsd").unwrap(), AutosarVersion::Autosar_00049);
-        assert_eq!(AutosarVersion::from_str("AUTOSAR_00050.xsd").unwrap(), AutosarVersion::Autosar_00050);
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-0-1.xsd").unwrap(),
+            AutosarVersion::Autosar_4_0_1
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-0-2.xsd").unwrap(),
+            AutosarVersion::Autosar_4_0_2
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-0-3.xsd").unwrap(),
+            AutosarVersion::Autosar_4_0_3
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-1-1.xsd").unwrap(),
+            AutosarVersion::Autosar_4_1_1
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-1-2.xsd").unwrap(),
+            AutosarVersion::Autosar_4_1_2
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-1-3.xsd").unwrap(),
+            AutosarVersion::Autosar_4_1_3
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-2-1.xsd").unwrap(),
+            AutosarVersion::Autosar_4_2_1
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-2-2.xsd").unwrap(),
+            AutosarVersion::Autosar_4_2_2
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_4-3-0.xsd").unwrap(),
+            AutosarVersion::Autosar_4_3_0
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00042.xsd").unwrap(),
+            AutosarVersion::Autosar_00042
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00043.xsd").unwrap(),
+            AutosarVersion::Autosar_00043
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00044.xsd").unwrap(),
+            AutosarVersion::Autosar_00044
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00045.xsd").unwrap(),
+            AutosarVersion::Autosar_00045
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00046.xsd").unwrap(),
+            AutosarVersion::Autosar_00046
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00047.xsd").unwrap(),
+            AutosarVersion::Autosar_00047
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00048.xsd").unwrap(),
+            AutosarVersion::Autosar_00048
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00049.xsd").unwrap(),
+            AutosarVersion::Autosar_00049
+        );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00050.xsd").unwrap(),
+            AutosarVersion::Autosar_00050
+        );
 
         // do all the version descriptions exist & make sense?
         assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));

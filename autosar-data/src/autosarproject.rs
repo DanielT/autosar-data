@@ -114,10 +114,7 @@ impl AutosarProject {
         strict: bool,
     ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
         if self.files().any(|file| file.filename() == filename) {
-            return Err(AutosarDataError::DuplicateFilenameError {
-                verb: "load",
-                filename: filename.clone(),
-            });
+            return Err(AutosarDataError::DuplicateFilenameError { verb: "load", filename });
         }
 
         let mut parser = ArxmlParser::new(filename.clone(), buffer, strict);
