@@ -40,10 +40,12 @@ pub enum AutosarVersion {
     Autosar_00047 = 0x4000,
     /// AUTOSAR 4.5.0 - xsd file name: AUTOSAR_00048.xsd
     Autosar_00048 = 0x8000,
-    /// AUTOSAR 4.6.0 - xsd file name: AUTOSAR_00049.xsd
+    /// AUTOSAR R20-11 - xsd file name: AUTOSAR_00049.xsd
     Autosar_00049 = 0x10000,
-    /// AUTOSAR 4.7.0 - xsd file name: AUTOSAR_00050.xsd
+    /// AUTOSAR R21-11 - xsd file name: AUTOSAR_00050.xsd
     Autosar_00050 = 0x20000,
+    /// AUTOSAR R22-11 - xsd file name: AUTOSAR_00051.xsd
+    Autosar_00051 = 0x40000,
 }
 
 impl AutosarVersion {
@@ -68,6 +70,7 @@ impl AutosarVersion {
             Self::Autosar_00048 => "AUTOSAR_00048.xsd",
             Self::Autosar_00049 => "AUTOSAR_00049.xsd",
             Self::Autosar_00050 => "AUTOSAR_00050.xsd",
+            Self::Autosar_00051 => "AUTOSAR_00051.xsd",
 
         }
     }
@@ -94,14 +97,15 @@ impl AutosarVersion {
             Self::Autosar_00046 => "AUTOSAR Classic 4.4.0 / Adaptive 18-10",
             Self::Autosar_00047 => "AUTOSAR Adaptive 19-03",
             Self::Autosar_00048 => "AUTOSAR 4.5.0",
-            Self::Autosar_00049 => "AUTOSAR 4.6.0",
-            Self::Autosar_00050 => "AUTOSAR 4.7.0",
+            Self::Autosar_00049 => "AUTOSAR R20-11",
+            Self::Autosar_00050 => "AUTOSAR R21-11",
+            Self::Autosar_00051 => "AUTOSAR R22-11",
 
         }
     }
 
     /// AutosarVersion::LATEST is an alias of whichever is the latest version, currently Autosar_00050
-    pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00050;
+    pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00051;
 }
 
 impl std::str::FromStr for AutosarVersion {
@@ -126,6 +130,7 @@ impl std::str::FromStr for AutosarVersion {
             "AUTOSAR_00048.xsd" => Ok(Self::Autosar_00048),
             "AUTOSAR_00049.xsd" => Ok(Self::Autosar_00049),
             "AUTOSAR_00050.xsd" => Ok(Self::Autosar_00050),
+            "AUTOSAR_00051.xsd" => Ok(Self::Autosar_00051),
 
             _ => Err(ParseAutosarVersionError)
         }

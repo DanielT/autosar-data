@@ -702,7 +702,7 @@ mod test {
             .unwrap();
 
         let se_iter = elements_type.sub_element_spec_iter();
-        assert_eq!(se_iter.count(), 560);
+        assert_eq!(se_iter.count(), 586); // this test breaks when support for new versions is added
 
         let prm_char_type = get_prm_char_element_type();
         let pc_iter = prm_char_type.sub_element_spec_iter();
@@ -788,6 +788,10 @@ mod test {
             AutosarVersion::from_str("AUTOSAR_00050.xsd").unwrap(),
             AutosarVersion::Autosar_00050
         );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00051.xsd").unwrap(),
+            AutosarVersion::Autosar_00051
+        );
 
         // do all the version descriptions exist & make sense?
         assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));
@@ -808,6 +812,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00048.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00049.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00050.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00051.describe().starts_with("AUTOSAR"));
 
         // do all the xsd file names exist?
         assert!(AutosarVersion::Autosar_4_0_1.filename().ends_with(".xsd"));
@@ -828,6 +833,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00048.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00049.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00050.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00051.filename().ends_with(".xsd"));
 
         // to_string() should give the same result as describe()
         assert_eq!(

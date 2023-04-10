@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use autosar_data::*;
 use autosar_data_specification::CharacterDataSpec;
 
-static VERSIONS: [AutosarVersion; 18] = [
+static VERSIONS: [AutosarVersion; 19] = [
     AutosarVersion::Autosar_4_0_1,
     AutosarVersion::Autosar_4_0_2,
     AutosarVersion::Autosar_4_0_3,
@@ -22,6 +22,7 @@ static VERSIONS: [AutosarVersion; 18] = [
     AutosarVersion::Autosar_00048,
     AutosarVersion::Autosar_00049,
     AutosarVersion::Autosar_00050,
+    AutosarVersion::Autosar_00051,
 ];
 
 fn main() {
@@ -166,7 +167,7 @@ fn make_cdata(spec: &CharacterDataSpec, version: AutosarVersion) -> CharacterDat
             }
             r"[a-zA-Z][a-zA-Z0-9-]*" => CharacterData::String("identifier-".to_string()),
             r"[0-9a-zA-Z_\-]+" => CharacterData::String("09AZ_-".to_string()),
-            r"%[ \-+#]?[0-9]*(\.[0-9]+)?[diouxXfeEgGcs]" => CharacterData::String("%23.456d".to_string()),
+            r"%[ \-+#]?[0-9]*(\.[0-9]+)?[bBdiouxXfeEgGcs]" => CharacterData::String("%23.456d".to_string()),
             r"0|[\+\-]?[1-9][0-9]*|0[xX][0-9a-fA-F]+|0[bB][0-1]+|0[0-7]+" => {
                 CharacterData::String("0b1010101".to_string())
             }
