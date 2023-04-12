@@ -4,7 +4,7 @@
 //!
 //! The Autosar data model is originally specified as .xsd files - one for each version of the standard.
 //! All these separate xsd files were parsed into data structures and combined; this crate contains the
-//! combined specification data of all 18 Autosar 4 standard revisions.
+//! combined specification data of all 19 Autosar 4 standard revisions.
 //!
 //! ## Supported standards:
 //!
@@ -26,10 +26,9 @@
 //! | AUTOSAR_00046.xsd | AUTOSAR Classic 4.4.0 / Adaptive 18-10 |
 //! | AUTOSAR_00047.xsd | AUTOSAR Adaptive 19-03    |
 //! | AUTOSAR_00048.xsd | AUTOSAR 4.5.0             |
-//! | AUTOSAR_00049.xsd | AUTOSAR 4.6.0             |
-//! | AUTOSAR_00050.xsd | AUTOSAR 4.7.0             |
-//!
-//! Since the raw data is rather opaque, it is not exposed directly, but rather there are functions to interact with it.
+//! | AUTOSAR_00049.xsd | AUTOSAR R20-11            |
+//! | AUTOSAR_00050.xsd | AUTOSAR R21-11            |
+//! | AUTOSAR_00051.xsd | AUTOSAR R22-11            |
 //!
 //! ## Using the crate
 //!
@@ -98,7 +97,7 @@ pub enum ContentMode {
     /// Sequence: an ordered sequence of elements
     Sequence,
     /// Choice: a single element must be chosen from multiple options.
-    /// If the multiplicity of the chosen element is `Any` then it may repeat so there might sill be more than one sub element
+    /// If the multiplicity of the chosen element is `Any` then it may repeat so there might still be more than one sub element
     Choice,
     /// Bag: From a list of choices, choose a sub element any number of times.
     /// In this ContentMode all allowed sub elements may occur any number of times and in any order
