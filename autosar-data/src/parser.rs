@@ -715,15 +715,20 @@ impl<'a> ArxmlParser<'a> {
 
 fn trim_byte_string(input: &[u8]) -> &[u8] {
     let mut len = input.len();
-    while input[len - 1].is_ascii_whitespace() {
-        len -= 1;
+    if len > 0 {
+        while input[len - 1].is_ascii_whitespace() {
+            len -= 1;
+        }
+        let (start, _) = input
+            .iter()
+            .enumerate()
+            .find(|(_, c)| !c.is_ascii_whitespace())
+            .unwrap_or((len, &0u8));
+        &input[start..len]
     }
-    let (start, _) = input
-        .iter()
-        .enumerate()
-        .find(|(_, c)| !c.is_ascii_whitespace())
-        .unwrap_or((len, &0u8));
-    &input[start..len]
+    else {
+        input
+    }
 }
 
 #[cfg(test)]
@@ -1155,6 +1160,23 @@ mod test {
     #[test]
     fn test_basic_functionality() {
         let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), PARSER_TEST_DATA.as_bytes(), true);
+        let result = parser.parse_arxml();
+        assert!(result.is_ok());
+    }
+
+    const EMPTY_CHARACTER_DATA: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE UUID="">
+                <SHORT-NAME>x</SHORT-NAME>
+            </AR-PACKAGE>
+        </AR-PACKAGES>
+    </AUTOSAR>
+    "#;
+
+    #[test]
+    fn test_empty_character_data() {
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), EMPTY_CHARACTER_DATA.as_bytes(), true);
         let result = parser.parse_arxml();
         assert!(result.is_ok());
     }
