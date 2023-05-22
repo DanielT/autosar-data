@@ -546,7 +546,6 @@ fn display_ethernet_cluster(cluster_element: &Element) -> Option<()> {
         .get_sub_element(ElementName::EthernetClusterVariants)
         .and_then(|ecv| ecv.get_sub_element(ElementName::EthernetClusterConditional))?;
     println!("Ethernet Cluster: {cluster_name}");
-    println!("  Note: there is only limited support for Ethernet");
 
     for phys_channel in ecc.get_sub_element(ElementName::PhysicalChannels).map(|elem| {
         elem.sub_elements()
@@ -665,6 +664,14 @@ fn display_pdu(pdu: &Element, indent: usize) -> Option<()> {
     {
         println!("{indentation}Has dynamic length: {dynamic_length}");
     }
+    if let Some(category) = pdu
+        .get_sub_element(ElementName::Category)
+        .and_then(|cat| cat.character_data())
+        .and_then(|cdata| cdata.string_value())
+    {
+        println!("{indentation}Category: {}", category);
+    }
+
     // contained PDUs have either a short or a long header id. Pdus that are not transmitted in a CONTAINER-I-PDU do not use this.
     // <CONTAINED-I-PDU-PROPS>
     //   <HEADER-ID-SHORT-HEADER>12345</HEADER-ID-SHORT-HEADER>
@@ -1197,6 +1204,9 @@ fn display_secured_ipdu(pdu: &Element, indent: usize) {
 // <ETHERNET-PHYSICAL-CHANNEL>
 //   <SHORT-NAME>Ethernet_Physical_Channel</SHORT-NAME>
 //   <CATEGORY>WIRED</CATEGORY>
+//   <PDU-TRIGGERINGS>
+//     ...
+//   </PDU-TRIGGERINGS>
 //   <NETWORK-ENDPOINTS>
 //     ...
 //   </NETWORK-ENDPOINTS>
@@ -1209,32 +1219,499 @@ fn display_secured_ipdu(pdu: &Element, indent: usize) {
 //   </VLAN>
 // </ETHERNET-PHYSICAL-CHANNEL>
 fn display_ethernet_channel(channel: &Element) -> Option<()> {
-    if let Some(network_endpoints) = channel.get_sub_element(ElementName::NetworkEndpoints) {
-        for network_endpoint in network_endpoints.sub_elements() {
-            println!("    Network endpoint: {}", network_endpoint.item_name().unwrap());
-            if let Some(ipv4_address) = network_endpoint
-                .get_sub_element(ElementName::NetworkEndpointAddresses)
-                .and_then(|elem| elem.get_sub_element(ElementName::Ipv4Configuration))
-                .and_then(|elem| elem.get_sub_element(ElementName::Ipv4Address))
-                .and_then(|elem| elem.character_data())
-                .and_then(|cdata| cdata.string_value())
-            {
-                println!("      IPv4 address: {ipv4_address}")
-            }
-            if let Some(ipv4_address) = network_endpoint
-                .get_sub_element(ElementName::NetworkEndpointAddresses)
-                .and_then(|elem| elem.get_sub_element(ElementName::Ipv6Configuration))
-                .and_then(|elem| elem.get_sub_element(ElementName::Ipv6Address))
-                .and_then(|elem| elem.character_data())
-                .and_then(|cdata| cdata.string_value())
-            {
-                println!("      IPv6 address: {ipv4_address}")
-            }
+    if let Some(vlan) = channel.get_sub_element(ElementName::Vlan) {
+        println!("    VLAN: {}", vlan.item_name().unwrap());
+        if let Some(vlan_identifier) = vlan
+            .get_sub_element(ElementName::VlanIdentifier)
+            .and_then(|vlan_id| vlan_id.character_data())
+        {
+            println!("      Identifier: {}", vlan_identifier.to_string());
         }
+        println!();
+    }
+    if let Some(pdu_triggerings) = channel.get_sub_element(ElementName::PduTriggerings) {
+        display_ethernet_pdus(&pdu_triggerings)?;
+    }
+
+    if let Some(network_endpoints) = channel.get_sub_element(ElementName::NetworkEndpoints) {
+        display_network_endpoints(&network_endpoints);
+    }
+
+    if let Some(soad_config) = channel.get_sub_element(ElementName::SoAdConfig) {
+        display_soad_config(&soad_config);
     }
 
     println!();
     Some(())
+}
+
+// <PDU-TRIGGERINGS>
+//   <PDU-TRIGGERING>
+//     ...
+//   </PDU-TRIGGERING>
+//   ...
+// </PDU-TRIGGERINGS>
+fn display_ethernet_pdus(pdu_triggerings: &Element) -> Option<()> {
+    for pdu_triggering in pdu_triggerings.sub_elements() {
+        if display_ethernet_pdu(&pdu_triggering).is_none() {
+            if let Ok(path) = pdu_triggering.path() {
+                println!("!!! inconsistent ethernet PDU triggering: {path}");
+            }
+        }
+    }
+    println!();
+    Some(())
+}
+
+// <PDU-TRIGGERING>
+//   <SHORT-NAME>PduTriggering_Name</SHORT-NAME>
+//   <I-PDU-PORT-REFS>
+//     <I-PDU-PORT-REF DEST="I-PDU-PORT">/Path/To/PDU/Port</I-PDU-PORT-REF>
+//   </I-PDU-PORT-REFS>
+//   <I-PDU-REF DEST="I-SIGNAL-I-PDU">/Path/To/PDU</I-PDU-REF>
+//   ...
+// </PDU-TRIGGERING>
+fn display_ethernet_pdu(pdu_triggering: &Element) -> Option<()> {
+    if let Some(pdu) = pdu_triggering
+        .get_sub_element(ElementName::IPduRef)
+        .and_then(|pdu_ref| pdu_ref.get_reference_target().ok())
+    {
+        let pdu_trig_name = pdu_triggering.item_name()?; // could fail
+        let pdu_name = pdu.item_name()?; // can't fail, the name is used by get_reference_target
+        println!("    PDU triggering: {pdu_trig_name}");
+        println!("      Pdu: {pdu_name}");
+        display_pdu(&pdu, 0);
+
+        Some(())
+    } else {
+        None
+    }
+}
+
+// <NETWORK-ENDPOINT>
+//   <SHORT-NAME>NetworkEndpoint</SHORT-NAME>
+//   <NETWORK-ENDPOINT-ADDRESSES>
+//     <IPV-4-CONFIGURATION>
+//       <IPV-4-ADDRESS>192.168.0.1</IPV-4-ADDRESS>
+//       ...
+//     </IPV-4-CONFIGURATION>
+//     <IPV-6-CONFIGURATION>
+//       <IPV-6-ADDRESS>1000:2000:3000:4000:5000:6000:7000:8000</IPV-6-ADDRESS>
+//       ...
+//     </IPV-6-CONFIGURATION>
+//   </NETWORK-ENDPOINT-ADDRESSES>
+// </NETWORK-ENDPOINT>
+fn display_network_endpoints(network_endpoints: &Element) {
+    for network_endpoint in network_endpoints.sub_elements() {
+        println!("    Network endpoint: {}", network_endpoint.item_name().unwrap());
+        if let Some(ipv4_address) = network_endpoint
+            .get_sub_element(ElementName::NetworkEndpointAddresses)
+            .and_then(|elem| elem.get_sub_element(ElementName::Ipv4Configuration))
+            .and_then(|elem| elem.get_sub_element(ElementName::Ipv4Address))
+            .and_then(|elem| elem.character_data())
+            .and_then(|cdata| cdata.string_value())
+        {
+            println!("      IPv4 address: {ipv4_address}")
+        }
+        if let Some(ipv6_address) = network_endpoint
+            .get_sub_element(ElementName::NetworkEndpointAddresses)
+            .and_then(|elem| elem.get_sub_element(ElementName::Ipv6Configuration))
+            .and_then(|elem| elem.get_sub_element(ElementName::Ipv6Address))
+            .and_then(|elem| elem.character_data())
+            .and_then(|cdata| cdata.string_value())
+        {
+            println!("      IPv6 address: {ipv6_address}")
+        }
+    }
+    println!();
+}
+
+// <SO-AD-CONFIG>
+//   <CONNECTIONS>
+//     ...
+//   </CONNECTIONS>
+//   <CONNECTION-BUNDLES>
+//     ...
+//   </CONNECTION-BUNDLES>
+//   <SOCKET-ADDRESSS>
+//     ...
+//   </SOCKET-ADDRESSS>
+// </SO-AD-CONFIG>
+fn display_soad_config(soad_config: &Element) {
+    println!("    SoAd configuration:");
+    if let Some(connections) = soad_config.get_sub_element(ElementName::Connections) {
+        // CONNECTIONS are deprecated after 4.4.0
+        display_soad_connections(connections);
+    }
+
+    if let Some(connection_bundles) = soad_config.get_sub_element(ElementName::ConnectionBundles) {
+        // CONNECTION-BUNDLES are deprecated after 4.4.0
+        display_soad_connection_bundles(connection_bundles);
+    }
+
+    if let Some(socket_addresses) = soad_config.get_sub_element(ElementName::SocketAddresss) {
+        display_socket_addresses(socket_addresses);
+    }
+}
+
+// <CONNECTIONS>
+//   <CONNECTION>
+//     <LOCAL-PORT-REF DEST="">...<LOCAL-PORT-REF>
+//     <REMOTE-PORT-REF DEST="">...<REMOTE-PORT-REF>
+//     ...
+//   </CONNECTION>
+//   ...
+// </CONNECTIONS>
+fn display_soad_connections(connections: Element) {
+    for socket_connection in connections.sub_elements() {
+        println!(
+            "      Socket connection {}:",
+            socket_connection.item_name().unwrap_or("(name error)".to_string())
+        );
+        if let Some(local_socket) = socket_connection
+            .get_sub_element(ElementName::LocalPortRef)
+            .and_then(|lpref| lpref.get_reference_target().ok())
+        {
+            println!("        Local socket: {}", local_socket.item_name().unwrap());
+        }
+        if let Some(remote_socket) = socket_connection
+            .get_sub_element(ElementName::RemotePortRef)
+            .and_then(|rpref| rpref.get_reference_target().ok())
+        {
+            println!("        Remote socket: {}", remote_socket.item_name().unwrap());
+        }
+    }
+}
+
+// <CONNECTION-BUNDLES>
+//   <SOCKET-CONNECTION-BUNDLE>
+//     <SHORT-NAME>SocketConnectionBundle</SHORT-NAME>
+//     <BUNDLED-CONNECTIONS>
+//       ...
+//     </BUNDLED-CONNECTIONS>
+//     <SERVER-PORT-REF DEST="SOCKET-ADDRESS">...</SERVER-PORT-REF>
+//     ...
+//   </SOCKET-CONNECTION-BUNDLE>
+//   ...
+// <CONNECTION-BUNDLES>
+fn display_soad_connection_bundles(connection_bundles: Element) {
+    for socket_connection_bundle in connection_bundles.sub_elements() {
+        println!(
+            "      Socket connection bundle {}:",
+            socket_connection_bundle
+                .item_name()
+                .unwrap_or("(name error)".to_string())
+        );
+        if let Some(server_socket) = socket_connection_bundle
+            .get_sub_element(ElementName::ServerPortRef)
+            .and_then(|ssref| ssref.get_reference_target().ok())
+        {
+            let ip_port = server_socket
+                .get_sub_element(ElementName::ApplicationEndpoint)
+                .and_then(|ss_ae| get_socket_address_summary(&ss_ae))
+                .or(Some("".to_string()))
+                .unwrap();
+            print!(
+                "        Server socket: {} ({})",
+                server_socket.item_name().unwrap(),
+                ip_port
+            );
+            if let Some(ecu_instance) = get_socket_ecu(&server_socket) {
+                print!(" [{}]", ecu_instance.item_name().unwrap());
+            }
+            println!()
+        }
+        if let Some(bundled_connections) = socket_connection_bundle.get_sub_element(ElementName::BundledConnections) {
+            for socket_connection in bundled_connections.sub_elements() {
+                display_bundled_connection(socket_connection);
+            }
+        }
+    }
+}
+
+// <BUNDLED-CONNECTIONS>
+//   <SOCKET-CONNECTION>
+//     <CLIENT-PORT-REF DEST="SOCKET-ADDRESS">...</CLIENT-PORT-REF>
+//     <PDUS>
+//       <SOCKET-CONNECTION-IPDU-IDENTIFIER>
+//         <HEADER-ID>...</HEADER-ID>
+//         <PDU-TRIGGERING-REF DEST="PDU-TRIGGERING">...</PDU-TRIGGERING-REF>
+//         ...
+//       </SOCKET-CONNECTION-IPDU-IDENTIFIER>
+//       ...
+//     </PDUS>
+//     ...
+//   </SOCKET-CONNECTION>
+// </BUNDLED-CONNECTIONS>
+fn display_bundled_connection(socket_connection: Element) -> Option<()> {
+    let client_socket = socket_connection
+        .get_sub_element(ElementName::ClientPortRef)
+        .and_then(|client_port_ref| client_port_ref.get_reference_target().ok())?;
+
+    let ip_port = client_socket
+        .get_sub_element(ElementName::ApplicationEndpoint)
+        .and_then(|cs_ae| get_socket_address_summary(&cs_ae))
+        .or(Some("dynamic".to_string()))
+        .unwrap();
+    println!("        Socket connection:");
+    print!("          Client: {} ({ip_port})", client_socket.item_name().unwrap());
+    if let Some(ecu_instance) = get_socket_ecu(&client_socket) {
+        print!(" [{}]", ecu_instance.item_name().unwrap());
+    }
+    println!();
+    if let Some(pdus) = socket_connection.get_sub_element(ElementName::Pdus) {
+        println!("          Pdus:");
+        for socket_connection_ipdu_identifier in pdus.sub_elements() {
+            println!("            Pdu:");
+            if let Some(pdu_triggering) = socket_connection_ipdu_identifier
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|pdu_trig_ref| pdu_trig_ref.get_reference_target().ok())
+            {
+                println!("              Pdu Triggering: {}", pdu_triggering.item_name().unwrap());
+            }
+            if let Some(header_id) = socket_connection_ipdu_identifier
+                .get_sub_element(ElementName::HeaderId)
+                .and_then(|header_id_elem| header_id_elem.character_data())
+                .and_then(|cdata| Some(cdata.to_string()))
+            {
+                println!("              Header id: {header_id}");
+            }
+        }
+    }
+
+    Some(())
+}
+
+// <SOCKET-ADDRESSS>
+//   <SOCKET-ADDRESS>
+//     <SHORT-NAME>SocketAddress</SHORT-NAME>
+//     <APPLICATION-ENDPOINT>
+//       <SHORT-NAME>ApplicationEndpoint</SHORT-NAME>
+//       <CONSUMED-SERVICE-INSTANCES>
+//         ...
+//       </CONSUMED-SERVICE-INSTANCES>
+//       <PROVIDED-SERVICE-INSTANCES>
+//         ...
+//       </PROVIDED-SERVICE-INSTANCES>
+//       ...
+//     </APPLICATION-ENDPOINT>
+//     <CONNECTOR-REF DEST="ETHERNET-COMMUNICATION-CONNECTOR">...</CONNECTOR-REF>
+//   </SOCKET-ADDRESS>
+// </SOCKET-ADDRESSS>
+fn display_socket_addresses(socket_addresses: Element) {
+    for socket_address in socket_addresses.sub_elements() {
+        println!(
+            "      Socket address {}:",
+            socket_address.item_name().unwrap_or("(name error)".to_string())
+        );
+        if let Some(ecu_instance) = get_socket_ecu(&socket_address) {
+            println!("        Owner: {}", ecu_instance.item_name().unwrap());
+        }
+        if let Some(application_endpoint) = socket_address.get_sub_element(ElementName::ApplicationEndpoint) {
+            if let Some(ip_info) = get_socket_address_summary(&application_endpoint) {
+                println!("        {}", ip_info);
+            }
+            if let Some(consumed_service_instances) =
+                application_endpoint.get_sub_element(ElementName::ConsumedServiceInstances)
+            {
+                display_consumed_service_instance(&consumed_service_instances);
+            }
+            if let Some(provided_service_instances) =
+                application_endpoint.get_sub_element(ElementName::ProvidedServiceInstances)
+            {
+                display_provided_service_instance(&provided_service_instances);
+            }
+        }
+    }
+}
+
+// <PROVIDED-SERVICE-INSTANCES>
+//   <PROVIDED-SERVICE-INSTANCE>
+//     <SHORT-NAME>ProvidedServiceInstance</SHORT-NAME>
+//     <EVENT-HANDLERS>
+//       <EVENT-HANDLER>
+//         <SHORT-NAME>EventHandler</SHORT-NAME>
+//         <CONSUMED-EVENT-GROUP-REFS>
+//           <CONSUMED-EVENT-GROUP-REF DEST="CONSUMED-EVENT-GROUP">...</CONSUMED-EVENT-GROUP-REF>
+//         </CONSUMED-EVENT-GROUP-REFS>
+//         ...
+//       </EVENT-HANDLER>
+//     </EVENT-HANDLERS>
+//     <SD-SERVER-CONFIG>
+//       ...
+//     </SD-SERVER-CONFIG>
+//     <SERVICE-IDENTIFIER>12345</SERVICE-IDENTIFIER>
+//   </PROVIDED-SERVICE-INSTANCE>
+// </PROVIDED-SERVICE-INSTANCES>
+fn display_provided_service_instance(provided_service_instances: &Element) {
+    for psi in provided_service_instances.sub_elements() {
+        println!("        Provided service instance: {}", psi.item_name().unwrap());
+        if let Some(service_identifier) = psi.get_sub_element(ElementName::ServiceIdentifier).and_then(|sid| sid.character_data()).and_then(|cdata| Some(cdata.to_string())) {
+            println!("          Service identifier: {service_identifier}");
+        }
+        if let Some(event_handlers) = psi.get_sub_element(ElementName::EventHandlers) {
+            for eh in event_handlers.sub_elements() {
+                println!("          Event handler: {}", eh.item_name().unwrap());
+                if let Some(consumed_event_group_refs) = eh.get_sub_element(ElementName::ConsumedEventGroupRefs) {
+                    for ceg_ref in consumed_event_group_refs.sub_elements() {
+                        if let Ok(ceg) = ceg_ref.get_reference_target() {
+                            println!("            Consumed event group ref: {}", ceg.item_name().unwrap());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// <CONSUMED-SERVICE-INSTANCES>
+//   <CONSUMED-SERVICE-INSTANCE>
+//     <SHORT-NAME>ConsumedServiceInstance</SHORT-NAME>
+//     <CONSUMED-EVENT-GROUPS>
+//       <CONSUMED-EVENT-GROUP>
+//         <SHORT-NAME>ConsumedEventGroup</SHORT-NAME>
+//         <APPLICATION-ENDPOINT-REF DEST="APPLICATION-ENDPOINT">...</APPLICATION-ENDPOINT-REF>
+//         <EVENT-GROUP-IDENTIFIER>1</EVENT-GROUP-IDENTIFIER>
+//       </CONSUMED-EVENT-GROUP>
+//     </CONSUMED-EVENT-GROUPS>
+//     <PROVIDED-SERVICE-INSTANCE-REF DEST="PROVIDED-SERVICE-INSTANCE">...</PROVIDED-SERVICE-INSTANCE-REF>
+//     <SD-CLIENT-CONFIG>
+//       ...
+//     </SD-CLIENT-CONFIG>
+//   </CONSUMED-SERVICE-INSTANCE>
+//   ...
+// </CONSUMED-SERVICE-INSTANCES>
+fn display_consumed_service_instance(consumed_service_instances: &Element) {
+    for csi in consumed_service_instances.sub_elements() {
+        println!("        Consumed service instance: {}", csi.item_name().unwrap());
+        if let Some(consumed_event_groups) = csi.get_sub_element(ElementName::ConsumedEventGroups) {
+            for ceg in consumed_event_groups.sub_elements() {
+                println!("          Consumed event group: {}", ceg.item_name().unwrap())
+            }
+        }
+        if let Some(provided_service_instance) = csi
+            .get_sub_element(ElementName::ProvidedServiceInstanceRef)
+            .and_then(|psi_ref| psi_ref.get_reference_target().ok())
+        {
+            println!(
+                "          Provided service instance ref: {}",
+                provided_service_instance.item_name().unwrap()
+            );
+        }
+    }
+}
+
+// <APPLICATION-ENDPOINT>
+//   <NETWORK-ENDPOINT-REF DEST="NETWORK-ENDPOINT">/.../NetworkEndPoint</NETWORK-ENDPOINT-REF>
+//   <TP-CONFIGURATION>
+//     <TCP-TP>
+//       <TCP-TP-PORT>
+//         <PORT-NUMBER>12345</PORT-NUMBER>
+//       </TCP-TP-PORT>
+//     </TCP-TP>
+//     <UDP-TP>
+//       <UDP-TP-PORT>
+//         <PORT-NUMBER>23456</PORT-NUMBER>
+//       </UDP-TP-PORT>
+//     </UDP-TP>
+//   </TP-CONFIGURATION>
+// </APPLICATION-ENDPOINT>
+// =======================
+// <NETWORK-ENDPOINT>
+//   <SHORT-NAME>NetworkEndpoint</SHORT-NAME>
+//   <NETWORK-ENDPOINT-ADDRESSES>
+//     <IPV-4-CONFIGURATION>
+//       <IPV-4-ADDRESS>192.168.0.1</IPV-4-ADDRESS>
+//       ...
+//     </IPV-4-CONFIGURATION>
+//     <IPV-6-CONFIGURATION>
+//       <IPV-6-ADDRESS>1000:2000:3000:4000:5000:6000:7000:8000</IPV-6-ADDRESS>
+//       ...
+//     </IPV-6-CONFIGURATION>
+//   </NETWORK-ENDPOINT-ADDRESSES>
+// </NETWORK-ENDPOINT>
+fn get_socket_address_summary(application_endpoint: &Element) -> Option<String> {
+    let ip_addr_string = if let Some(network_endpoint_adresses) = application_endpoint
+        .get_sub_element(ElementName::NetworkEndpointRef)
+        .and_then(|ne_ref| ne_ref.get_reference_target().ok())
+        .and_then(|network_endpoint| network_endpoint.get_sub_element(ElementName::NetworkEndpointAddresses))
+    {
+        if let Some(ip6_addr_str) = network_endpoint_adresses
+            .get_sub_element(ElementName::Ipv6Configuration)
+            .and_then(|ipv6_conf| ipv6_conf.get_sub_element(ElementName::Ipv6Address))
+            .and_then(|ipv6_addr| ipv6_addr.character_data())
+            .and_then(|cdata| cdata.string_value())
+        {
+            Some(format!("[{}]", ip6_addr_str))
+        } else if let Some(ip4_addr_str) = network_endpoint_adresses
+            .get_sub_element(ElementName::Ipv4Configuration)
+            .and_then(|ipv4_conf| ipv4_conf.get_sub_element(ElementName::Ipv4Address))
+            .and_then(|ipv4_addr| ipv4_addr.character_data())
+            .and_then(|cdata| cdata.string_value())
+        {
+            Some(ip4_addr_str)
+        } else {
+            None
+        }
+    } else {
+        None
+    }?;
+
+    let tcp_port_number = application_endpoint
+        .get_sub_element(ElementName::TpConfiguration)
+        .and_then(|tp_configuration| tp_configuration.get_sub_element(ElementName::TcpTp))
+        .and_then(|tcptp| tcptp.get_sub_element(ElementName::TcpTpPort))
+        .and_then(|tcptpport| get_port_number(&tcptpport));
+    let udp_port_number = application_endpoint
+        .get_sub_element(ElementName::TpConfiguration)
+        .and_then(|tp_configuration| tp_configuration.get_sub_element(ElementName::UdpTp))
+        .and_then(|udptp| udptp.get_sub_element(ElementName::UdpTpPort))
+        .and_then(|udptpport| get_port_number(&udptpport));
+
+    if let Some(tcp_pn) = tcp_port_number {
+        Some(format!("{}:{} [TCP]", ip_addr_string, tcp_pn))
+    } else if let Some(udp_pn) = udp_port_number {
+        Some(format!("{}:{} [UDP]", ip_addr_string, udp_pn))
+    } else {
+        None
+    }
+}
+
+// <PORT-NUMBER>23456</PORT-NUMBER>
+// =========
+// <DYNAMICALLY-ASSIGNED>true</DYNAMICALLY-ASSIGNED>
+fn get_port_number(tp_port: &Element) -> Option<String> {
+    if let Some(port_number) = tp_port.get_sub_element(ElementName::PortNumber) {
+        port_number.character_data().and_then(|cdata| Some(cdata.to_string()))
+    } else {
+        let is_dynamic = tp_port
+            .get_sub_element(ElementName::DynamicallyAssigned)
+            .and_then(|dynassign| dynassign.character_data())
+            .and_then(|cdata| cdata.string_value())?;
+        if is_dynamic == "true" {
+            Some("dynamic".to_string())
+        } else {
+            None
+        }
+    }
+}
+
+fn get_socket_ecu(socket_address: &Element) -> Option<Element> {
+    if let Some(ethernet_connector) = socket_address
+        .get_sub_element(ElementName::ConnectorRef)
+        .and_then(|cref| cref.get_reference_target().ok())
+    {
+        if ethernet_connector.element_name() == ElementName::EthernetCommunicationConnector {
+            // the calls to parent cannot return Err or Ok(None), because the call to get_reference_target() succeeded
+            let connectors = ethernet_connector.parent().unwrap().unwrap();
+            let ecu_instance = connectors.parent().unwrap().unwrap();
+            Some(ecu_instance)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }
 
 // decode a string into an integer
