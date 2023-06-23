@@ -1378,7 +1378,12 @@ impl Element {
             let element = self.0.lock();
             for attribute in &element.attributes {
                 // find the specification for the current attribute
-                if let Some((value_spec, _, version_mask)) = element.elemtype.find_attribute_spec(attribute.attrname) {
+                if let Some(AttributeSpec {
+                    spec: value_spec,
+                    version: version_mask,
+                    ..
+                }) = element.elemtype.find_attribute_spec(attribute.attrname)
+                {
                     overall_version_mask &= version_mask;
                     // check if the attribute is allowed at all
                     if !target_version.compatible(version_mask) {
@@ -1910,7 +1915,11 @@ impl ElementRaw {
             // copy all the attributes
             for attribute in &self.attributes {
                 // get the specification of the attribute
-                let (cdataspec, required, attr_version_mask) = self
+                let AttributeSpec {
+                    spec: cdataspec,
+                    required,
+                    version: attr_version_mask,
+                } = self
                     .elemtype
                     .find_attribute_spec(attribute.attrname)
                     .ok_or(AutosarDataError::VersionIncompatible)?;
@@ -2513,7 +2522,7 @@ impl ElementRaw {
         file_version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
         // find the attribute specification in the item type
-        if let Some((spec, _, _)) = self.elemtype.find_attribute_spec(attrname) {
+        if let Some(AttributeSpec { spec, .. }) = self.elemtype.find_attribute_spec(attrname) {
             // the existing attribute gets updated
             if CharacterData::check_value(&value, spec, file_version) {
                 // find the attribute the element's attribute list
@@ -2540,7 +2549,11 @@ impl ElementRaw {
         stringvalue: &str,
         version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
-        if let Some((character_data_spec, _, _)) = self.elemtype.find_attribute_spec(attrname) {
+        if let Some(AttributeSpec {
+            spec: character_data_spec,
+            ..
+        }) = self.elemtype.find_attribute_spec(attrname)
+        {
             if let Some(value) = CharacterData::parse(stringvalue, character_data_spec, version) {
                 if let Some(attr) = self.attributes.iter_mut().find(|attr| attr.attrname == attrname) {
                     attr.content = value;
@@ -2565,7 +2578,7 @@ impl ElementRaw {
         for idx in 0..self.attributes.len() {
             if self.attributes[idx].attrname == attrname {
                 // find the definition of this attribute in the specification
-                if let Some((_, required, _)) = self.elemtype.find_attribute_spec(attrname) {
+                if let Some(AttributeSpec{required, ..}) = self.elemtype.find_attribute_spec(attrname) {
                     // the attribute can only be removed if it is optional
                     if !required {
                         self.attributes.remove(idx);

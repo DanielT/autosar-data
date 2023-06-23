@@ -131,6 +131,16 @@ pub enum CharacterDataSpec {
     Double,
 }
 
+/// specification of an attribute
+pub struct AttributeSpec {
+    /// data type of the attribute content
+    pub spec: &'static CharacterDataSpec,
+    /// is the attribute required to be present in it's containing element
+    pub required: bool,
+    /// in which autosar version(s) is this attribute valid. This field is a bitmask.
+    pub version: u32,
+}
+
 /// ElementType is an abstraction over element types in the specification.
 ///
 /// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
@@ -384,7 +394,7 @@ impl ElementType {
     }
 
     /// find the spec for a single attribute by name
-    pub fn find_attribute_spec(&self, attrname: AttributeName) -> Option<(&'static CharacterDataSpec, bool, u32)> {
+    pub fn find_attribute_spec(&self, attrname: AttributeName) -> Option<AttributeSpec> {
         let (idx_start, idx_end) = self.get_attributes_idx();
         let attributes = &ATTRIBUTES[idx_start..idx_end];
         if let Some((find_pos, (_, chardata_id, required))) =
@@ -392,7 +402,11 @@ impl ElementType {
         {
             let idx_ver_start = self.get_attributes_ver();
             let version = VERSION_INFO[idx_ver_start + find_pos];
-            Some((&CHARACTER_DATA[*chardata_id as usize], *required, version))
+            Some(AttributeSpec {
+                spec: &CHARACTER_DATA[*chardata_id as usize],
+                required: *required,
+                version,
+            })
         } else {
             None
         }
@@ -678,14 +692,14 @@ mod test {
 
     #[test]
     fn find_attribute_spec() {
-        let (spec, req, ver) = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
+        let AttributeSpec{spec, required, version} = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
         let spec_dbgstr = format!("{:#?}", spec);
         assert!(!spec_dbgstr.is_empty());
         // xmlns in AUTOSAR is required
-        assert_eq!(req, true);
+        assert_eq!(required, true);
         // must be specified both in the first and latest versions (and every one in between - not tested)
-        assert_ne!(ver & AutosarVersion::Autosar_00050 as u32, 0);
-        assert_ne!(ver & AutosarVersion::Autosar_4_0_1 as u32, 0);
+        assert_ne!(version & AutosarVersion::Autosar_00050 as u32, 0);
+        assert_ne!(version & AutosarVersion::Autosar_4_0_1 as u32, 0);
     }
 
     #[test]

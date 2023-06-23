@@ -512,7 +512,7 @@ impl<'a> ArxmlParser<'a> {
                 .find(|(_, c)| !c.is_ascii_whitespace())
                 .unwrap_or((name_len, &0u8));
             if let Ok(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start..name_len]) {
-                if let Some((ctype, _, version_mask)) = elemtype.find_attribute_spec(attr_name) {
+                if let Some(AttributeSpec{spec: ctype, version: version_mask, ..}) = elemtype.find_attribute_spec(attr_name) {
                     self.check_version(
                         version_mask,
                         ArxmlParserError::AttributeVersionError {
