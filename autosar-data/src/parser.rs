@@ -725,8 +725,7 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
             .find(|(_, c)| !c.is_ascii_whitespace())
             .unwrap_or((len, &0u8));
         &input[start..len]
-    }
-    else {
+    } else {
         input
     }
 }
@@ -1063,10 +1062,32 @@ mod test {
 
     #[test]
     fn test_utf8_error() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::Utf8Error {
-            source: std::str::from_utf8(b"\xff").unwrap_err(),
-        });
-        test_helper(UTF8_ERROR, discriminant, true);
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), UTF8_ERROR, true);
+        let result = parser.parse_arxml();
+        assert!(
+            matches!(
+                result,
+                Err(AutosarDataError::ParserError {
+                    source: ArxmlParserError::Utf8Error { .. },
+                    ..
+                })
+            ),
+            "Did not get the expected parser error"
+        );
+
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), UTF8_ERROR, false);
+        let _ = parser.parse_arxml();
+        let warning = parser.warnings.get(0);
+        assert!(
+            matches!(
+                warning,
+                Some(AutosarDataError::ParserError {
+                    source: ArxmlParserError::Utf8Error { .. },
+                    ..
+                })
+            ),
+            "Did not get the expected parser warning"
+        );
     }
 
     const UNEXPECTED_END_OF_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -1176,7 +1197,11 @@ mod test {
 
     #[test]
     fn test_empty_character_data() {
-        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), EMPTY_CHARACTER_DATA.as_bytes(), true);
+        let mut parser = ArxmlParser::new(
+            PathBuf::from("test_buffer.arxml"),
+            EMPTY_CHARACTER_DATA.as_bytes(),
+            true,
+        );
         let result = parser.parse_arxml();
         assert!(result.is_ok());
     }
