@@ -682,6 +682,46 @@ impl<'a> ArxmlParser<'a> {
                 } else if rem.starts_with("&quot;") {
                     unescaped.push('"');
                     rem = &rem[6..];
+                } else if rem.starts_with("&#x") {
+                    // hexadecimal character reference
+                    let mut valid = false;
+                    if let Some(endpos) = rem.find(';') {
+                        let hextxt = &rem[3..endpos];
+                        if let Ok(hexval) = u32::from_str_radix(hextxt, 16) {
+                            if let Some(ch) = char::from_u32(hexval) {
+                                unescaped.push(ch);
+                                rem = &rem[endpos+1..];
+                                valid = true;
+                            }
+                        }
+                    }
+                    if !valid {
+                        self.optional_error(ArxmlParserError::InvalidXmlEntity {
+                            input: input.to_owned(),
+                        })?;
+                        unescaped.push('&');
+                        rem = &rem[1..];
+                    }
+                } else if rem.starts_with("&#") {
+                    // decimal character reference
+                    let mut valid = false;
+                    if let Some(endpos) = rem.find(';') {
+                        let numtxt = &rem[2..endpos];
+                        if let Ok(val) = u32::from_str(numtxt) {
+                            if let Some(ch) = char::from_u32(val) {
+                                unescaped.push(ch);
+                                rem = &rem[endpos+1..];
+                                valid = true;
+                            }
+                        }
+                    }
+                    if !valid {
+                        self.optional_error(ArxmlParserError::InvalidXmlEntity {
+                            input: input.to_owned(),
+                        })?;
+                        unescaped.push('&');
+                        rem = &rem[1..];
+                    }
                 } else {
                     self.optional_error(ArxmlParserError::InvalidXmlEntity {
                         input: input.to_owned(),
@@ -1131,10 +1171,16 @@ mod test {
     fn unescape_entities() {
         let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), &[], true);
         let result = parser
-            .unescape_string("&amp;&amp;&lt;FOO&gt;&quot;&quot;&apos;end")
+            .unescape_string("&amp;&amp;&lt;FOO&gt;&quot;&quot;&apos;&#32;&#x20;end")
             .unwrap();
-        assert_eq!(&result, r#"&&<FOO>""'end"#);
+        assert_eq!(&result, r#"&&<FOO>""'  end"#);
         let result = parser.unescape_string("&amp;&amp;&gt;FOO&lt;&quot&quot;&apos;end");
+        assert!(result.is_err());
+        // numeric character entity does not accept hex values
+        let result = parser.unescape_string("&#abcde;");
+        assert!(result.is_err());
+        // values from 0x110000 to 0x1FFFFF are not valid unicode code points -> 0x110000 = 1114112
+        let result = parser.unescape_string("&#1114112;");
         assert!(result.is_err());
     }
 

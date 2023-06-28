@@ -190,6 +190,7 @@ fn escape_text(input: &str) -> Cow<str> {
                 '&' => escaped.push_str("&amp;"),
                 '"' => escaped.push_str("&quot;"),
                 '\'' => escaped.push_str("&apos;"),
+                '\r' => escaped.push_str("&#13;"), // this could get messed up by git, if an arxml file is checked in on windows
                 other => escaped.push(other),
             }
         }
@@ -386,10 +387,10 @@ mod test {
         assert_eq!(format!("{data}"), "text");
 
         let mut out = "".to_string();
-        let data = CharacterData::String("special chars: <, >, &, \', \"".to_string());
+        let data = CharacterData::String("special chars: <, >, &, \', \", \r".to_string());
         data.serialize_internal(&mut out);
-        assert_eq!(out, "special chars: &lt;, &gt;, &amp;, &apos;, &quot;");
-        assert_eq!(format!("{data}"), "special chars: <, >, &, \', \"");
+        assert_eq!(out, "special chars: &lt;, &gt;, &amp;, &apos;, &quot;, &#13;");
+        assert_eq!(format!("{data}"), "special chars: <, >, &, \', \", \r");
     }
 
     #[test]
