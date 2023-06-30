@@ -32,7 +32,7 @@
 //!
 //! ## Using the crate
 //!
-//! The main datatype is the [ElementType]. The type of the <AUTOSAR> element at the root of every arxml file is
+//! The main datatype is the [ElementType]. The type of the &lt;AUTOSAR&gt; element at the root of every arxml file is
 //! available as ElementType::ROOT.
 //!
 //! ## Note
@@ -692,7 +692,11 @@ mod test {
 
     #[test]
     fn find_attribute_spec() {
-        let AttributeSpec{spec, required, version} = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
+        let AttributeSpec {
+            spec,
+            required,
+            version,
+        } = ElementType::ROOT.find_attribute_spec(AttributeName::xmlns).unwrap();
         let spec_dbgstr = format!("{:#?}", spec);
         assert!(!spec_dbgstr.is_empty());
         // xmlns in AUTOSAR is required
