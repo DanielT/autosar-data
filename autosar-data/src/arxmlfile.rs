@@ -218,6 +218,26 @@ impl ArxmlFile {
         outstring
     }
 
+    /// Recursively sort all elements in the file. This is exactly identical to calling sort() on the root element of the file.
+    ///
+    /// All sub elements of the root element are sorted alphabetically.
+    /// If the sub-elements are named, then the sorting is performed according to the item names,
+    /// otherwise the serialized form of the sub-elements is used for sorting.
+    ///
+    /// Element attributes are not taken into account while sorting.
+    /// The elements are sorted in place, and sorting cannot fail, so there is no return value.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # let project = AutosarProject::new();
+    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// file.sort();
+    /// ```
+    pub fn sort(&self) {
+        self.root_element().sort()
+    }
+
     /// Create a weak reference to this ArxmlFile
     ///
     /// A weak reference can be stored without preventing the file from being deallocated.

@@ -1268,6 +1268,42 @@ impl Element {
         self.0.lock().remove_attribute(attrname)
     }
 
+    /// Recursively sort all sub-elements of this element
+    ///
+    /// All sub elements of the current element are sorted alphabetically.
+    /// If the sub-elements are named, then the sorting is performed according to the item names,
+    /// otherwise the serialized form of the sub-elements is used for sorting.
+    /// Element attributes are not taken into account while sorting.
+    /// The elements are sorted in place, and sorting cannot fail, so there is no return value.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # let project = AutosarProject::new();
+    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = file.root_element();
+    /// element.sort();
+    /// ```
+    pub fn sort(&self) {
+        self.0.lock().sort()
+    }
+
+    /// create a textual sorting key that can be used to determine the ordering of otherwise equal elements
+    pub(crate) fn get_sort_key(&self) -> String {
+        if self.is_identifiable() {
+            self.item_name().unwrap_or("--INVALID--".to_string())
+        } else {
+            let mut outstring = String::new();
+            for content_item in self.content() {
+                match content_item {
+                    ElementContent::Element(e) => e.serialize_internal(&mut outstring, 0, true),
+                    ElementContent::CharacterData(cdata) => cdata.serialize_internal(&mut outstring),
+                }
+            }
+            outstring
+        }
+    }
+
     /// Serialize the element and all of its content to a string
     ///
     /// The serialized text generated for elements below the root element cannot be loaded, but it may be useful for display.
@@ -2319,8 +2355,10 @@ impl ElementRaw {
         }
 
         if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
+            // element_name is a valid sub-element according to the specification; new_element_inidices describes the element grouping and ordering
             let mut start_pos = 0;
             let mut end_pos = 0;
+            // compare the new element to the existing elements
             for (idx, content_item) in self.content.iter().enumerate() {
                 if let ElementContent::Element(subelement) = content_item {
                     let (_, existing_element_indices) = elemtype
@@ -2578,7 +2616,7 @@ impl ElementRaw {
         for idx in 0..self.attributes.len() {
             if self.attributes[idx].attrname == attrname {
                 // find the definition of this attribute in the specification
-                if let Some(AttributeSpec{required, ..}) = self.elemtype.find_attribute_spec(attrname) {
+                if let Some(AttributeSpec { required, .. }) = self.elemtype.find_attribute_spec(attrname) {
                     // the attribute can only be removed if it is optional
                     if !required {
                         self.attributes.remove(idx);
@@ -2588,6 +2626,71 @@ impl ElementRaw {
             }
         }
         false
+    }
+
+    /// sort all sub-elements of this element
+    pub(crate) fn sort(&mut self) {
+        match self.elemtype.content_mode() {
+            ContentMode::Sequence | ContentMode::Choice | ContentMode::Bag => {
+                // sort the content
+                let len = self.content.len();
+                if len > 1 {
+                    // remove all child elements from this element and sort them
+                    let mut sorting_vec: Vec<(Vec<usize>, String, Element)> = Vec::with_capacity(len);
+                    for idx in (0..self.content.len()).rev() {
+                        if let ElementContent::Element(elem) = self.content.remove(idx) {
+                            // descend into the element and sort it before doing anything else with it
+                            elem.sort();
+                            let (_, elem_indices) =
+                                self.elemtype.find_sub_element(elem.element_name(), u32::MAX).unwrap();
+                            sorting_vec.push((elem_indices, "".to_string(), elem));
+                        }
+                        // Sequence, Choice and Bag do not have character content
+                    }
+
+                    // basic sort, typically a no-op
+                    sorting_vec
+                        .sort_by(|(elem_indices_a, _, _), (elem_indices_b, _, _)| elem_indices_a.cmp(elem_indices_b));
+                    // try to find out if there are any conflicts during basic sorting, i.e. items that need more info to sort
+                    let mut sort_key_needed: Vec<bool> = (0..len).map(|_| false).collect();
+                    for idx in 1..len {
+                        let (prev_elem_indices, _, _) = &sorting_vec[idx - 1];
+                        let (elem_indices, _, _) = &sorting_vec[idx];
+                        if elem_indices == prev_elem_indices {
+                            sort_key_needed[idx - 1] = true;
+                            sort_key_needed[idx] = true;
+                        }
+                    }
+                    // if any sub element needs sort-keys (i.e. there is a conflict) then these sort keys are generated and the list is sorted again
+                    if sort_key_needed.iter().any(|&val| val) {
+                        for idx in 0..len {
+                            if sort_key_needed[idx] {
+                                sorting_vec[idx].1 = sorting_vec[idx].2.get_sort_key();
+                            }
+                        }
+                        // sort again, taking into account the sorting keys
+                        sorting_vec.sort_by(|(elem_indices_a, sort_key_a, _), (elem_indices_b, sort_key_b, _)| {
+                            match elem_indices_a.cmp(elem_indices_b) {
+                                std::cmp::Ordering::Less => std::cmp::Ordering::Less,
+                                std::cmp::Ordering::Equal => sort_key_a.cmp(sort_key_b),
+                                std::cmp::Ordering::Greater => std::cmp::Ordering::Greater,
+                            }
+                        });
+                    }
+
+                    // put the sorted elements back
+                    for (_, _, elem) in sorting_vec {
+                        self.content.push(ElementContent::Element(elem));
+                    }
+                } else {
+                    // 0 or 1 content items. No need to sort this element, but we need to descend into the child element
+                    if let Some(ElementContent::Element(elem)) = &self.content.get(0) {
+                        elem.sort();
+                    }
+                }
+            }
+            ContentMode::Characters | ContentMode::Mixed => {}
+        }
     }
 }
 
@@ -3672,5 +3775,28 @@ mod test {
             .lock()
             .find_element_insert_pos(ElementName::ArPackages, AutosarVersion::Autosar_00050)
             .is_err());
+    }
+
+    #[test]
+    fn sort() {
+        let project = AutosarProject::new();
+        let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = file.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Z")
+            .unwrap();
+        el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "A")
+            .unwrap();
+        el_ar_package.create_sub_element(ElementName::Elements).unwrap();
+        el_ar_package.create_sub_element(ElementName::AdminData).unwrap();
+
+        file.sort();
+        let mut iter = el_ar_packages.sub_elements();
+        let item1 = iter.next().unwrap();
+        let item2 = iter.next().unwrap();
+        assert_eq!(item1.item_name().unwrap(), "A");
+        assert_eq!(item2.item_name().unwrap(), "Z");
     }
 }
