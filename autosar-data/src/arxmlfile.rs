@@ -34,6 +34,7 @@ impl ArxmlFile {
             root_element,
             version,
             filename: filename.as_ref().to_path_buf(),
+            xml_standalone: None,
         })));
         let new_parent = ElementOrFile::File(file.downgrade());
         file.root_element().set_parent(new_parent);
@@ -212,10 +213,37 @@ impl ArxmlFile {
     pub fn serialize(&self) -> String {
         let mut outstring = String::with_capacity(1024 * 1024);
 
-        outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
+        match self.xml_standalone() {
+            Some(true) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>"),
+            Some(false) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>"),
+            None => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
+        }
+
         self.root_element().serialize_internal(&mut outstring, 0, false);
 
         outstring
+    }
+
+    /// Return the standalone attribute from the xml header
+    ///
+    /// Some tools set headers that include the standalone attribute.
+    /// This attribute appears to be meaningless for arxml files.
+    ///
+    /// It is preserved nontheless and can be retrieved with this function.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// let project = AutosarProject::new();
+    /// let file_text = r#"<?xml version="1.0" encoding="utf-8" standalone="no"?>
+    /// <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    /// </AUTOSAR>"#.as_bytes();
+    /// let (file, _warnings) = project.load_named_arxml_buffer(file_text, "filename.arxml", true).unwrap();
+    /// assert_eq!(file.xml_standalone(), Some(false));
+    /// ```
+    pub fn xml_standalone(&self) -> Option<bool> {
+        self.0.lock().xml_standalone
     }
 
     /// Recursively sort all elements in the file. This is exactly identical to calling sort() on the root element of the file.
@@ -318,6 +346,18 @@ mod test {
         let file2 = weak_file.upgrade().unwrap();
         assert_eq!(Arc::strong_count(&file.0), 3); // 3 references are: AutosarProject, file, file2
         assert_eq!(file, file2);
+    }
+
+    #[test]
+    fn standalone() {
+        let project = AutosarProject::new();
+        let file_text = r#"<?xml version="1.0" encoding="utf-8" standalone="no"?>
+            <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            </AUTOSAR>"#.as_bytes();
+        let (file, _warnings) = project
+            .load_named_arxml_buffer(file_text, "filename.arxml", true)
+            .unwrap();
+        assert_eq!(file.xml_standalone(), Some(false));
     }
 
     #[test]

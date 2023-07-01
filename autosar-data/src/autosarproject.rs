@@ -125,6 +125,7 @@ impl AutosarProject {
             version: parser.get_fileversion(),
             filename: filename.clone(),
             root_element,
+            xml_standalone: parser.get_standalone(),
         })));
         // graft on the back-link from the root element to the file
         let new_parent = ElementOrFile::File(arxml_file.downgrade());

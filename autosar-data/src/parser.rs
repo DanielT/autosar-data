@@ -12,6 +12,9 @@ pub enum ArxmlParserError {
     #[error("Invalid arxml file: bad file header")]
     InvalidArxmlFileHeader,
 
+    #[error("Unexpeded XML file header found inside ARXML data")]
+    UnexpectedXmlFileHeader { element: ElementName },
+
     #[error("Unknown Autosar xsd file {input_verstring} referenced in the file header")]
     UnknownAutosarVersion { input_verstring: String },
 
@@ -129,6 +132,7 @@ pub(crate) struct ArxmlParser<'a> {
     pub(crate) identifiables: Vec<(String, WeakElement)>,
     pub(crate) references: Vec<(String, WeakElement)>,
     pub(crate) warnings: Vec<AutosarDataError>,
+    standalone: Option<bool>,
 }
 
 impl<'a> ArxmlParser<'a> {
@@ -144,6 +148,7 @@ impl<'a> ArxmlParser<'a> {
             identifiables: Vec::new(),
             references: Vec::new(),
             warnings: Vec::new(),
+            standalone: None,
         }
     }
 
@@ -187,8 +192,8 @@ impl<'a> ArxmlParser<'a> {
     pub(crate) fn parse_arxml(&mut self) -> Result<Element, AutosarDataError> {
         let mut lexer = ArxmlLexer::new(self.buffer, self.filename.clone());
 
-        if let ArxmlEvent::ArxmlHeader = self.next(&mut lexer)? {
-            /* OK */
+        if let ArxmlEvent::ArxmlHeader(standalone) = self.next(&mut lexer)? {
+            self.standalone = standalone;
         } else {
             return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
         }
@@ -252,6 +257,11 @@ impl<'a> ArxmlParser<'a> {
             }
         }
         Err(self.error(ArxmlParserError::InvalidArxmlFileHeader))
+    }
+
+    /// return the standalone attribute from the xml header
+    pub(crate) fn get_standalone(&self) -> Option<bool> {
+        self.standalone
     }
 
     fn parse_element(
@@ -365,7 +375,9 @@ impl<'a> ArxmlParser<'a> {
                         })?;
                     }
                 }
-                ArxmlEvent::ArxmlHeader => todo!(),
+                ArxmlEvent::ArxmlHeader(_) => self.optional_error(ArxmlParserError::UnexpectedXmlFileHeader {
+                    element: element.elemname,
+                })?,
                 ArxmlEvent::EndOfFile => {
                     return Err(self.error(ArxmlParserError::UnexpectedEndOfFile {
                         element: element.elemname,

@@ -246,6 +246,7 @@ pub(crate) struct ArxmlFileRaw {
     pub(crate) version: AutosarVersion,
     pub(crate) filename: PathBuf,
     pub(crate) root_element: Element,
+    pub(crate) xml_standalone: Option<bool>, // preserve the xml standalone attribute
 }
 
 /// An arxml element

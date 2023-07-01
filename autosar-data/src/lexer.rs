@@ -22,7 +22,7 @@ pub enum ArxmlLexerError {
 
 #[derive(Debug)]
 pub(crate) enum ArxmlEvent<'a> {
-    ArxmlHeader,
+    ArxmlHeader(Option<bool>),
     BeginElement(&'a [u8], &'a [u8]),
     EndElement(&'a [u8]),
     Characters(&'a [u8]),
@@ -139,6 +139,7 @@ impl<'a> ArxmlLexer<'a> {
         let result = if elemname == b"xml" {
             let mut ver = &text[0..0];
             let mut encoding = &text[0..0];
+            let mut standalone: Option<bool> = None;
             for attr_text in splitter {
                 let (attr_name, attr_val) =
                     if let Some((pos, _)) = attr_text.iter().enumerate().find(|(_, c)| **c == b'=') {
@@ -150,6 +151,8 @@ impl<'a> ArxmlLexer<'a> {
                     ver = attr_val;
                 } else if attr_name == b"encoding" {
                     encoding = attr_val;
+                } else if attr_name == b"standalone" {
+                    standalone = Some(attr_val == b"yes");
                 }
             }
 
@@ -158,7 +161,7 @@ impl<'a> ArxmlLexer<'a> {
             {
                 Some(Err(self.error(ArxmlLexerError::InvalidXmlHeader)))
             } else {
-                Some(Ok(ArxmlEvent::ArxmlHeader))
+                Some(Ok(ArxmlEvent::ArxmlHeader(standalone)))
             }
         } else {
             None
@@ -273,7 +276,7 @@ mod test {
             b"<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         match lexer.next() {
-            Ok((_, ArxmlEvent::ArxmlHeader)) => {}
+            Ok((_, ArxmlEvent::ArxmlHeader(None))) => {}
             _ => panic!("got an error instead of ArxmlHeader"),
         }
         match lexer.next() {
