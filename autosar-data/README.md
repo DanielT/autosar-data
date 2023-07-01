@@ -1,8 +1,8 @@
+# `autosar-data`
+
 [![Crates.io](https://img.shields.io/crates/v/autosar-data)](https://crates.io/crates/autosar-data)
 [![Github Actions](https://github.com/DanielT/autosar-data/workflows/Test/badge.svg)](https://github.com/DanielT/autosar-data/actions)
 [![codecov](https://codecov.io/gh/DanielT/autosar-data/branch/main/graph/badge.svg?token=RGKUUJTWZ5)](https://codecov.io/gh/DanielT/autosar-data)
-
-# `autosar-data`
 
 This crate provides functionality to read, modify and write Autosar 4 arxml files,
 both separately and in projects consisting of multiple files.

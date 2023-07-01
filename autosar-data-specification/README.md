@@ -1,8 +1,8 @@
+# autosar-data-specification
+
 [![Crates.io](https://img.shields.io/crates/v/autosar-data-specification)](https://crates.io/crates/autosar-data-specification)
 [![Github Actions](https://github.com/DanielT/autosar-data/workflows/Test/badge.svg)](https://github.com/DanielT/autosar-data/actions)
 [![codecov](https://codecov.io/gh/DanielT/autosar-data/branch/main/graph/badge.svg?token=RGKUUJTWZ5)](https://codecov.io/gh/DanielT/autosar-data)
-
-# autosar-data-specification
 
 This crate exists to support the autosar-data crate.
 
