@@ -18,6 +18,12 @@ pub enum ArxmlParserError {
     #[error("Unknown Autosar xsd file {input_verstring} referenced in the file header")]
     UnknownAutosarVersion { input_verstring: String },
 
+    #[error("Invalid Autosar xsd file {input_verstring} referenced in the file header should be replaced with {}", .replacement.filename())]
+    InvalidAutosarVersion {
+        input_verstring: String,
+        replacement: AutosarVersion,
+    },
+
     #[error("Encountered unexpected child element {sub_element} inside element {element}")]
     IncorrectBeginElement {
         element: ElementName,
@@ -232,6 +238,30 @@ impl<'a> ArxmlParser<'a> {
                     let xsd_file = schema_parts.next().unwrap_or("");
                     if let Ok(autosar_version) = AutosarVersion::from_str(xsd_file) {
                         self.fileversion = autosar_version;
+                    } else if xsd_file == "AUTOSAR_4-3-1.xsd" {
+                        // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
+                        // AUTOSAR_4-3-1.xsd -> AUTOSAR_00044.xsd
+                        self.fileversion = AutosarVersion::Autosar_00044;
+                        self.optional_error(ArxmlParserError::InvalidAutosarVersion {
+                            input_verstring: xsd_file.to_string(),
+                            replacement: self.fileversion,
+                        })?;
+                    } else if xsd_file == "AUTOSAR_4-4-0.xsd" {
+                        // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
+                        // AUTOSAR_4-4-0.xsd -> AUTOSAR_00046.xsd
+                        self.fileversion = AutosarVersion::Autosar_00046;
+                        self.optional_error(ArxmlParserError::InvalidAutosarVersion {
+                            input_verstring: xsd_file.to_string(),
+                            replacement: self.fileversion,
+                        })?;
+                    } else if xsd_file == "AUTOSAR_4-5-0.xsd" {
+                        // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
+                        // AUTOSAR_4-5-0.xsd -> AUTOSAR_00048.xsd
+                        self.fileversion = AutosarVersion::Autosar_00048;
+                        self.optional_error(ArxmlParserError::InvalidAutosarVersion {
+                            input_verstring: xsd_file.to_string(),
+                            replacement: self.fileversion,
+                        })?;
                     } else {
                         self.fileversion = AutosarVersion::Autosar_00050;
                         self.optional_error(ArxmlParserError::UnknownAutosarVersion {
@@ -847,6 +877,26 @@ mod test {
         );
     }
 
+    const INVALID_VERSION_4_3_1: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-3-1.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    </AUTOSAR>"#;
+    const INVALID_VERSION_4_4_0: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-4-0.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    </AUTOSAR>"#;
+    const INVALID_VERSION_4_5_0: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-5-0.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    </AUTOSAR>"#;
+
+    #[test]
+    fn test_invalid_version() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidAutosarVersion {
+            input_verstring: "".to_string(),
+            replacement: AutosarVersion::Autosar_00044,
+        });
+        test_helper(INVALID_VERSION_4_3_1.as_bytes(), discriminant, true);
+        test_helper(INVALID_VERSION_4_4_0.as_bytes(), discriminant, true);
+        test_helper(INVALID_VERSION_4_5_0.as_bytes(), discriminant, true);
+    }
     const UNKNOWN_VERSION: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_something_else.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     </AUTOSAR>"#;
