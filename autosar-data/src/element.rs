@@ -1332,51 +1332,60 @@ impl Element {
         if !inline {
             self.serialize_newline_indent(outstring, indent);
         }
-        outstring.push('<');
-        outstring.push_str(element_name);
-        self.serialize_attributes(outstring);
-        outstring.push('>');
 
-        match self.content_type() {
-            ContentType::Elements => {
-                // serialize each sub-element
-                for subelem in self.sub_elements() {
-                    subelem.serialize_internal(outstring, indent + 1, false);
+        if self.content().count() > 0 {
+            outstring.push('<');
+            outstring.push_str(element_name);
+            self.serialize_attributes(outstring);
+            outstring.push('>');
+    
+            match self.content_type() {
+                ContentType::Elements => {
+                    // serialize each sub-element
+                    for subelem in self.sub_elements() {
+                        subelem.serialize_internal(outstring, indent + 1, false);
+                    }
+                    // put the closing tag on a new line and indent it
+                    self.serialize_newline_indent(outstring, indent);
+                    outstring.push_str("</");
+                    outstring.push_str(element_name);
+                    outstring.push('>');
                 }
-                // put the closing tag on a new line and indent it
-                self.serialize_newline_indent(outstring, indent);
-                outstring.push_str("</");
-                outstring.push_str(element_name);
-                outstring.push('>');
-            }
-            ContentType::CharacterData => {
-                // write the character data on the same line as the opening tag
-                let element = self.0.lock();
-                if let Some(ElementContent::CharacterData(chardata)) = element.content.get(0) {
-                    chardata.serialize_internal(outstring);
+                ContentType::CharacterData => {
+                    // write the character data on the same line as the opening tag
+                    let element = self.0.lock();
+                    if let Some(ElementContent::CharacterData(chardata)) = element.content.get(0) {
+                        chardata.serialize_internal(outstring);
+                    }
+    
+                    // write the closing tag on the same line
+                    outstring.push_str("</");
+                    outstring.push_str(element_name);
+                    outstring.push('>');
                 }
-
-                // write the closing tag on the same line
-                outstring.push_str("</");
-                outstring.push_str(element_name);
-                outstring.push('>');
-            }
-            ContentType::Mixed => {
-                for item in self.content() {
-                    match item {
-                        ElementContent::Element(subelem) => {
-                            subelem.serialize_internal(outstring, indent + 1, true);
-                        }
-                        ElementContent::CharacterData(chardata) => {
-                            chardata.serialize_internal(outstring);
+                ContentType::Mixed => {
+                    for item in self.content() {
+                        match item {
+                            ElementContent::Element(subelem) => {
+                                subelem.serialize_internal(outstring, indent + 1, true);
+                            }
+                            ElementContent::CharacterData(chardata) => {
+                                chardata.serialize_internal(outstring);
+                            }
                         }
                     }
+                    // write the closing tag on the same line
+                    outstring.push_str("</");
+                    outstring.push_str(element_name);
+                    outstring.push('>');
                 }
-                // write the closing tag on the same line
-                outstring.push_str("</");
-                outstring.push_str(element_name);
-                outstring.push('>');
             }
+        } else {
+            outstring.push('<');
+            outstring.push_str(element_name);
+            self.serialize_attributes(outstring);
+            outstring.push('/');
+            outstring.push('>');
         }
     }
 
@@ -3671,8 +3680,7 @@ mod test {
     <AR-PACKAGE>
       <SHORT-NAME>Pkg</SHORT-NAME>
       <DESC>
-        <L-2 L="EN">Description<BR>
-          </BR>Description</L-2>
+        <L-2 L="EN">Description<BR/>Description</L-2>
       </DESC>
     </AR-PACKAGE>
   </AR-PACKAGES>
