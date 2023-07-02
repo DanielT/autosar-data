@@ -2632,9 +2632,9 @@ impl ElementRaw {
     pub(crate) fn sort(&mut self) {
         match self.elemtype.content_mode() {
             ContentMode::Sequence | ContentMode::Choice | ContentMode::Bag => {
-                // sort the content
+                // sort the content if sorting is allowed (!ordered) and there is more than one child element
                 let len = self.content.len();
-                if len > 1 {
+                if !self.elemtype.ordered() && len > 1 {
                     // remove all child elements from this element and sort them
                     let mut sorting_vec: Vec<(Vec<usize>, String, Element)> = Vec::with_capacity(len);
                     for idx in (0..self.content.len()).rev() {
@@ -2683,9 +2683,12 @@ impl ElementRaw {
                         self.content.push(ElementContent::Element(elem));
                     }
                 } else {
-                    // 0 or 1 content items. No need to sort this element, but we need to descend into the child element
-                    if let Some(ElementContent::Element(elem)) = &self.content.get(0) {
-                        elem.sort();
+                    // 0 or 1 content items -or- the element is ordered and sorting it is forbidden.
+                    // in either case we need to descend into the child element(s)
+                    for ec in &self.content {
+                        if let ElementContent::Element(elem) = ec {
+                            elem.sort();
+                        }
                     }
                 }
             }
