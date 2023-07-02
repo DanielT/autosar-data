@@ -165,6 +165,8 @@ struct ElementSpec {
     attributes_ver: u16,
     character_data: Option<u16>,
     mode: ContentMode,
+    ordered: bool,
+    splitable: u32,
 }
 
 impl AutosarVersion {
@@ -426,6 +428,25 @@ impl ElementType {
             type_id_stack: vec![self.0],
             indices: vec![0],
         }
+    }
+
+    /// Is the current ElementType ordered
+    ///
+    /// It his is true, then the position of the sub elements of this element is semantically meaningful
+    /// and they may not be sorted / re-ordered without changing the meaning of the file.
+    ///
+    /// An example of this is ARGUMENTS in BSW-MODULE-ENTRY. ARGUMENTS is ordered, because each of its
+    /// SW-SERVICE-ARG sub elements represents a function argument
+    pub fn ordered(&self) -> bool {
+        DATATYPES[self.0].ordered
+    }
+
+    /// Is the current ElementType splittable
+    ///
+    /// This function returns a bitfiled that indicates in which versions (if any) the ElementType is marked as splittable.
+    /// A splittable element may be split across multiple arxml files
+    pub fn splitable(&self) -> u32 {
+        DATATYPES[self.0].splitable
     }
 
     /// ElementType::ROOT is the root ElementType of the Autosar arxml document, i.e. this is the ElementType of the AUTOSAR element
@@ -941,5 +962,45 @@ mod test {
         // enum items implement Hash and can be inserted into HashSet / HashMap
         let mut hashset = HashSet::<EnumItem>::new();
         hashset.insert(EnumItem::Abstract);
+    }
+
+    #[test]
+    fn ordered() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+        // BSW-MODULE-ENTRY: This class represents a single API entry (C-function prototype) into the BSW module or cluster.
+        let (bsw_module_entry, _) = elements_type
+            .find_sub_element(ElementName::BswModuleEntry, u32::MAX)
+            .unwrap();
+        // ARGUMENTS: Arguments belonging of the BswModuleEntry.
+        let (arguments, _) = bsw_module_entry
+            .find_sub_element(ElementName::Arguments, u32::MAX)
+            .unwrap();
+
+        assert!(!bsw_module_entry.ordered());
+        assert!(arguments.ordered());
+    }
+
+    #[test]
+    fn splitable() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+
+        assert_ne!(ar_packages_type.splitable() & AutosarVersion::Autosar_00051 as u32, 0);
+        assert_ne!(elements_type.splitable() & AutosarVersion::Autosar_00051 as u32, 0);
     }
 }
