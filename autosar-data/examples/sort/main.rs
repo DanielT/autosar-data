@@ -26,10 +26,10 @@ fn main() {
         }
     };
 
-    arxmlfile.sort();
+    project.sort();
 
     // write the sorted file
-    let filename_prefix = filename.strip_suffix(".arxml").or(Some(filename)).unwrap();
+    let filename_prefix = filename.strip_suffix(".arxml").unwrap_or(filename);
     let new_filename = format!("{filename_prefix}_sorted.arxml");
     arxmlfile.set_filename(&new_filename);
     project.write().unwrap();
