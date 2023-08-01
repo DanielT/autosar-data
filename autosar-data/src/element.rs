@@ -2946,6 +2946,26 @@ impl PartialEq for WeakElement {
 
 impl Eq for WeakElement {}
 
+impl ElementContent {
+    /// returns the element contained inside this ElementContent, or None if the content is CharacterData
+    pub fn unwrap_element(&self) -> Option<Element> {
+        if let ElementContent::Element(element) = self {
+            Some(element.clone())
+        } else {
+            None
+        }
+    }
+
+    /// returns the CharacterData inside this ElementContent, or None if the content is an Element
+    pub fn unwrap_cdata(&self) -> Option<CharacterData> {
+        if let ElementContent::CharacterData(cdata) = self {
+            Some(cdata.clone())
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::*;

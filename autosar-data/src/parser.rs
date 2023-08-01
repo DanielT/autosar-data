@@ -235,8 +235,15 @@ impl<'a> ArxmlParser<'a> {
                     if schema_base != "http://autosar.org/schema/r4.0" {
                         return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
                     }
-                    let xsd_file = schema_parts.next().unwrap_or("");
-                    if let Ok(autosar_version) = AutosarVersion::from_str(xsd_file) {
+                    let xsd_file_raw = schema_parts.next().unwrap_or("");
+                    // check if the "AUTOSAR" in the xsd filename is written in lowercase, and correct that silently
+                    // all the examples in the standard use uppercase, but there is no explicit requiement that it must be so
+                    let xsd_file: String = if xsd_file_raw.starts_with("autosar") {
+                        format!("AUTOSAR{}", xsd_file_raw.strip_prefix("autosar").unwrap())
+                    } else {
+                        xsd_file_raw.to_owned()
+                    };
+                    if let Ok(autosar_version) = AutosarVersion::from_str(&xsd_file) {
                         self.fileversion = autosar_version;
                     } else if xsd_file == "AUTOSAR_4-3-1.xsd" {
                         // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
