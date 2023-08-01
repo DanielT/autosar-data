@@ -17,7 +17,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// if let Some(parent) = element.parent()? {
     ///     // ...
     /// }
@@ -32,7 +32,7 @@ impl Element {
         self.0.lock().parent()
     }
 
-    pub(crate) fn set_parent(&self, new_parent: ElementOrFile) {
+    pub(crate) fn set_parent(&self, new_parent: ElementOrProject) {
         self.0.lock().set_parent(new_parent)
     }
 
@@ -44,7 +44,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let element = file.root_element();
+    /// let element = project.root_element();
     /// let element_name = element.element_name();
     /// assert_eq!(element_name, ElementName::Autosar);
     /// ```
@@ -62,7 +62,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// let element_type = element.element_type();
     /// ```
     pub fn element_type(&self) -> ElementType {
@@ -81,7 +81,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// if let Some(item_name) = element.item_name() {
     ///     // ...
     /// }
@@ -100,7 +100,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// element.set_item_name("NewName");
     /// ```
     ///
@@ -111,7 +111,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// if let Some(short_name) = element.get_sub_element(ElementName::ShortName) {
     ///     short_name.set_character_data(CharacterData::String("the_new_name".to_string()));
     /// }
@@ -129,9 +129,8 @@ impl Element {
         if new_name.is_empty() {
             return Err(AutosarDataError::ItemNameRequired);
         }
-        let file = self.file()?;
-        let project = file.project()?;
-        let version = file.version();
+        let project = self.project()?;
+        let version = self.min_version()?;
         self.0.lock().set_item_name(new_name, &project, version)
     }
 
@@ -145,7 +144,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// if element.is_identifiable() {
     ///     // ...
     /// }
@@ -164,7 +163,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// if element.is_reference() {
     ///     // ex: element.set_reference_target(...)
     /// }
@@ -182,7 +181,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// let path = element.path()?;
     /// # Ok(())
     /// # }
@@ -199,7 +198,7 @@ impl Element {
         self.0.lock().path()
     }
 
-    /// Get a reference to the [ArxmlFile] containing the current element
+    /// Get a reference to the [AutosarProject] containing the current element
     ///
     /// # Example
     ///
@@ -208,8 +207,8 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
-    /// let file = element.file()?;
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
+    /// let file = element.project()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -220,7 +219,7 @@ impl Element {
     ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
-    pub fn file(&self) -> Result<ArxmlFile, AutosarDataError> {
+    pub fn project(&self) -> Result<AutosarProject, AutosarDataError> {
         let mut cur_elem = self.clone();
         loop {
             let parent = {
@@ -229,13 +228,13 @@ impl Element {
                     .try_lock_for(std::time::Duration::from_millis(10))
                     .ok_or(AutosarDataError::ParentElementLocked)?;
                 match &element.parent {
-                    ElementOrFile::Element(weak_parent) => {
+                    ElementOrProject::Element(weak_parent) => {
                         weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?
                     }
-                    ElementOrFile::File(weak_arxmlfile) => {
+                    ElementOrProject::Project(weak_arxmlfile) => {
                         return weak_arxmlfile.upgrade().ok_or(AutosarDataError::ItemDeleted)
                     }
-                    ElementOrFile::None => return Err(AutosarDataError::ItemDeleted),
+                    ElementOrProject::None => return Err(AutosarDataError::ItemDeleted),
                 }
             };
             cur_elem = parent;
@@ -250,7 +249,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// if element.content_type() == ContentType::CharacterData {
     ///     // ...
     /// }
@@ -277,7 +276,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// let element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -292,9 +291,10 @@ impl Element {
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::ItemNameRequired]: The sub element requires an item name, so you must use create_named_sub_element().
     pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, AutosarDataError> {
-        let version = self.file().map(|f| f.version())?;
+        let version = self.min_version()?;
         self.0
-            .lock()
+            .try_lock()
+            .ok_or(AutosarDataError::ParentElementLocked)?
             .create_sub_element(self.downgrade(), element_name, version)
     }
 
@@ -312,7 +312,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let element = file.root_element().create_sub_element_at(ElementName::ArPackages, 0)?;
+    /// let element = project.root_element().create_sub_element_at(ElementName::ArPackages, 0)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -332,7 +332,7 @@ impl Element {
         element_name: ElementName,
         position: usize,
     ) -> Result<Element, AutosarDataError> {
-        let version = self.file().map(|f| f.version())?;
+        let version = self.min_version()?;
         self.0
             .lock()
             .create_sub_element_at(self.downgrade(), element_name, position, version)
@@ -351,7 +351,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let pkgs_element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// let pkgs_element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// let element = pkgs_element.create_named_sub_element(ElementName::ArPackage, "Package")?;
     /// # Ok(())
     /// # }
@@ -371,9 +371,8 @@ impl Element {
         element_name: ElementName,
         item_name: &str,
     ) -> Result<Element, AutosarDataError> {
-        let file = self.file()?;
-        let project = file.project()?;
-        let version = file.version();
+        let project = self.project()?;
+        let version = self.min_version()?;
         self.0
             .lock()
             .create_named_sub_element(self.downgrade(), element_name, item_name, &project, version)
@@ -393,7 +392,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let pkgs_element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// let pkgs_element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// let element = pkgs_element.create_named_sub_element_at(ElementName::ArPackage, "Package", 0)?;
     /// # Ok(())
     /// # }
@@ -415,9 +414,8 @@ impl Element {
         item_name: &str,
         position: usize,
     ) -> Result<Element, AutosarDataError> {
-        let file = self.file()?;
-        let project = file.project()?;
-        let version = file.version();
+        let project = self.project()?;
+        let version = self.min_version()?;
         self.0.lock().create_named_sub_element_at(
             self.downgrade(),
             element_name,
@@ -448,7 +446,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let pkgs_element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// # let pkgs_element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// # let base = pkgs_element.create_named_sub_element(ElementName::ArPackage, "Package")
     /// #    .and_then(|p| p.create_sub_element(ElementName::Elements))?;
     /// # base.create_named_sub_element(ElementName::System, "Path")?;
@@ -467,9 +465,8 @@ impl Element {
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
-        let file = self.file()?;
-        let project = file.project()?;
-        let version = file.version();
+        let project = self.project()?;
+        let version = self.min_version()?;
         self.0
             .lock()
             .create_copied_sub_element(self.downgrade(), other, &project, version)
@@ -495,7 +492,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let pkgs_element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// # let pkgs_element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// # let base = pkgs_element.create_named_sub_element(ElementName::ArPackage, "Package")
     /// #    .and_then(|p| p.create_sub_element(ElementName::Elements))?;
     /// # base.create_named_sub_element(ElementName::System, "Path")?;
@@ -515,9 +512,8 @@ impl Element {
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let file = self.file()?;
-        let project = file.project()?;
-        let version = file.version();
+        let project = self.project()?;
+        let version = self.min_version()?;
         self.0
             .lock()
             .create_copied_sub_element_at(self.downgrade(), other, position, &project, version)
@@ -538,7 +534,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let pkgs_element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// # let pkgs_element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// # let base = pkgs_element.create_named_sub_element(ElementName::ArPackage, "Package")
     /// #    .and_then(|p| p.create_sub_element(ElementName::Elements))?;
     /// # base.create_named_sub_element(ElementName::System, "Path")?;
@@ -556,16 +552,18 @@ impl Element {
     ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::VersionIncompatible]: The Autosar versions of the source and destination are different
+    ///  - [AutosarDataError::VersionMismatch]: The Autosar versions of the source and destination are different
     ///  - [AutosarDataError::ForbiddenMoveToSubElement]: The destination is a sub element of the source. Moving here is not possible
     pub fn move_element_here(&self, move_element: &Element) -> Result<Element, AutosarDataError> {
-        let file_src = move_element.file()?;
-        let project_src = file_src.project()?;
-        let version = self.file().map(|f| f.version())?;
-        let project = self.file().and_then(|f| f.project())?;
-        let version_src = file_src.version();
+        let project_src = move_element.project()?;
+        let project = self.project()?;
+        let version_src = move_element.min_version()?;
+        let version = self.min_version()?;
         if version != version_src {
-            return Err(AutosarDataError::VersionIncompatible);
+            return Err(AutosarDataError::VersionMismatch {
+                version_cur: version,
+                version_new: version_src,
+            });
         }
         self.0
             .lock()
@@ -587,7 +585,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let pkgs_element = file.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// # let pkgs_element = project.root_element().create_sub_element(ElementName::ArPackages)?;
     /// # let base = pkgs_element.create_named_sub_element(ElementName::ArPackage, "Package")
     /// #    .and_then(|p| p.create_sub_element(ElementName::Elements))?;
     /// # base.create_named_sub_element(ElementName::System, "Path")?;
@@ -605,17 +603,19 @@ impl Element {
     ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::VersionIncompatible]: The Autosar versions of the source and destination are different
+    ///  - [AutosarDataError::VersionMismatch]: The Autosar versions of the source and destination are different
     ///  - [AutosarDataError::ForbiddenMoveToSubElement]: The destination is a sub element of the source. Moving here is not possible
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
     pub fn move_element_here_at(&self, move_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
-        let file_src = move_element.file()?;
-        let project_src = file_src.project()?;
-        let version = self.file().map(|f| f.version())?;
-        let project = self.file().and_then(|f| f.project())?;
-        let version_src = file_src.version();
+        let project_src = move_element.project()?;
+        let project = self.project()?;
+        let version_src = move_element.min_version()?;
+        let version = self.min_version()?;
         if version != version_src {
-            return Err(AutosarDataError::VersionIncompatible);
+            return Err(AutosarDataError::VersionMismatch {
+                version_cur: version,
+                version_new: version_src,
+            });
         }
         self.0.lock().move_element_here_at(
             self.downgrade(),
@@ -641,8 +641,8 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let packages = file.root_element().create_sub_element(ElementName::ArPackages)?;
-    /// file.root_element().remove_sub_element(packages)?;
+    /// let packages = project.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// project.root_element().remove_sub_element(packages)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -655,7 +655,7 @@ impl Element {
     ///  - [AutosarDataError::ElementNotFound]: The sub element was not found in this element
     ///  - [AutosarDataError::ShortNameRemovalForbidden]: It is not permitted to remove the SHORT-NAME of identifiable elements since this would result in invalid data
     pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), AutosarDataError> {
-        let project = self.file().and_then(|f| f.project())?;
+        let project = self.project()?;
         self.0.lock().remove_sub_element(sub_element, &project)
     }
 
@@ -671,7 +671,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let elements = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let elements = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))
     /// #   .and_then(|e| e.create_sub_element(ElementName::Elements))?;
     /// # let ref_element = elements.create_named_sub_element(ElementName::System, "System")
@@ -699,9 +699,8 @@ impl Element {
             let new_ref = target.path()?;
             // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
             if let Ok(enum_item) = EnumItem::from_str(target.element_name().to_str()) {
-                let file = self.file()?;
-                let project = file.project()?;
-                let version = file.version();
+                let project = self.project()?;
+                let version = self.min_version()?;
                 let mut element = self.0.lock();
                 // set the DEST attribute first - this could fail if the target element has the wrong type
                 if element
@@ -744,7 +743,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let elements = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let elements = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))
     /// #   .and_then(|e| e.create_sub_element(ElementName::Elements))?;
     /// # let ref_element = elements.create_named_sub_element(ElementName::System, "System")
@@ -769,7 +768,7 @@ impl Element {
     pub fn get_reference_target(&self) -> Result<Element, AutosarDataError> {
         if self.is_reference() {
             if let Some(CharacterData::String(reference)) = self.character_data() {
-                let project = self.file().and_then(|file| file.project())?;
+                let project = self.project()?;
                 let target_elem = project
                     .get_element_by_path(&reference)
                     .ok_or(AutosarDataError::InvalidReference)?;
@@ -801,7 +800,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?
     /// #   .get_sub_element(ElementName::ShortName).unwrap();
     /// element.set_character_data(CharacterData::String("value".to_string()))?;
@@ -819,8 +818,8 @@ impl Element {
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters {
             if let Some(cdata_spec) = elemtype.chardata_spec() {
-                let project = self.file().and_then(|file| file.project())?;
-                let version = self.file().map(|f| f.version())?;
+                let project = self.project()?;
+                let version = self.min_version()?;
                 if CharacterData::check_value(&chardata, cdata_spec, version) {
                     // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
                     let mut prev_path = None;
@@ -887,7 +886,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))
     /// #   .and_then(|e| e.create_sub_element(ElementName::Elements))
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::System, "System"))
@@ -913,7 +912,7 @@ impl Element {
             } else {
                 if self.character_data().is_some() {
                     if self.is_reference() {
-                        let project = self.file().and_then(|file| file.project())?;
+                        let project = self.project()?;
                         if let Some(CharacterData::String(reference)) = self.character_data() {
                             project.remove_reference_origin(&reference, self.downgrade())
                         }
@@ -939,7 +938,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?;
     /// // mixed content elements are primarily used for documentation and description
     /// let desc = element.create_sub_element(ElementName::Desc)?;
@@ -981,7 +980,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))
     /// #   .and_then(|e| e.create_sub_element(ElementName::Desc))
     /// #   .and_then(|e| e.create_sub_element(ElementName::L2))?;
@@ -1021,7 +1020,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let element = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?
     /// #   .get_sub_element(ElementName::ShortName).unwrap();
     /// match element.character_data() {
@@ -1050,7 +1049,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// for content_item in element.content() {
     ///     match content_item {
     ///         ElementContent::CharacterData(data) => {},
@@ -1075,7 +1074,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// let weak_element = element.downgrade();
     /// ```
     pub fn downgrade(&self) -> WeakElement {
@@ -1090,7 +1089,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// for sub_element in element.sub_elements() {
     ///     // ...
     /// }
@@ -1110,7 +1109,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let pkg = file.root_element().create_sub_element(ElementName::ArPackages)
+    /// # let pkg = project.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?;
     /// let element = pkg.get_sub_element(ElementName::ShortName).unwrap();
     /// assert_eq!(element.element_name(), ElementName::ShortName);
@@ -1142,7 +1141,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// for (depth, elem) in element.elements_dfs() {
     ///     // ...
     /// }
@@ -1159,7 +1158,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// for attribute in element.attributes() {
     ///     println!("{} = {}", attribute.attrname, attribute.content);
     /// }
@@ -1179,7 +1178,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let value = file.root_element().attribute_value(AttributeName::xsiSchemalocation);
+    /// let value = project.root_element().attribute_value(AttributeName::xsiSchemalocation);
     /// ```
     pub fn attribute_value(&self, attrname: AttributeName) -> Option<CharacterData> {
         self.0.lock().attribute_value(attrname)
@@ -1193,7 +1192,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// let value = element.attribute_string(AttributeName::Dest);
     /// ```
     pub fn attribute_string(&self, attrname: AttributeName) -> Option<String> {
@@ -1210,7 +1209,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// let result = element.set_attribute(AttributeName::S, CharacterData::String("1234-5678".to_string()));
     /// # assert!(result.is_ok());
     /// ```
@@ -1221,7 +1220,7 @@ impl Element {
     ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
     ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> Result<(), AutosarDataError> {
-        let version = self.file().map(|f| f.version())?;
+        let version = self.min_version()?;
         self.0.lock().set_attribute_internal(attrname, value, version)
     }
 
@@ -1235,7 +1234,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// let result = element.set_attribute_string(AttributeName::T, "2022-01-31T13:59:59Z");
     /// # assert!(result.is_ok());
     /// ```
@@ -1246,7 +1245,7 @@ impl Element {
     ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
     ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> Result<(), AutosarDataError> {
-        let version = self.file().map(|f| f.version())?;
+        let version = self.min_version()?;
         self.0.lock().set_attribute_string(attrname, stringvalue, version)
     }
 
@@ -1260,7 +1259,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let result = file.root_element().remove_attribute(AttributeName::xsiSchemalocation);
+    /// let result = project.root_element().remove_attribute(AttributeName::xsiSchemalocation);
     /// // xsiSchemalocation exists in the AUTOSAR element, but it is mandatory and cannot be removed
     /// assert_eq!(result, false);
     /// ```
@@ -1281,7 +1280,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// element.sort();
     /// ```
     pub fn sort(&self) {
@@ -1292,11 +1291,17 @@ impl Element {
     pub(crate) fn get_sort_key(&self) -> String {
         if self.is_identifiable() {
             self.item_name().unwrap_or("--INVALID--".to_string())
+        } else if let Some(defref_string) = self
+            .get_sub_element(ElementName::DefinitionRef)
+            .and_then(|defref| defref.character_data())
+            .and_then(|cdata| cdata.string_value())
+        {
+            defref_string
         } else {
             let mut outstring = String::new();
             for content_item in self.content() {
                 match content_item {
-                    ElementContent::Element(e) => e.serialize_internal(&mut outstring, 0, true),
+                    ElementContent::Element(e) => e.serialize_internal(&mut outstring, 0, true, None),
                     ElementContent::CharacterData(cdata) => cdata.serialize_internal(&mut outstring),
                 }
             }
@@ -1314,18 +1319,24 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// let text = element.serialize();
     /// ```
     pub fn serialize(&self) -> String {
         let mut outstring = String::new();
 
-        self.serialize_internal(&mut outstring, 0, false);
+        self.serialize_internal(&mut outstring, 0, false, None);
 
         outstring
     }
 
-    pub(crate) fn serialize_internal(&self, outstring: &mut String, indent: usize, inline: bool) {
+    pub(crate) fn serialize_internal(
+        &self,
+        outstring: &mut String,
+        indent: usize,
+        inline: bool,
+        for_file: Option<WeakArxmlFile>,
+    ) {
         let element_name = self.element_name().to_str();
 
         // write the opening tag on a new line and indent it
@@ -1338,12 +1349,17 @@ impl Element {
             outstring.push_str(element_name);
             self.serialize_attributes(outstring);
             outstring.push('>');
-    
+
             match self.content_type() {
                 ContentType::Elements => {
                     // serialize each sub-element
                     for subelem in self.sub_elements() {
-                        subelem.serialize_internal(outstring, indent + 1, false);
+                        if for_file.is_none()
+                            || subelem.0.lock().file_membership.is_empty()
+                            || subelem.0.lock().file_membership.contains(for_file.as_ref().unwrap())
+                        {
+                            subelem.serialize_internal(outstring, indent + 1, false, for_file.clone());
+                        }
                     }
                     // put the closing tag on a new line and indent it
                     self.serialize_newline_indent(outstring, indent);
@@ -1357,7 +1373,7 @@ impl Element {
                     if let Some(ElementContent::CharacterData(chardata)) = element.content.get(0) {
                         chardata.serialize_internal(outstring);
                     }
-    
+
                     // write the closing tag on the same line
                     outstring.push_str("</");
                     outstring.push_str(element_name);
@@ -1367,7 +1383,12 @@ impl Element {
                     for item in self.content() {
                         match item {
                             ElementContent::Element(subelem) => {
-                                subelem.serialize_internal(outstring, indent + 1, true);
+                                if for_file.is_none()
+                                    || subelem.0.lock().file_membership.is_empty()
+                                    || subelem.0.lock().file_membership.contains(for_file.as_ref().unwrap())
+                                {
+                                    subelem.serialize_internal(outstring, indent + 1, true, for_file.clone());
+                                }
                             }
                             ElementContent::CharacterData(chardata) => {
                                 chardata.serialize_internal(outstring);
@@ -1414,7 +1435,11 @@ impl Element {
     }
 
     /// check if the sub elements and attributes of this element are compatible with some target_version
-    pub(crate) fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
+    pub(crate) fn check_version_compatibility(
+        &self,
+        file: &WeakArxmlFile,
+        target_version: AutosarVersion,
+    ) -> (Vec<CompatibilityError>, u32) {
         let mut compat_errors = Vec::new();
         let mut overall_version_mask = u32::MAX;
 
@@ -1456,22 +1481,24 @@ impl Element {
 
         // check the compatibility of all sub-elements
         for sub_element in self.sub_elements() {
-            if let Some((_, indices)) = self
-                .element_type()
-                .find_sub_element(sub_element.element_name(), u32::MAX)
-            {
-                let version_mask = self.element_type().get_sub_element_version_mask(&indices).unwrap();
-                overall_version_mask &= version_mask;
-                if !target_version.compatible(version_mask) {
-                    compat_errors.push(CompatibilityError::IncompatibleElement {
-                        element: sub_element.clone(),
-                        version_mask,
-                    });
-                } else {
-                    let (mut sub_element_errors, sub_element_mask) =
-                        sub_element.check_version_compatibility(target_version);
-                    compat_errors.append(&mut sub_element_errors);
-                    overall_version_mask &= sub_element_mask;
+            if sub_element.0.lock().file_membership.is_empty() || sub_element.0.lock().file_membership.contains(file) {
+                if let Some((_, indices)) = self
+                    .element_type()
+                    .find_sub_element(sub_element.element_name(), u32::MAX)
+                {
+                    let version_mask = self.element_type().get_sub_element_version_mask(&indices).unwrap();
+                    overall_version_mask &= version_mask;
+                    if !target_version.compatible(version_mask) {
+                        compat_errors.push(CompatibilityError::IncompatibleElement {
+                            element: sub_element.clone(),
+                            version_mask,
+                        });
+                    } else {
+                        let (mut sub_element_errors, sub_element_mask) =
+                            sub_element.check_version_compatibility(file, target_version);
+                        compat_errors.append(&mut sub_element_errors);
+                        overall_version_mask &= sub_element_mask;
+                    }
                 }
             }
         }
@@ -1496,7 +1523,7 @@ impl Element {
     /// # use autosar_data::*;
     /// # let project = AutosarProject::new();
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = file.root_element();
+    /// # let element = project.root_element();
     /// for (element_name, is_named, is_allowed) in element.list_valid_sub_elements() {
     ///     // ...
     /// }
@@ -1505,7 +1532,7 @@ impl Element {
         let etype = self.0.lock().elemtype;
         let mut valid_sub_elements = Vec::new();
 
-        if let Ok(version) = self.file().map(|f| f.version()) {
+        if let Ok(version) = self.min_version() {
             for (element_name, _, version_mask, named_mask) in etype.sub_element_spec_iter() {
                 if version.compatible(version_mask) {
                     let named = version.compatible(named_mask);
@@ -1516,6 +1543,108 @@ impl Element {
         }
 
         valid_sub_elements
+    }
+
+    /// Return the set of files in which the current element is present
+    ///
+    /// # Return Value
+    ///
+    /// A tuple (bool, HashSet); if the bool value is true, then the file set is stored in this element, otherwise it is inherited from a parent element.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let project = AutosarProject::new();
+    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = project.root_element();
+    /// let (inherited, file_membership) = element.file_membership()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    /// # Possible Errors
+    ///
+    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    pub fn file_membership(&self) -> Result<(bool, HashSet<WeakArxmlFile>), AutosarDataError> {
+        let mut cur_elem_opt = Some(self.clone());
+        while let Some(cur_elem) = &cur_elem_opt {
+            let locked_cur_elem = cur_elem
+                .0
+                .try_lock_for(std::time::Duration::from_millis(10))
+                .ok_or(AutosarDataError::ParentElementLocked)?;
+            if !locked_cur_elem.file_membership.is_empty() {
+                return Ok((cur_elem == self, locked_cur_elem.file_membership.clone()));
+            }
+            drop(locked_cur_elem);
+
+            cur_elem_opt = cur_elem.parent()?;
+        }
+
+        // no file membership info found at any level, so all elements inherit the default membership: all files
+        let fileset: HashSet<WeakArxmlFile> = self.project()?.files().map(|f| f.downgrade()).collect();
+        Ok((false, fileset))
+    }
+
+    /// return the file membership of this element without trying to get an inherited value
+    pub(crate) fn file_membership_local(&self) -> HashSet<WeakArxmlFile> {
+        self.0.lock().file_membership.clone()
+    }
+
+    /// set the file membership of an element
+    ///
+    /// The passed set acts as a restriction of the file membership of the parent element.
+    /// This means that the set of a child cannot be greater than that of the parent.
+    ///
+    /// Setting an empty set has a special meaning: it reverts the membership to default,
+    /// i.e. inherited from the parent with no additional restriction
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use std::collections::HashSet;
+    /// # let project = AutosarProject::new();
+    /// let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = project.root_element();
+    /// element.set_file_membership(HashSet::from([file.downgrade()]));
+    /// ```
+    pub fn set_file_membership(&self, file_membership: HashSet<WeakArxmlFile>) {
+        // find out if the parent is splittable. If the parent is unavaliable, assume
+        // that the caller knows what they're doing and assume it is splittable
+        let parent_splittable = self
+            .parent()
+            .ok()
+            .flatten()
+            .map(|p| p.element_type().splittable())
+            .unwrap_or(u32::MAX);
+        // can always reset the membership to empty = inherited; otherwise the parent must be splittable
+        if file_membership.is_empty() || parent_splittable != 0 {
+            self.0.lock().file_membership = file_membership;
+        }
+    }
+
+    /// return a path that includes non-identifiable elements by their xml names
+    ///
+    /// This function cannot fail completely, it will always collect as much information as possible
+    pub fn xml_path(&self) -> String {
+        self.0.lock().xml_path()
+    }
+
+    /// find the minumum version of all arxml files which contain this element
+    ///
+    /// typicall this reduces to finding out which single file contains the element and returning this version
+    fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
+        let (_, files) = self.file_membership()?;
+        let mut ver = AutosarVersion::LATEST;
+        for f in files.iter().filter_map(|file| file.upgrade()) {
+            if f.version() < ver {
+                ver = f.version();
+            }
+        }
+        Ok(ver)
     }
 }
 
@@ -1538,17 +1667,17 @@ impl ElementRaw {
     /// get the parent element of the current element
     pub(crate) fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
         match &self.parent {
-            ElementOrFile::Element(parent) => {
+            ElementOrProject::Element(parent) => {
                 // for items that should have a parent, getting it is not allowed to return None
                 let parent = parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
                 Ok(Some(parent))
             }
-            ElementOrFile::File(_) => Ok(None),
-            ElementOrFile::None => Err(AutosarDataError::ItemDeleted),
+            ElementOrProject::Project(_) => Ok(None),
+            ElementOrProject::None => Err(AutosarDataError::ItemDeleted),
         }
     }
 
-    pub(crate) fn set_parent(&mut self, new_parent: ElementOrFile) {
+    pub(crate) fn set_parent(&mut self, new_parent: ElementOrProject) {
         self.parent = new_parent;
     }
 
@@ -1640,7 +1769,9 @@ impl ElementRaw {
 
             Ok(())
         } else {
-            Err(AutosarDataError::ElementNotIdentifiable)
+            Err(AutosarDataError::ElementNotIdentifiable {
+                xmlpath: self.xml_path(),
+            })
         }
     }
 
@@ -1665,7 +1796,9 @@ impl ElementRaw {
         if self.is_identifiable() {
             self.path_unchecked()
         } else {
-            Err(AutosarDataError::ElementNotIdentifiable)
+            Err(AutosarDataError::ElementNotIdentifiable {
+                xmlpath: self.xml_path(),
+            })
         }
     }
 
@@ -1692,6 +1825,65 @@ impl ElementRaw {
         path_components.reverse();
         let path = path_components.join("/");
         Ok(path)
+    }
+
+    fn xml_path(&self) -> String {
+        let mut path_components = vec![];
+
+        if let Some(name) = self.item_name() {
+            path_components.push(name.to_string());
+        } else {
+            path_components.push(format!("<{}>", self.element_name()));
+        }
+
+        if let Ok(mut cur_elem_opt) = self.parent() {
+            while let Some(cur_elem) = cur_elem_opt {
+                if let Some(locked_cur_elem) = cur_elem.0.try_lock_for(std::time::Duration::from_millis(10)) {
+                    // build a string for this path component
+                    if locked_cur_elem.elemtype.is_named() {
+                        if let Some(item_name) = locked_cur_elem.item_name() {
+                            path_components.push(item_name.to_string());
+                        } else {
+                            path_components.push(format!("<{}>(name missing)", locked_cur_elem.element_name()));
+                        }
+                    } else {
+                        path_components.push(format!("<{}>", locked_cur_elem.element_name()));
+                    }
+                    // try to get the parent of the current element
+                    match &locked_cur_elem.parent {
+                        ElementOrProject::Element(weak_parent) => {
+                            if let Some(parent) = weak_parent.upgrade() {
+                                cur_elem_opt = Some(parent);
+                            } else {
+                                // failed to upgrade the weak ref to the parent - this can't happen in single threaded execution,
+                                // but it could be possible when racing remove_element on another thread
+                                path_components.push("(DELETED)".to_string());
+                                cur_elem_opt = None;
+                            }
+                        }
+                        ElementOrProject::Project(_) => {
+                            // done
+                            cur_elem_opt = None;
+                        }
+                        ElementOrProject::None => {
+                            // this happens if xml_path is called on an element which has been deleted
+                            // remove_element sets the parent to None
+                            path_components.push("(DELETED)".to_string());
+                            cur_elem_opt = None;
+                        }
+                    }
+                } else {
+                    path_components.push("(LOCKED)".to_string());
+                    cur_elem_opt = None;
+                }
+            }
+        } else {
+            path_components.push("(DELETED)".to_string());
+        }
+
+        path_components.push(String::new());
+        path_components.reverse();
+        path_components.join("/")
     }
 
     /// Create a sub element at a suitable insertion position
@@ -1744,11 +1936,12 @@ impl ElementRaw {
             Err(AutosarDataError::ItemNameRequired)
         } else {
             let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                parent: ElementOrFile::Element(self_weak),
+                parent: ElementOrProject::Element(self_weak),
                 elemname: element_name,
                 elemtype,
                 content: smallvec![],
                 attributes: smallvec![],
+                file_membership: HashSet::with_capacity(0),
             })));
             self.content
                 .insert(position, ElementContent::Element(sub_element.clone()));
@@ -1834,11 +2027,12 @@ impl ElementRaw {
 
             // create the new element
             let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-                parent: ElementOrFile::Element(self_weak),
+                parent: ElementOrProject::Element(self_weak),
                 elemname: element_name,
                 elemtype,
                 content: smallvec![],
                 attributes: smallvec![],
+                file_membership: HashSet::with_capacity(0),
             })));
             self.content
                 .insert(position, ElementContent::Element(sub_element.clone()));
@@ -1852,7 +2046,9 @@ impl ElementRaw {
             project.add_identifiable(path, sub_element.downgrade());
             Ok(sub_element)
         } else {
-            Err(AutosarDataError::ElementNotIdentifiable)
+            Err(AutosarDataError::ElementNotIdentifiable {
+                xmlpath: self.xml_path(),
+            })
         }
     }
 
@@ -1910,7 +2106,7 @@ impl ElementRaw {
         let path = self.path_unchecked()?;
 
         // set the parent of the newelem - the methods path(), containing_file(), etc become available on newelem
-        newelem.set_parent(ElementOrFile::Element(self_weak));
+        newelem.set_parent(ElementOrProject::Element(self_weak));
         if newelem.is_identifiable() {
             newelem.0.lock().make_unique_item_name(project, &path)?;
         }
@@ -1952,7 +2148,8 @@ impl ElementRaw {
             elemtype: self.elemtype,
             content: SmallVec::with_capacity(self.content.len()),
             attributes: SmallVec::with_capacity(self.attributes.len()),
-            parent: ElementOrFile::None,
+            parent: ElementOrProject::None,
+            file_membership: HashSet::with_capacity(0),
         })));
 
         {
@@ -1964,10 +2161,11 @@ impl ElementRaw {
                     spec: cdataspec,
                     required,
                     version: attr_version_mask,
-                } = self
-                    .elemtype
-                    .find_attribute_spec(attribute.attrname)
-                    .ok_or(AutosarDataError::VersionIncompatible)?;
+                } = self.elemtype.find_attribute_spec(attribute.attrname).ok_or(
+                    AutosarDataError::VersionIncompatibleData {
+                        version: target_version,
+                    },
+                )?;
                 // check if the attribute is compatible with the target version
                 if target_version.compatible(attr_version_mask)
                     && attribute
@@ -1977,7 +2175,9 @@ impl ElementRaw {
                 {
                     copy.attributes.push(attribute.clone());
                 } else if required {
-                    return Err(AutosarDataError::VersionIncompatible);
+                    return Err(AutosarDataError::VersionIncompatibleData {
+                        version: target_version,
+                    });
                 } else {
                     // no action, the attribute is not compatible, but it's not required either
                 }
@@ -1995,7 +2195,7 @@ impl ElementRaw {
                             .is_some()
                         {
                             if let Ok(copied_sub_elem) = sub_elem.0.lock().deep_copy(target_version) {
-                                copied_sub_elem.0.lock().parent = ElementOrFile::Element(copy_wrapped.downgrade());
+                                copied_sub_elem.0.lock().parent = ElementOrProject::Element(copy_wrapped.downgrade());
                                 copy.content.push(ElementContent::Element(copied_sub_elem));
                             }
                         }
@@ -2012,7 +2212,9 @@ impl ElementRaw {
 
     /// make_unique_item_name ensures that a copied element has a unique name
     fn make_unique_item_name(&self, project: &AutosarProject, parent_path: &str) -> Result<String, AutosarDataError> {
-        let orig_name = self.item_name().ok_or(AutosarDataError::ElementNotIdentifiable)?;
+        let orig_name = self.item_name().ok_or(AutosarDataError::ElementNotIdentifiable {
+            xmlpath: self.xml_path(),
+        })?;
         let mut name = orig_name.clone();
         let mut counter = 1;
 
@@ -2156,7 +2358,7 @@ impl ElementRaw {
         // check if self (target of the move) is a sub element of new_element
         // if it is, then the move is not allowed
         let mut wrapped_parent = self.parent.clone();
-        while let ElementOrFile::Element(weak_parent) = wrapped_parent {
+        while let ElementOrProject::Element(weak_parent) = wrapped_parent {
             let parent = weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
             if parent == *move_element {
                 return Err(AutosarDataError::ForbiddenMoveToSubElement);
@@ -2167,7 +2369,16 @@ impl ElementRaw {
         let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
 
         // collect the paths of all identifiable elements under new_element before moving it
-        let original_paths: Vec<String> = move_element.elements_dfs().filter_map(|(_, e)| e.path().ok()).collect();
+        let original_paths: Vec<String> = move_element
+            .elements_dfs()
+            .filter_map(|(_, e)| {
+                if e.element_type().is_named() {
+                    e.path().ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let src_path_prefix = move_element.0.lock().path_unchecked()?;
         let dest_path_prefix = self.path_unchecked()?;
@@ -2196,7 +2407,7 @@ impl ElementRaw {
         }
 
         // set the parent of the new element to the current element
-        move_element.0.lock().parent = ElementOrFile::Element(self_weak);
+        move_element.0.lock().parent = ElementOrProject::Element(self_weak);
         let dest_path = if move_element.is_identifiable() {
             let new_name = move_element
                 .0
@@ -2268,7 +2479,13 @@ impl ElementRaw {
         // collect the paths of all identifiable elements under move_element before moving it
         let original_paths: FxHashMap<String, Element> = move_element
             .elements_dfs()
-            .filter_map(|(_, e)| e.path().ok().map(|path| (path, e)))
+            .filter_map(|(_, e)| {
+                if e.element_type().is_named() {
+                    e.path().ok().map(|path| (path, e))
+                } else {
+                    None
+                }
+            })
             .collect();
         // collect all reference targets and referring elements under move_element
         let original_refs: Vec<(String, Element)> = move_element
@@ -2310,7 +2527,7 @@ impl ElementRaw {
         }
 
         // set the parent of the new element to the current element
-        move_element.0.lock().parent = ElementOrFile::Element(self_weak);
+        move_element.0.lock().parent = ElementOrProject::Element(self_weak);
         let dest_path = if move_element.is_identifiable() {
             let new_name = move_element
                 .0
@@ -2352,7 +2569,7 @@ impl ElementRaw {
     }
 
     /// find the upper and lower bound on the insert position for a sub element
-    fn find_element_insert_pos(
+    pub(crate) fn find_element_insert_pos(
         &self,
         element_name: ElementName,
         version: AutosarVersion,
@@ -2504,7 +2721,7 @@ impl ElementRaw {
             }
         }
         self.content.clear();
-        self.parent = ElementOrFile::None;
+        self.parent = ElementOrProject::None;
     }
 
     /// set the character data of this element
@@ -2712,6 +2929,8 @@ impl PartialEq for Element {
     }
 }
 
+impl Eq for Element {}
+
 impl WeakElement {
     /// try to get a strong reference to the [Element]
     pub fn upgrade(&self) -> Option<Element> {
@@ -2725,6 +2944,7 @@ impl PartialEq for WeakElement {
     }
 }
 
+impl Eq for WeakElement {}
 
 impl ElementContent {
     /// returns the element contained inside this ElementContent, or None if the content is CharacterData
@@ -2746,7 +2966,6 @@ impl ElementContent {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::*;
@@ -2765,9 +2984,9 @@ mod test {
     fn element_creation() {
         let project = AutosarProject::new();
         project
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
-        let el_autosar = project.files().next().unwrap().root_element();
+        let el_autosar = project.root_element();
         let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
 
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
@@ -2891,10 +3110,10 @@ mod test {
     #[test]
     fn element_rename() {
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("test.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_ar_package = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Package")
@@ -2975,7 +3194,7 @@ mod test {
     fn element_copy() {
         let project = AutosarProject::new();
         project
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
         el_ar_package
@@ -3008,18 +3227,21 @@ mod test {
             .unwrap();
 
         let project2 = AutosarProject::new();
-        let file = project2
+        project2
             .create_file(OsString::from("test.arxml"), AutosarVersion::Autosar_00044)
             .unwrap();
 
         // it should not be possible to create an AR-PACKAGE element directly in the AUTOSAR element by copying data
-        let result = file.root_element().create_copied_sub_element(&el_ar_package);
+        let result = project2.root_element().create_copied_sub_element(&el_ar_package);
         assert!(result.is_err());
 
         // create an AR-PACKAGES element and copy the data there. This should succeed.
         // the copied data shoud contain the COMPU-METHOD, but not the DDS-SERVICE-INSTANCE-TO-MACHINE-MAPPING
         // because the latter was specified in Adaptive 18-03 (Autosar_00045) and is not valid in Autosar_00044
-        let el_ar_packages2 = file.root_element().create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_packages2 = project2
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
         el_ar_packages2.create_copied_sub_element(&el_ar_package).unwrap();
 
         // it should be possible to look up the copied compu-method by its path
@@ -3055,7 +3277,7 @@ mod test {
     fn element_deletion() {
         let project = AutosarProject::new();
         project
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
         let el_short_name = el_ar_package.get_sub_element(ElementName::ShortName).unwrap();
@@ -3085,47 +3307,21 @@ mod test {
     #[test]
     fn element_type() {
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("test.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
 
         assert_eq!(el_autosar.element_type(), ElementType::ROOT);
     }
 
     #[test]
-    fn file() {
-        let project = AutosarProject::new();
-        let file = project
-            .create_file("test.arxml", AutosarVersion::Autosar_00050)
-            .unwrap();
-        let el_autosar = file.root_element();
-        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
-
-        // ok case
-        assert!(el_autosar.file().is_ok());
-
-        // invalid reference to a file
-        drop(project);
-        drop(file);
-        assert!(el_autosar.file().is_err());
-
-        // no reference to a file
-        el_autosar.0.lock().parent = ElementOrFile::None;
-        assert!(el_autosar.file().is_err());
-
-        // invalid parent
-        drop(el_autosar);
-        assert!(el_ar_packages.file().is_err());
-    }
-
-    #[test]
     fn content_type() {
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("test.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_package = el_autosar
             .create_sub_element(ElementName::ArPackages)
             .and_then(|ar_pkgs| ar_pkgs.create_named_sub_element(ElementName::ArPackage, "Package"))
@@ -3163,10 +3359,10 @@ mod test {
     #[test]
     fn attributes() {
         let project = AutosarProject::new();
-        let (file, _) = project
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+        project
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.get_sub_element(ElementName::ArPackages).unwrap();
 
         let count = el_autosar.attributes().count();
@@ -3184,15 +3380,15 @@ mod test {
 
         // The attribute S exists and is optional, so it can be removed
         let result = el_autosar.remove_attribute(AttributeName::S);
-        assert_eq!(result, true);
+        assert!(result);
 
         // the attribute xmlns is required and cannot be removed
         let result = el_autosar.remove_attribute(AttributeName::xmlns);
-        assert_eq!(result, false);
+        assert!(!result);
 
         // the attribute ACCESSKEY does not exist in the element AUTOSAR and cannot be removed
         let result = el_autosar.remove_attribute(AttributeName::Accesskey);
-        assert_eq!(result, false);
+        assert!(!result);
 
         // the attribute T is permitted on AUTOSAR and the string is a valid value
         el_autosar
@@ -3231,7 +3427,7 @@ mod test {
     fn mixed_content() {
         let project = AutosarProject::new();
         project
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), &OsString::from("test.arxml"), true)
+            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_ar_package = project.get_element_by_path("/TestPackage").unwrap();
         let el_long_name = el_ar_package.create_sub_element(ElementName::LongName).unwrap();
@@ -3261,10 +3457,10 @@ mod test {
     fn move_element_position() {
         // move an element to a different position within its parent
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("test.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let pkg1 = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Pkg1")
@@ -3311,10 +3507,10 @@ mod test {
     fn move_element_local() {
         // move an element within the same project
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("test.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_pkg1 = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Pkg1")
@@ -3380,10 +3576,10 @@ mod test {
     fn move_element_full() {
         // move an element between two projects
         let project1 = AutosarProject::new();
-        let file = project1
+        project1
             .create_file("test1.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project1.root_element();
         let el_ar_packages1 = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_pkg1 = el_ar_packages1
             .create_named_sub_element(ElementName::ArPackage, "Pkg1")
@@ -3405,10 +3601,10 @@ mod test {
         el_fibex_element_ref.set_reference_target(&el_ecu_instance).unwrap();
 
         let project2 = AutosarProject::new();
-        let file2 = project2
+        project2
             .create_file("test2.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar2 = file2.root_element();
+        let el_autosar2 = project2.root_element();
         let el_ar_packages2 = el_autosar2.create_sub_element(ElementName::ArPackages).unwrap();
 
         // move a named element
@@ -3433,10 +3629,10 @@ mod test {
 
         // can't move between files with different versions
         let project3 = AutosarProject::new();
-        let file3 = project3
+        project3
             .create_file("test2.arxml", AutosarVersion::Autosar_4_3_0)
             .unwrap();
-        let el_autosar3 = file3.root_element();
+        let el_autosar3 = project3.root_element();
         assert!(el_autosar3.move_element_here(&el_ar_packages2).is_err());
         assert!(el_autosar3.move_element_here_at(&el_ar_packages2, 0).is_err());
     }
@@ -3444,10 +3640,10 @@ mod test {
     #[test]
     fn get_set_reference_target() {
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("text.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_package = el_autosar
             .create_sub_element(ElementName::ArPackages)
             .and_then(|arpkgs| arpkgs.create_named_sub_element(ElementName::ArPackage, "Package"))
@@ -3517,10 +3713,10 @@ mod test {
     #[test]
     fn modify_character_data() {
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("text.arxml", AutosarVersion::Autosar_00050)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_ar_package = el_autosar
             .create_sub_element(ElementName::ArPackages)
             .and_then(|arpkgs| arpkgs.create_named_sub_element(ElementName::ArPackage, "Package"))
@@ -3637,8 +3833,8 @@ mod test {
     #[test]
     fn mixed_character_content() {
         let project = AutosarProject::new();
-        let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-        let el_ar_package = file
+        project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_ar_package = project
             .root_element()
             .create_sub_element(ElementName::ArPackages)
             .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))
@@ -3674,8 +3870,8 @@ mod test {
     #[test]
     fn get_sub_element() {
         let project = AutosarProject::new();
-        let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-        let el_autosar = file.root_element();
+        project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_ar_package = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Package")
@@ -3709,13 +3905,13 @@ mod test {
 </AUTOSAR>"#;
         let project = AutosarProject::new();
         project
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+            .load_named_arxml_buffer(FILEBUF.as_bytes(), OsString::from("test"), true)
             .unwrap();
-        let file = project.files().next().unwrap();
-        let el_autosar = file.root_element();
+        project.files().next().unwrap();
+        let el_autosar = project.root_element();
 
         let mut outstring = String::from(r#"<?xml version="1.0" encoding="utf-8"?>"#);
-        el_autosar.serialize_internal(&mut outstring, 0, false);
+        el_autosar.serialize_internal(&mut outstring, 0, false, None);
 
         assert_eq!(FILEBUF, outstring);
     }
@@ -3723,10 +3919,10 @@ mod test {
     #[test]
     fn list_valid_sub_elements() {
         let project = AutosarProject::new();
-        let file = project
+        project
             .create_file("test.arxml", AutosarVersion::Autosar_4_3_0)
             .unwrap();
-        let el_autosar = file.root_element();
+        let el_autosar = project.root_element();
         let el_elements = el_autosar
             .create_sub_element(ElementName::ArPackages)
             .and_then(|el| el.create_named_sub_element(ElementName::ArPackage, "Package"))
@@ -3758,13 +3954,14 @@ mod test {
   </AR-PACKAGES>
 </AUTOSAR>"#;
         let project = AutosarProject::new();
-        project
+        let (file, _) = project
             .load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
             .unwrap();
-        let file = project.files().next().unwrap();
-        let el_autosar = file.root_element();
+        project.files().next().unwrap();
+        let el_autosar = project.root_element();
 
-        let (compat_errors, _) = el_autosar.check_version_compatibility(AutosarVersion::Autosar_4_3_0);
+        let (compat_errors, _) =
+            el_autosar.check_version_compatibility(&file.downgrade(), AutosarVersion::Autosar_4_3_0);
         assert_eq!(compat_errors.len(), 3);
 
         for ce in compat_errors {
@@ -3787,8 +3984,8 @@ mod test {
     #[test]
     fn find_element_insert_pos() {
         let project = AutosarProject::new();
-        let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-        let el_autosar = file.root_element();
+        project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_ar_package = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Pkg")
@@ -3813,23 +4010,128 @@ mod test {
     #[test]
     fn sort() {
         let project = AutosarProject::new();
-        let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-        let el_autosar = file.root_element();
+        project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = project.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
-        let el_ar_package = el_ar_packages
+        let el_ar_package1 = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Z")
             .unwrap();
-        el_ar_packages
+        let el_ar_package2 = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "A")
             .unwrap();
-        el_ar_package.create_sub_element(ElementName::Elements).unwrap();
-        el_ar_package.create_sub_element(ElementName::AdminData).unwrap();
+        let el_elements = el_ar_package1.create_sub_element(ElementName::Elements).unwrap();
+        el_ar_package1.create_sub_element(ElementName::AdminData).unwrap();
+        // create some bsw values to sort inside el_ar_package1 "Z"
+        let el_emcv = el_elements
+            .create_named_sub_element(ElementName::EcucModuleConfigurationValues, "Config")
+            .unwrap();
+        let el_containers = el_emcv.create_sub_element(ElementName::Containers).unwrap();
+        let el_ecv = el_containers
+            .create_named_sub_element(ElementName::EcucContainerValue, "ConfigValues")
+            .unwrap();
+        let el_paramvalues = el_ecv.create_sub_element(ElementName::ParameterValues).unwrap();
+        // first bsw value
+        let el_value1 = el_paramvalues
+            .create_sub_element(ElementName::EcucNumericalParamValue)
+            .unwrap();
+        let el_defref1 = el_value1.create_sub_element(ElementName::DefinitionRef).unwrap();
+        el_defref1
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::EcucBooleanParamDef))
+            .unwrap();
+        el_defref1
+            .set_character_data(CharacterData::String("/DefRef_999".to_string()))
+            .unwrap();
+        // second bsw value
+        let el_value2 = el_paramvalues
+            .create_sub_element(ElementName::EcucNumericalParamValue)
+            .unwrap();
+        let el_defref2 = el_value2.create_sub_element(ElementName::DefinitionRef).unwrap();
+        el_defref2
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::EcucBooleanParamDef))
+            .unwrap();
+        el_defref2
+            .set_character_data(CharacterData::String("/DefRef_111".to_string()))
+            .unwrap();
+        // Create some misc value sto sort inside el_ar_package2 "A"
+        let el_elements2 = el_ar_package2.create_sub_element(ElementName::Elements).unwrap();
+        let el_system = el_elements2
+            .create_named_sub_element(ElementName::System, "System")
+            .unwrap();
+        let el_fibex_elements = el_system.create_sub_element(ElementName::FibexElements).unwrap();
+        let el_fibex_element1 = el_fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
+        let el_fibex_element_ref1 = el_fibex_element1
+            .create_sub_element(ElementName::FibexElementRef)
+            .unwrap();
+        el_fibex_element_ref1
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::ISignal))
+            .unwrap();
+        el_fibex_element_ref1
+            .set_character_data(CharacterData::String("/ZZZZZ".to_string()))
+            .unwrap();
+        let el_fibex_element2 = el_fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
+        let el_fibex_element_ref2 = el_fibex_element2
+            .create_sub_element(ElementName::FibexElementRef)
+            .unwrap();
+        el_fibex_element_ref2
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::ISignal))
+            .unwrap();
+        el_fibex_element_ref2
+            .set_character_data(CharacterData::String("/AAAAA".to_string()))
+            .unwrap();
 
-        file.sort();
+        project.sort();
+        // validae that identifiable elements have been sorted
         let mut iter = el_ar_packages.sub_elements();
         let item1 = iter.next().unwrap();
         let item2 = iter.next().unwrap();
         assert_eq!(item1.item_name().unwrap(), "A");
         assert_eq!(item2.item_name().unwrap(), "Z");
+
+        // validate that BSW parameter values have been sorted
+        let mut iter = el_paramvalues.sub_elements();
+        let item1 = iter.next().unwrap();
+        let item2 = iter.next().unwrap();
+        assert_eq!(item1, el_value2);
+        assert_eq!(item2, el_value1);
+
+        // validate that the misc elements (FIBEX-ELEMENT-REF-CONDITIONAL) have been sorted
+        let mut iter = el_fibex_elements.sub_elements();
+        let item1 = iter.next().unwrap();
+        let item2 = iter.next().unwrap();
+        assert_eq!(item1, el_fibex_element2);
+        assert_eq!(item2, el_fibex_element1);
+    }
+
+    #[test]
+    fn file_membership() {
+        let project = AutosarProject::new();
+        let file1 = project.create_file("test_1", AutosarVersion::Autosar_00050).unwrap();
+        let file2 = project.create_file("test_2", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = project.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
+
+        let fm: HashSet<WeakArxmlFile> = vec![file1.downgrade()].iter().cloned().collect();
+        // setting the file membership of el_ar_packages should fail
+        // its parent is not splittable, so this is not allowed
+        el_ar_packages.set_file_membership(fm.clone());
+        let (local, _) = el_ar_package.file_membership().unwrap();
+        assert!(!local);
+
+        // setting the file membership of el_ar_package should succeed
+        // this element is only part of file1, and is only serialized with file1
+        el_ar_package.set_file_membership(fm.clone());
+        let (local, fm2) = el_ar_package.file_membership().unwrap();
+        assert!(local);
+        assert_eq!(fm, fm2);
+        let filetxt1 = file1.serialize().unwrap();
+        let filetxt2 = file2.serialize().unwrap();
+        assert_ne!(filetxt1, filetxt2);
     }
 }

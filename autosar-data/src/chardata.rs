@@ -24,16 +24,14 @@ impl CharacterData {
                 check_fn, max_length, ..
             } => {
                 if let CharacterData::String(stringval) = &value {
-                    if (max_length.is_none() || stringval.len() <= max_length.unwrap())
-                        && check_fn(stringval.as_bytes())
-                    {
+                    if stringval.len() <= max_length.unwrap_or(usize::MAX) && check_fn(stringval.as_bytes()) {
                         return true;
                     }
                 }
             }
             CharacterDataSpec::String { max_length, .. } => {
                 if let CharacterData::String(stringval) = &value {
-                    if max_length.is_none() || stringval.len() <= max_length.unwrap() {
+                    if stringval.len() <= max_length.unwrap_or(usize::MAX) {
                         return true;
                     }
                 }
@@ -91,12 +89,12 @@ impl CharacterData {
             CharacterDataSpec::Pattern {
                 check_fn, max_length, ..
             } => {
-                if (max_length.is_none() || input.len() <= max_length.unwrap()) && check_fn(input.as_bytes()) {
+                if input.len() <= max_length.unwrap_or(usize::MAX) && check_fn(input.as_bytes()) {
                     return Some(CharacterData::String(input.to_owned()));
                 }
             }
             CharacterDataSpec::String { max_length, .. } => {
-                if max_length.is_none() || input.len() <= max_length.unwrap() {
+                if input.len() <= max_length.unwrap_or(usize::MAX) {
                     return Some(CharacterData::String(input.to_owned()));
                 }
             }
@@ -214,69 +212,80 @@ mod test {
             items: &[(EnumItem::default, 0x3ffff), (EnumItem::preserve, 0x0ffff)],
         };
         let data = CharacterData::Enum(EnumItem::default);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_enum, AutosarVersion::Autosar_00050),
-            true
-        );
+        assert!(CharacterData::check_value(
+            &data,
+            &spec_enum,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::Enum(EnumItem::preserve);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_enum, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_enum,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::Enum(EnumItem::Abstract);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_enum, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_enum,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::Double(1.23);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_enum, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_enum,
+            AutosarVersion::Autosar_00050
+        ));
 
         let spec_double = CharacterDataSpec::Double;
         let data = CharacterData::Double(1.23);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_double, AutosarVersion::Autosar_00050),
-            true
-        );
+        assert!(CharacterData::check_value(
+            &data,
+            &spec_double,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::String("1.23".to_string());
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_double, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_double,
+            AutosarVersion::Autosar_00050
+        ));
 
         let spec_uint = CharacterDataSpec::UnsignedInteger;
         let data = CharacterData::UnsignedInteger(123);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_uint, AutosarVersion::Autosar_00050),
-            true
-        );
+        assert!(CharacterData::check_value(
+            &data,
+            &spec_uint,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::String("123".to_string());
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_uint, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_uint,
+            AutosarVersion::Autosar_00050
+        ));
 
         let spec_string = CharacterDataSpec::String {
             preserve_whitespace: false,
             max_length: Some(10),
         };
         let data = CharacterData::String("123".to_string());
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_string, AutosarVersion::Autosar_00050),
-            true
-        );
+        assert!(CharacterData::check_value(
+            &data,
+            &spec_string,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::String("12345678901".to_string());
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_string, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_string,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::UnsignedInteger(1);
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_string, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_string,
+            AutosarVersion::Autosar_00050
+        ));
 
         let spec_pattern = CharacterDataSpec::Pattern {
             check_fn: dummy_validate,
@@ -284,15 +293,17 @@ mod test {
             max_length: Some(1),
         };
         let data = CharacterData::String("0".to_string());
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_pattern, AutosarVersion::Autosar_00050),
-            true
-        );
+        assert!(CharacterData::check_value(
+            &data,
+            &spec_pattern,
+            AutosarVersion::Autosar_00050
+        ));
         let data = CharacterData::String("2".to_string());
-        assert_eq!(
-            CharacterData::check_value(&data, &spec_pattern, AutosarVersion::Autosar_00050),
-            false
-        );
+        assert!(!CharacterData::check_value(
+            &data,
+            &spec_pattern,
+            AutosarVersion::Autosar_00050
+        ));
     }
 
     #[test]
@@ -302,15 +313,15 @@ mod test {
         };
         let data = CharacterData::Enum(EnumItem::default);
         let (result, _) = data.check_version_compatibility(&spec_enum, AutosarVersion::Autosar_4_0_1);
-        assert_eq!(result, true);
+        assert!(result);
         let (result, _) = data.check_version_compatibility(&spec_enum, AutosarVersion::Autosar_00050);
-        assert_eq!(result, false);
+        assert!(!result);
         let data = CharacterData::Enum(EnumItem::Abstract);
         let (result, _) = data.check_version_compatibility(&spec_enum, AutosarVersion::Autosar_00050);
-        assert_eq!(result, false);
+        assert!(!result);
         let data = CharacterData::UnsignedInteger(0);
         let (result, _) = data.check_version_compatibility(&spec_enum, AutosarVersion::Autosar_00050);
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     #[test]
