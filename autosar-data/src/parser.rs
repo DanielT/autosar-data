@@ -278,7 +278,7 @@ impl<'a> ArxmlParser<'a> {
 
                     let path = Cow::from("");
                     let autosar_root_element = self.parse_element(
-                        ElementOrFile::None,
+                        ElementOrProject::None,
                         ElementName::Autosar,
                         attributes,
                         ElementType::ROOT,
@@ -303,7 +303,7 @@ impl<'a> ArxmlParser<'a> {
 
     fn parse_element(
         &mut self,
-        parent: ElementOrFile,
+        parent: ElementOrProject,
         element_name: ElementName,
         attributes: SmallVec<[Attribute; 1]>,
         elemtype: ElementType,
@@ -316,6 +316,7 @@ impl<'a> ArxmlParser<'a> {
             attributes,
             content: SmallVec::new(),
             elemtype,
+            file_membership: HashSet::with_capacity(0),
         })));
         let mut element = wrapped_element.0.lock();
 
@@ -341,7 +342,7 @@ impl<'a> ArxmlParser<'a> {
                         let attributes = self.parse_attribute_text(sub_elemtype, attr_text)?;
                         // recursively parse the sub element and its sub sub elements
                         let sub_element = self.parse_element(
-                            ElementOrFile::Element(wrapped_element.downgrade()),
+                            ElementOrProject::Element(wrapped_element.downgrade()),
                             name,
                             attributes,
                             sub_elemtype,
@@ -840,7 +841,7 @@ mod test {
                 "Did not get the expected parser error"
             );
         } else {
-            assert!(false, "Did not get any parser error when one was expected");
+            panic!("Did not get any parser error when one was expected");
         }
 
         if optional {
@@ -854,7 +855,7 @@ mod test {
                     "Did not get the expected parser error"
                 );
             } else {
-                assert!(false, "Did not get a parser warning");
+                panic!("Did not get a parser warning");
             }
         }
     }

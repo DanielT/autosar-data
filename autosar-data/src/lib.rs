@@ -79,6 +79,7 @@ use parking_lot::Mutex;
 use parser::*;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use std::{fs::File, io::Read};
@@ -114,6 +115,7 @@ pub(crate) struct WeakAutosarProject(Weak<Mutex<AutosarProjectRaw>>);
 /// In addition, this top-level structure provides chaching of Autosar paths, to allow quick resolution of cross-references.
 #[derive(Debug)]
 pub(crate) struct AutosarProjectRaw {
+    root_element: Element,
     files: Vec<ArxmlFile>,
     /// identifiables is a HashMap of all named elements, needed to resolve references without doing a full search.
     identifiables: FxHashMap<String, WeakElement>,
@@ -168,13 +170,20 @@ pub enum AutosarDataError {
     #[error("Invalid position for an element of this kind")]
     InvalidPosition,
 
-    /// The Autosar version of the containing file was not compatible
-    #[error("Version is not compatible")]
-    VersionIncompatible,
+    /// The Autosar version of the new file did not match the version already in use
+    #[error("Version mismatch between existing {} and new {}", .version_cur, .version_new)]
+    VersionMismatch {
+        version_cur: AutosarVersion,
+        version_new: AutosarVersion,
+    },
+
+    /// The Autosar version is not compatible with the data
+    #[error("Version {} is not compatible with the element data", .version)]
+    VersionIncompatibleData { version: AutosarVersion },
 
     /// A function that only applies to identifiable elements was called on an element which is not identifiable
-    #[error("The Element is not identifiable")]
-    ElementNotIdentifiable,
+    #[error("The Element at {} is not identifiable", .xmlpath)]
+    ElementNotIdentifiable { xmlpath: String },
 
     /// An item name is required to perform this action
     #[error("An item name is required")]
@@ -227,6 +236,10 @@ pub enum AutosarDataError {
     /// The attribute value is invalid
     #[error("The given value is not valid for this attribute")]
     InvalidAttributeValue,
+
+    /// The newly loaded file diverges from the combined model on an element which is not splittable according to the metamodel
+    #[error("The new file could not be merged, because it diverges from the model on non-splittable element {}", .path)]
+    InvalidFileMerge { path: String },
 }
 
 /// An Autosar arxml file
@@ -242,16 +255,15 @@ pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 /// The data of an arxml file
 #[derive(Debug)]
 pub(crate) struct ArxmlFileRaw {
-    project: WeakAutosarProject,
     pub(crate) version: AutosarVersion,
+    project: WeakAutosarProject,
     pub(crate) filename: PathBuf,
-    pub(crate) root_element: Element,
     pub(crate) xml_standalone: Option<bool>, // preserve the xml standalone attribute
 }
 
 /// An arxml element
 ///
-/// This is actually a wrapper type which provides all the necessary manipulation functions. The actual element data is
+/// This is a wrapper type which provides all the necessary manipulation functions. The actual element data is
 /// held behind Arc<Mutex<>>.
 #[derive(Debug, Clone)]
 pub struct Element(Arc<Mutex<ElementRaw>>);
@@ -268,11 +280,12 @@ pub struct WeakElement(Weak<Mutex<ElementRaw>>);
 /// The data of an arxml element
 #[derive(Debug)]
 pub(crate) struct ElementRaw {
-    pub(crate) parent: ElementOrFile,
+    pub(crate) parent: ElementOrProject,
     pub(crate) elemname: ElementName,
     pub(crate) elemtype: ElementType,
     pub(crate) content: SmallVec<[ElementContent; 4]>,
     pub(crate) attributes: SmallVec<[Attribute; 1]>,
+    pub(crate) file_membership: HashSet<WeakArxmlFile>,
 }
 
 /// A single attribute of an arxml element
@@ -322,9 +335,9 @@ pub enum ContentType {
 /// This enum is used for references to the parent of each element. For all elements other than the
 /// root element, the parent is an element. The root element itself has a referenct to the ArxmlFile structure.
 #[derive(Debug, Clone)]
-pub(crate) enum ElementOrFile {
+pub(crate) enum ElementOrProject {
     Element(WeakElement),
-    File(WeakArxmlFile),
+    Project(WeakAutosarProject),
     None, // needed while constructing the data trees, otherwise there's a chicken vs. egg problem
 }
 

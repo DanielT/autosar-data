@@ -305,6 +305,17 @@ mod test {
     }
 
     #[test]
+    fn skip_byte_order_mark() {
+        let data =
+            b"\xEF\xBB\xBF<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
+        match lexer.next() {
+            Ok((_, ArxmlEvent::ArxmlHeader(None))) => {}
+            _ => panic!("got an error instead of ArxmlHeader"),
+        }
+    }
+
+    #[test]
     fn test_incomplete_data() {
         let data = b"<element";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
@@ -385,5 +396,19 @@ mod test {
             }
             Err(e) => panic!("unexpected error, {e}"),
         }
+    }
+
+    #[test]
+    fn traits() {
+        // ArxmlLexerError: Debug, Error, Eq, PartialEq, Clone
+        let err = ArxmlLexerError::IncompleteData;
+        let err2 = err.clone();
+        assert_eq!(err, err2);
+        assert_eq!(format!("{err:#?}"), format!("{err2:#?}"));
+        assert_eq!(format!("{err}"), format!("{err2}"));
+
+        // ArxmlEvent: Debug
+        let event = ArxmlEvent::ArxmlHeader(None);
+        let _ = format!("{event:#?}");
     }
 }

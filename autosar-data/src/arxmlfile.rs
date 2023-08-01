@@ -1,44 +1,16 @@
+use std::hash::Hash;
 use std::path::Path;
 
 use crate::*;
 
 impl ArxmlFile {
     pub(crate) fn new<P: AsRef<Path>>(filename: P, version: AutosarVersion, container: &AutosarProject) -> Self {
-        let xsi_schemalocation =
-            CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
-        let xmlns = CharacterData::String("http://autosar.org/schema/r4.0".to_string());
-        let xmlns_xsi = CharacterData::String("http://www.w3.org/2001/XMLSchema-instance".to_string());
-        let root_attributes = smallvec::smallvec![
-            Attribute {
-                attrname: AttributeName::xsiSchemalocation,
-                content: xsi_schemalocation
-            },
-            Attribute {
-                attrname: AttributeName::xmlns,
-                content: xmlns
-            },
-            Attribute {
-                attrname: AttributeName::xmlnsXsi,
-                content: xmlns_xsi
-            },
-        ];
-        let root_element = Element(Arc::new(Mutex::new(ElementRaw {
-            parent: ElementOrFile::None,
-            elemname: ElementName::Autosar,
-            elemtype: ElementType::ROOT,
-            content: SmallVec::new(),
-            attributes: root_attributes,
-        })));
-        let file = Self(Arc::new(Mutex::new(ArxmlFileRaw {
-            project: container.downgrade(),
-            root_element,
+        Self(Arc::new(Mutex::new(ArxmlFileRaw {
             version,
+            project: container.downgrade(),
             filename: filename.as_ref().to_path_buf(),
             xml_standalone: None,
-        })));
-        let new_parent = ElementOrFile::File(file.downgrade());
-        file.root_element().set_parent(new_parent);
-        file
+        })))
     }
 
     /// Get the filename of this ArxmlFile
@@ -53,25 +25,6 @@ impl ArxmlFile {
     /// ```
     pub fn filename(&self) -> PathBuf {
         self.0.lock().filename.clone()
-    }
-
-    /// Set the filename of this arxml filename
-    ///
-    /// This will not rename any existing file on disk, but the new filename will be used when writing the data.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::path::Path;
-    /// # use autosar_data::*;
-    /// # let project = AutosarProject::new();
-    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// file.set_filename("foo.arxml");
-    /// // or
-    /// file.set_filename(&Path::new("bar.arxml"));
-    /// ```
-    pub fn set_filename<P: AsRef<Path>>(&self, new_filename: P) {
-        self.0.lock().filename = new_filename.as_ref().to_path_buf();
     }
 
     /// Get the [AutosarVersion] of the file
@@ -113,16 +66,16 @@ impl ArxmlFile {
         if compat_errors.is_empty() {
             let mut file = self.0.lock();
             file.version = new_ver;
-            let attribute_value =
-                CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
-            let _ = file.root_element.0.lock().set_attribute_internal(
-                AttributeName::xsiSchemalocation,
-                attribute_value,
-                new_ver,
-            );
+            // let attribute_value =
+            //     CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
+            // let _ = file.root_element.0.lock().set_attribute_internal(
+            //     AttributeName::xsiSchemalocation,
+            //     attribute_value,
+            //     new_ver,
+            // );
             Ok(())
         } else {
-            Err(AutosarDataError::VersionIncompatible)
+            Err(AutosarDataError::VersionIncompatibleData { version: new_ver })
         }
     }
 
@@ -140,7 +93,32 @@ impl ArxmlFile {
     /// let (error_list, compat_mask) = file.check_version_compatibility(AutosarVersion::Autosar_00050);
     /// ```
     pub fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
-        self.root_element().check_version_compatibility(target_version)
+        if let Ok(project) = self.project() {
+            project
+                .root_element()
+                .check_version_compatibility(&self.downgrade(), target_version)
+        } else {
+            (Vec::new(), 0)
+        }
+    }
+
+    /// Set the filename of this arxml filename
+    ///
+    /// This will not rename any existing file on disk, but the new filename will be used when writing the data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::path::Path;
+    /// # use autosar_data::*;
+    /// # let project = AutosarProject::new();
+    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// file.set_filename("foo.arxml");
+    /// // or
+    /// file.set_filename(&Path::new("bar.arxml"));
+    /// ```
+    pub fn set_filename<P: AsRef<Path>>(&self, new_filename: P) {
+        self.0.lock().filename = new_filename.as_ref().to_path_buf();
     }
 
     /// Get a reference to the [AutosarProject] object that contains this file
@@ -168,22 +146,9 @@ impl ArxmlFile {
         locked_file.project.upgrade().ok_or(AutosarDataError::ItemDeleted)
     }
 
-    /// Get a referenct to the root ```<AUTOSAR ...>``` element of this file
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # let project = AutosarProject::new();
-    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let autosar_element = file.root_element();
-    /// ```
-    pub fn root_element(&self) -> Element {
-        let file = self.0.lock();
-        file.root_element.clone()
-    }
-
     /// Create a depth-first search iterator over all [Element]s in this file
+    ///
+    /// In a multi-file project it will not return any elements from other files.
     ///
     /// # Example
     ///
@@ -195,12 +160,15 @@ impl ArxmlFile {
     ///     // ...
     /// }
     /// ```
-    pub fn elements_dfs(&self) -> ElementsDfsIterator {
-        let file = self.0.lock();
-        file.root_element.elements_dfs()
+    pub fn elements_dfs(&self) -> ArxmlFileElementsDfsIterator {
+        ArxmlFileElementsDfsIterator::new(self.downgrade(), &self.project().unwrap().root_element())
     }
 
     /// Serialize the content of the file to a String
+    ///
+    /// # Possible errors
+    ///
+    /// [AutosarDataError::ItemDeleted]: The project is no longer valid
     ///
     /// # Example
     ///
@@ -210,7 +178,7 @@ impl ArxmlFile {
     /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let text = file.serialize();
     /// ```
-    pub fn serialize(&self) -> String {
+    pub fn serialize(&self) -> Result<String, AutosarDataError> {
         let mut outstring = String::with_capacity(1024 * 1024);
 
         match self.xml_standalone() {
@@ -218,10 +186,13 @@ impl ArxmlFile {
             Some(false) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>"),
             None => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
         }
+        let project = self.project()?;
+        project.0.lock().set_version(self.0.lock().version);
+        project
+            .root_element()
+            .serialize_internal(&mut outstring, 0, false, Some(self.downgrade()));
 
-        self.root_element().serialize_internal(&mut outstring, 0, false);
-
-        outstring
+        Ok(outstring)
     }
 
     /// Return the standalone attribute from the xml header
@@ -244,26 +215,6 @@ impl ArxmlFile {
     /// ```
     pub fn xml_standalone(&self) -> Option<bool> {
         self.0.lock().xml_standalone
-    }
-
-    /// Recursively sort all elements in the file. This is exactly identical to calling sort() on the root element of the file.
-    ///
-    /// All sub elements of the root element are sorted alphabetically.
-    /// If the sub-elements are named, then the sorting is performed according to the item names,
-    /// otherwise the serialized form of the sub-elements is used for sorting.
-    ///
-    /// Element attributes are not taken into account while sorting.
-    /// The elements are sorted in place, and sorting cannot fail, so there is no return value.
-    ///
-    /// # Example
-    /// ```
-    /// # use autosar_data::*;
-    /// # let project = AutosarProject::new();
-    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// file.sort();
-    /// ```
-    pub fn sort(&self) {
-        self.root_element().sort()
     }
 
     /// Create a weak reference to this ArxmlFile
@@ -292,6 +243,14 @@ impl PartialEq for ArxmlFile {
     }
 }
 
+impl Eq for ArxmlFile {}
+
+impl Hash for ArxmlFile {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Arc::as_ptr(&self.0) as usize);
+    }
+}
+
 impl WeakArxmlFile {
     /// try to get a strong reference to the [ArxmlFile]
     ///
@@ -304,6 +263,14 @@ impl WeakArxmlFile {
 impl PartialEq for WeakArxmlFile {
     fn eq(&self, other: &Self) -> bool {
         Weak::as_ptr(&self.0) == Weak::as_ptr(&other.0)
+    }
+}
+
+impl Eq for WeakArxmlFile {}
+
+impl Hash for WeakArxmlFile {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Weak::as_ptr(&self.0) as usize);
     }
 }
 
@@ -364,11 +331,88 @@ mod test {
     fn serialize() {
         let project = AutosarProject::new();
         let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-        let text = file.serialize();
+        assert_eq!(file.project().unwrap(), project);
+        assert_eq!(project.root_element().element_name(), ElementName::Autosar);
+        let text = file.serialize().unwrap();
         assert_eq!(
             text,
             r#"<?xml version="1.0" encoding="utf-8"?>
 <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>"#
         );
+        file.0.lock().xml_standalone = Some(false);
+        let text = file.serialize().unwrap();
+        assert_eq!(
+            text,
+            r#"<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>"#
+        );
+        file.0.lock().xml_standalone = Some(true);
+        let text = file.serialize().unwrap();
+        assert_eq!(
+            text,
+            r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>"#
+        );
+    }
+
+    #[test]
+    fn elements_dfs_iterator() {
+        const FILEBUF_1: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE>
+            <SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+              <SYSTEM><SHORT-NAME>System</SHORT-NAME></SYSTEM>
+            </ELEMENTS>
+          </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        const FILEBUF_2: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE>
+            <SHORT-NAME>Pkg2</SHORT-NAME>
+            <ELEMENTS>
+            <APPLICATION-PRIMITIVE-DATA-TYPE><SHORT-NAME>DataType</SHORT-NAME></APPLICATION-PRIMITIVE-DATA-TYPE>
+            </ELEMENTS>
+          </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+
+        let project = AutosarProject::new();
+        let (file, _) = project
+            .load_named_arxml_buffer(FILEBUF_1, "file1.arxml", false)
+            .unwrap();
+        let proj_elem_count = project.elements_dfs().count();
+        let file_elem_count = file.elements_dfs().count();
+        assert_eq!(proj_elem_count, file_elem_count);
+        project
+            .load_named_arxml_buffer(FILEBUF_2, "file2.arxml", false)
+            .unwrap();
+        let proj_elem_count_2 = project.elements_dfs().count();
+        let file_elem_count_2 = file.elements_dfs().count();
+        assert!(proj_elem_count < proj_elem_count_2);
+        assert_eq!(file_elem_count, file_elem_count_2);
+    }
+
+    #[test]
+    fn traits() {
+        let project = AutosarProject::new();
+        let file = project.create_file("filename", AutosarVersion::LATEST).unwrap();
+        let weak_file = file.downgrade();
+        let file_cloned = file.clone();
+        assert_eq!(file, file_cloned);
+        assert_eq!(format!("{file:#?}"), format!("{file_cloned:#?}"));
+        let mut hashset = HashSet::<ArxmlFile>::new();
+        hashset.insert(file);
+        let inserted = hashset.insert(file_cloned);
+        assert!(!inserted);
+
+        let weak_file_cloned = weak_file.clone();
+        assert_eq!(weak_file, weak_file_cloned);
+        assert_eq!(format!("{weak_file:#?}"), format!("{weak_file_cloned:#?}"));
+        let mut hashset = HashSet::<WeakArxmlFile>::new();
+        hashset.insert(weak_file);
+        let inserted = hashset.insert(weak_file_cloned);
+        assert!(!inserted);
     }
 }

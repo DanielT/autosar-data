@@ -34,7 +34,7 @@ fn main() {
 
         let project = AutosarProject::new();
         let arxml_file = project.create_file(&filename, version).unwrap();
-        let autosar_element = arxml_file.root_element();
+        let autosar_element = project.root_element();
 
         let mut counter = 1;
         create_sub_elements(&autosar_element, &mut counter, &mut completed, version);
@@ -47,7 +47,7 @@ fn main() {
             &format!("http://autosar.org/schema/r4.0 {}", version.filename()),
         );
 
-        let text = arxml_file.serialize();
+        let text = arxml_file.serialize().unwrap();
         std::fs::write(&filename, text).unwrap();
     }
 }
@@ -65,7 +65,7 @@ fn create_sub_elements(
     let mut element_complete = true;
     for (se_name, named, _) in elem.list_valid_sub_elements() {
         if completed.get(&(elem_name, se_name)).is_none() {
-            match create_sub_element_helper(&elem, se_name, named, counter) {
+            match create_sub_element_helper(elem, se_name, named, counter) {
                 Ok(sub_elem) => {
                     any_created = true;
                     if named {
@@ -76,23 +76,16 @@ fn create_sub_elements(
                     let (se_complete, _) = create_sub_elements(&sub_elem, counter, completed, version);
                     if !se_complete {
                         completed.remove(&(elem_name, se_name));
-                        loop {
-                            match create_sub_element_helper(&elem, se_name, named, counter) {
-                                Ok(sub_elem) => {
-                                    let (se_complete, se_any_created) =
-                                        create_sub_elements(&sub_elem, counter, completed, version);
-                                    if se_complete {
-                                        break;
-                                    }
-                                    if !se_any_created {
-                                        element_complete = false;
-                                        let _ = elem.remove_sub_element(sub_elem);
-                                        break;
-                                    }
-                                }
-                                Err(_) => {
-                                    break;
-                                }
+                        while let Ok(sub_elem) = create_sub_element_helper(elem, se_name, named, counter) {
+                            let (se_complete, se_any_created) =
+                                create_sub_elements(&sub_elem, counter, completed, version);
+                            if se_complete {
+                                break;
+                            }
+                            if !se_any_created {
+                                element_complete = false;
+                                let _ = elem.remove_sub_element(sub_elem);
+                                break;
                             }
                         }
                     }
@@ -203,6 +196,6 @@ fn make_cdata(spec: &CharacterDataSpec, version: AutosarVersion) -> CharacterDat
             CharacterData::String("lorem ipsum".to_string())
         }
         autosar_data_specification::CharacterDataSpec::UnsignedInteger => CharacterData::UnsignedInteger(42),
-        autosar_data_specification::CharacterDataSpec::Double => CharacterData::Double(3.1415),
+        autosar_data_specification::CharacterDataSpec::Double => CharacterData::Double(std::f64::consts::PI),
     }
 }

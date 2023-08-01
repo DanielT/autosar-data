@@ -269,7 +269,7 @@ fn display_can_ft(frame_triggering: &Element) -> Option<()> {
     if ft_name != frame_name {
         print!(" (frame triggering: {ft_name})");
     }
-    println!("");
+    println!();
     if !sender_ecus.is_empty() {
         println!("      Senders: {}", sender_ecus.join(", "));
     }
@@ -308,7 +308,7 @@ fn display_can_ft(frame_triggering: &Element) -> Option<()> {
             display_mapped_pdu(&pdu_mapping);
         }
     }
-    println!("");
+    println!();
 
     Some(())
 }
@@ -489,7 +489,7 @@ fn display_flexray_ft(frame_triggering: &Element) -> Option<()> {
     if ft_name != frame_name {
         print!(" (frame triggering: {ft_name})");
     }
-    println!("");
+    println!();
     if !sender_ecus.is_empty() {
         println!("      Senders: {}", sender_ecus.join(", "));
     }
@@ -522,7 +522,7 @@ fn display_flexray_ft(frame_triggering: &Element) -> Option<()> {
             display_mapped_pdu(&pdu_mapping);
         }
     }
-    println!("");
+    println!();
 
     Some(())
 }
@@ -883,7 +883,7 @@ fn display_isignal_ipdu(pdu: &Element, indent: usize) {
             if let Some(length) = length {
                 print!(", length: {length} bit");
             }
-            println!("");
+            println!();
         }
     }
 }
@@ -903,15 +903,12 @@ fn get_time_range(base: &Element) -> Option<TimeRange> {
         .and_then(|cdata| cdata.double_value())
     {
         Some(TimeRangeTolerance::Absolute(absolute_tolerance))
-    } else if let Some(relative_tolerance) = base
-        .get_sub_element(ElementName::RelativeTolerance)
-        .and_then(|elem| elem.get_sub_element(ElementName::Relative))
-        .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
-    {
-        Some(TimeRangeTolerance::Relative(relative_tolerance))
     } else {
-        None
+        base.get_sub_element(ElementName::RelativeTolerance)
+            .and_then(|elem| elem.get_sub_element(ElementName::Relative))
+            .and_then(|elem| elem.character_data())
+            .and_then(|cdata| decode_integer(&cdata))
+            .map(TimeRangeTolerance::Relative)
     };
 
     Some(TimeRange { tolerance, value })
@@ -977,7 +974,7 @@ fn display_isignal_group(
         if let Some(length) = length {
             print!(", length: {length} bit");
         }
-        println!("");
+        println!();
     }
     // show minimal info about any data transformation attached to the group
     if let Some(com_transformations) = signal_group.get_sub_element(ElementName::ComBasedSignalGroupTransformations) {
@@ -1086,7 +1083,7 @@ fn display_nm_pdu(pdu: &Element, indent: usize) {
             {
                 print!(", length: {length} bit");
             }
-            println!("");
+            println!();
         }
     }
 }
@@ -1225,7 +1222,7 @@ fn display_ethernet_channel(channel: &Element) -> Option<()> {
             .get_sub_element(ElementName::VlanIdentifier)
             .and_then(|vlan_id| vlan_id.character_data())
         {
-            println!("      Identifier: {}", vlan_identifier.to_string());
+            println!("      Identifier: {}", vlan_identifier);
         }
         println!();
     }
@@ -1409,8 +1406,7 @@ fn display_soad_connection_bundles(connection_bundles: Element) {
             let ip_port = server_socket
                 .get_sub_element(ElementName::ApplicationEndpoint)
                 .and_then(|ss_ae| get_socket_address_summary(&ss_ae))
-                .or(Some("".to_string()))
-                .unwrap();
+                .unwrap_or("".to_string());
             print!(
                 "        Server socket: {} ({})",
                 server_socket.item_name().unwrap(),
@@ -1451,8 +1447,7 @@ fn display_bundled_connection(socket_connection: Element) -> Option<()> {
     let ip_port = client_socket
         .get_sub_element(ElementName::ApplicationEndpoint)
         .and_then(|cs_ae| get_socket_address_summary(&cs_ae))
-        .or(Some("dynamic".to_string()))
-        .unwrap();
+        .unwrap_or("dynamic".to_string());
     println!("        Socket connection:");
     print!("          Client: {} ({ip_port})", client_socket.item_name().unwrap());
     if let Some(ecu_instance) = get_socket_ecu(&client_socket) {
@@ -1472,7 +1467,7 @@ fn display_bundled_connection(socket_connection: Element) -> Option<()> {
             if let Some(header_id) = socket_connection_ipdu_identifier
                 .get_sub_element(ElementName::HeaderId)
                 .and_then(|header_id_elem| header_id_elem.character_data())
-                .and_then(|cdata| Some(cdata.to_string()))
+                .map(|cdata| cdata.to_string())
             {
                 println!("              Header id: {header_id}");
             }
@@ -1546,7 +1541,11 @@ fn display_socket_addresses(socket_addresses: Element) {
 fn display_provided_service_instance(provided_service_instances: &Element) {
     for psi in provided_service_instances.sub_elements() {
         println!("        Provided service instance: {}", psi.item_name().unwrap());
-        if let Some(service_identifier) = psi.get_sub_element(ElementName::ServiceIdentifier).and_then(|sid| sid.character_data()).and_then(|cdata| Some(cdata.to_string())) {
+        if let Some(service_identifier) = psi
+            .get_sub_element(ElementName::ServiceIdentifier)
+            .and_then(|sid| sid.character_data())
+            .map(|cdata| cdata.to_string())
+        {
             println!("          Service identifier: {service_identifier}");
         }
         if let Some(event_handlers) = psi.get_sub_element(ElementName::EventHandlers) {
@@ -1643,15 +1642,12 @@ fn get_socket_address_summary(application_endpoint: &Element) -> Option<String> 
             .and_then(|cdata| cdata.string_value())
         {
             Some(format!("[{}]", ip6_addr_str))
-        } else if let Some(ip4_addr_str) = network_endpoint_adresses
-            .get_sub_element(ElementName::Ipv4Configuration)
-            .and_then(|ipv4_conf| ipv4_conf.get_sub_element(ElementName::Ipv4Address))
-            .and_then(|ipv4_addr| ipv4_addr.character_data())
-            .and_then(|cdata| cdata.string_value())
-        {
-            Some(ip4_addr_str)
         } else {
-            None
+            network_endpoint_adresses
+                .get_sub_element(ElementName::Ipv4Configuration)
+                .and_then(|ipv4_conf| ipv4_conf.get_sub_element(ElementName::Ipv4Address))
+                .and_then(|ipv4_addr| ipv4_addr.character_data())
+                .and_then(|cdata| cdata.string_value())
         }
     } else {
         None
@@ -1670,10 +1666,8 @@ fn get_socket_address_summary(application_endpoint: &Element) -> Option<String> 
 
     if let Some(tcp_pn) = tcp_port_number {
         Some(format!("{}:{} [TCP]", ip_addr_string, tcp_pn))
-    } else if let Some(udp_pn) = udp_port_number {
-        Some(format!("{}:{} [UDP]", ip_addr_string, udp_pn))
     } else {
-        None
+        udp_port_number.map(|udp_pn| format!("{}:{} [UDP]", ip_addr_string, udp_pn))
     }
 }
 
@@ -1682,7 +1676,7 @@ fn get_socket_address_summary(application_endpoint: &Element) -> Option<String> 
 // <DYNAMICALLY-ASSIGNED>true</DYNAMICALLY-ASSIGNED>
 fn get_port_number(tp_port: &Element) -> Option<String> {
     if let Some(port_number) = tp_port.get_sub_element(ElementName::PortNumber) {
-        port_number.character_data().and_then(|cdata| Some(cdata.to_string()))
+        port_number.character_data().map(|cdata| cdata.to_string())
     } else {
         let is_dynamic = tp_port
             .get_sub_element(ElementName::DynamicallyAssigned)
@@ -1732,8 +1726,8 @@ fn decode_integer(cdata: &CharacterData) -> Option<i64> {
         } else if text.starts_with("0B") {
             let binstr = text.strip_prefix("0B").unwrap();
             Some(i64::from_str_radix(binstr, 2).ok()?)
-        } else if text.starts_with("0") {
-            let octstr = text.strip_prefix("0").unwrap();
+        } else if text.starts_with('0') {
+            let octstr = text.strip_prefix('0').unwrap();
             Some(i64::from_str_radix(octstr, 8).ok()?)
         } else {
             Some(text.parse().ok()?)

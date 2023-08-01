@@ -443,10 +443,17 @@ impl ElementType {
 
     /// Is the current ElementType splittable
     ///
-    /// This function returns a bitfiled that indicates in which versions (if any) the ElementType is marked as splittable.
+    /// This function returns a bitfield that indicates in which versions (if any) the ElementType is marked as splittable.
     /// A splittable element may be split across multiple arxml files
-    pub fn splitable(&self) -> u32 {
+    pub fn splittable(&self) -> u32 {
         DATATYPES[self.0].splitable
+    }
+
+    /// Is the current ElementType splittable in the given version
+    ///
+    /// A splittable element may be split across multiple arxml files
+    pub fn splittable_in(&self, version: AutosarVersion) -> bool {
+        (DATATYPES[self.0].splitable & (version as u32)) != 0
     }
 
     /// ElementType::ROOT is the root ElementType of the Autosar arxml document, i.e. this is the ElementType of the AUTOSAR element
@@ -721,7 +728,7 @@ mod test {
         let spec_dbgstr = format!("{:#?}", spec);
         assert!(!spec_dbgstr.is_empty());
         // xmlns in AUTOSAR is required
-        assert_eq!(required, true);
+        assert!(required);
         // must be specified both in the first and latest versions (and every one in between - not tested)
         assert_ne!(version & AutosarVersion::Autosar_00050 as u32, 0);
         assert_ne!(version & AutosarVersion::Autosar_4_0_1 as u32, 0);
@@ -880,7 +887,7 @@ mod test {
         );
 
         // clone impl exists
-        let cloned = AutosarVersion::Autosar_00050.clone();
+        let cloned = AutosarVersion::Autosar_00050;
         assert_eq!(cloned, AutosarVersion::Autosar_00050);
 
         // version parse error
@@ -904,7 +911,7 @@ mod test {
         assert_eq!(AttributeName::Uuid.to_string(), "UUID");
 
         // clone impl exists
-        let cloned = AttributeName::Uuid.clone();
+        let cloned = AttributeName::Uuid;
         assert_eq!(cloned, AttributeName::Uuid);
 
         // attribute parse error
@@ -928,7 +935,7 @@ mod test {
         assert_eq!(ElementName::Autosar.to_string(), "AUTOSAR");
 
         // clone impl exists
-        let cloned = ElementName::Autosar.clone();
+        let cloned = ElementName::Autosar;
         assert_eq!(cloned, ElementName::Autosar);
 
         // element name parse error
@@ -952,7 +959,7 @@ mod test {
         assert_eq!(EnumItem::Default.to_string(), "DEFAULT");
 
         // clone impl exists
-        let cloned = EnumItem::Abstract.clone();
+        let cloned = EnumItem::Abstract;
         assert_eq!(cloned, EnumItem::Abstract);
 
         // enum item parse error
@@ -989,7 +996,7 @@ mod test {
     }
 
     #[test]
-    fn splitable() {
+    fn splittable() {
         let (ar_packages_type, _) = ElementType::ROOT
             .find_sub_element(ElementName::ArPackages, u32::MAX)
             .unwrap();
@@ -1000,7 +1007,51 @@ mod test {
             .find_sub_element(ElementName::Elements, u32::MAX)
             .unwrap();
 
-        assert_ne!(ar_packages_type.splitable() & AutosarVersion::Autosar_00051 as u32, 0);
-        assert_ne!(elements_type.splitable() & AutosarVersion::Autosar_00051 as u32, 0);
+        assert!(!ar_package_type.splittable_in(AutosarVersion::Autosar_00051));
+        assert_ne!(ar_packages_type.splittable() & AutosarVersion::Autosar_00051 as u32, 0);
+        assert!(ar_packages_type.splittable_in(AutosarVersion::Autosar_00051));
+        assert_ne!(elements_type.splittable() & AutosarVersion::Autosar_00051 as u32, 0);
+    }
+
+    #[test]
+    fn traits() {
+        // this test is basically nonsense - derived traits should all be ok
+        // but there is no way to exclude them from coverage
+        // ElementMultiplicity: Debug & Clone
+        let mult = ElementMultiplicity::Any;
+        let m2 = mult.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        assert_eq!(format!("{:#?}", mult), format!("{:#?}", m2));
+
+        // ContentMode: Debug, Clone
+        let cm = ContentMode::Sequence;
+        let cm2 = cm.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        assert_eq!(format!("{:#?}", cm), format!("{:#?}", cm2));
+
+        // ElementType: Debug, Clone, Eq & Hash
+        let et = ElementType::ROOT;
+        let et2 = et.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        assert_eq!(format!("{:#?}", et), format!("{:#?}", et2));
+        let mut hashset = HashSet::<ElementType>::new();
+        hashset.insert(et);
+        let inserted = hashset.insert(et2);
+        assert!(!inserted);
+
+        // AutosarVersion: Debug, Clone, Hash
+        let ver = AutosarVersion::LATEST;
+        let ver2 = ver.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        assert_eq!(format!("{ver:#?}"), format!("{ver2:#?}"));
+        let mut hashset = HashSet::<AutosarVersion>::new();
+        hashset.insert(ver);
+        let inserted = hashset.insert(ver2);
+        assert!(!inserted);
+
+        // ElementName: Debug, Clone, Hash
+        let en = ElementName::Autosar;
+        let en2 = en.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        assert_eq!(format!("{en:#?}"), format!("{en2:#?}"));
+        let mut hashset = HashSet::<ElementName>::new();
+        hashset.insert(en);
+        let inserted = hashset.insert(en2);
+        assert!(!inserted);
     }
 }

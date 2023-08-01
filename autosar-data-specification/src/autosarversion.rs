@@ -4,7 +4,7 @@
 pub struct ParseAutosarVersionError;
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
 #[repr(u32)]
 /// Enum of all Autosar versions
 pub enum AutosarVersion {

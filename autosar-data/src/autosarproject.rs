@@ -1,4 +1,8 @@
-use std::{borrow::Cow, collections::HashMap, path::Path, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    str::FromStr,
+};
 
 use crate::*;
 
@@ -15,11 +19,41 @@ impl AutosarProject {
     /// ```
     ///
     pub fn new() -> AutosarProject {
-        AutosarProject(Arc::new(Mutex::new(AutosarProjectRaw {
+        let version = AutosarVersion::LATEST;
+        let xsi_schemalocation =
+            CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
+        let xmlns = CharacterData::String("http://autosar.org/schema/r4.0".to_string());
+        let xmlns_xsi = CharacterData::String("http://www.w3.org/2001/XMLSchema-instance".to_string());
+        let root_attributes = smallvec::smallvec![
+            Attribute {
+                attrname: AttributeName::xsiSchemalocation,
+                content: xsi_schemalocation
+            },
+            Attribute {
+                attrname: AttributeName::xmlns,
+                content: xmlns
+            },
+            Attribute {
+                attrname: AttributeName::xmlnsXsi,
+                content: xmlns_xsi
+            },
+        ];
+        let root_elem = Element(Arc::new(Mutex::new(ElementRaw {
+            parent: ElementOrProject::None,
+            elemname: ElementName::Autosar,
+            elemtype: ElementType::ROOT,
+            content: SmallVec::new(),
+            attributes: root_attributes,
+            file_membership: HashSet::with_capacity(0),
+        })));
+        let project = AutosarProject(Arc::new(Mutex::new(AutosarProjectRaw {
             files: Vec::new(),
             identifiables: FxHashMap::default(),
             reference_origins: FxHashMap::default(),
-        })))
+            root_element: root_elem.clone(),
+        })));
+        root_elem.set_parent(ElementOrProject::Project(project.downgrade()));
+        project
     }
 
     /// Create a new [ArxmlFile] inside this AutosarData structure
@@ -48,6 +82,7 @@ impl AutosarProject {
     /// # Possible Errors
     ///
     ///  - [AutosarDataError::DuplicateFilenameError]: The project already contains a file with this filename
+    ///  - [AutosarDataError::VersionMismatch]: The new file cannot be creatd with a version that differs from the version of existing data
     ///
     pub fn create_file<P: AsRef<Path>>(
         &self,
@@ -64,6 +99,7 @@ impl AutosarProject {
         }
 
         let new_file = ArxmlFile::new(filename, version, self);
+
         data.files.push(new_file.clone());
         Ok(new_file)
     }
@@ -119,28 +155,44 @@ impl AutosarProject {
 
         let mut parser = ArxmlParser::new(filename.clone(), buffer, strict);
         let root_element = parser.parse_arxml()?;
-
+        let version = parser.get_fileversion();
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
+            version,
             project: self.downgrade(),
-            version: parser.get_fileversion(),
+            // version: parser.get_fileversion(),
             filename: filename.clone(),
-            root_element,
             xml_standalone: parser.get_standalone(),
         })));
-        // graft on the back-link from the root element to the file
-        let new_parent = ElementOrFile::File(arxml_file.downgrade());
-        arxml_file.root_element().set_parent(new_parent);
+
+        if self.0.lock().files.is_empty() {
+            root_element.set_parent(ElementOrProject::Project(self.downgrade()));
+            self.0.lock().root_element = root_element;
+        } else {
+            let result = self.merge_file_data(&root_element, arxml_file.downgrade());
+            if let Err(error) = result {
+                self.unmerge_file(&arxml_file.downgrade());
+                return Err(error);
+            }
+        }
 
         let mut data = self.0.lock();
         data.identifiables.reserve(parser.identifiables.len());
         for (key, value) in parser.identifiables {
-            if let Some(existing) = data.identifiables.insert(key, value) {
-                if let Some(element) = existing.upgrade() {
-                    return Err(AutosarDataError::OverlappingDataError {
-                        filename,
-                        path: element.path().unwrap_or_else(|_| "".to_owned()),
-                    });
+            // the same identifiables can be present in multiple files
+            // in this case we only keep the first one
+            if let Some(existing_element) = data.identifiables.get(&key).and_then(|weak_el| weak_el.upgrade()) {
+                // present in both
+                if let Some(new_element) = value.upgrade() {
+                    if existing_element.element_name() != new_element.element_name() {
+                        // referenced element is different on both sides
+                        return Err(AutosarDataError::OverlappingDataError {
+                            filename,
+                            path: new_element.xml_path(),
+                        });
+                    }
                 }
+            } else {
+                data.identifiables.insert(key, value);
             }
         }
         data.reference_origins.reserve(parser.references.len());
@@ -154,6 +206,269 @@ impl AutosarProject {
         data.files.push(arxml_file.clone());
 
         Ok((arxml_file, parser.warnings))
+    }
+
+    // Merge the elements from an incoming arxml file into the overall model
+    //
+    // The Autosar standard specifies that the data can be split across multiple arxml files
+    // It states that each ARXML file can represent an "AUTOSAR Partial Model".
+    // The possible partitioning is marked in the meta model, where some elements have the attribute "splitable".
+    // These are the points where the overall elements can be split into different arxml files, or, while loading, merged.
+    // Unfortunately, the standard says nothing about how this should be done, so the algorithm here is just a guess.
+    // In the wild, only merging at the AR-PACKAGES and at the ELEMENTS level exists. Everything else seems like a bad idea anyway.
+    fn merge_file_data(&self, new_root: &Element, new_file: WeakArxmlFile) -> Result<(), AutosarDataError> {
+        let root = self.root_element();
+        let files: HashSet<WeakArxmlFile> = self.files().map(|f| f.downgrade()).collect();
+
+        AutosarProject::merge_element(&root, &files, new_root, new_file)?;
+
+        Ok(())
+    }
+
+    fn merge_element(
+        parent_a: &Element,
+        files: &HashSet<WeakArxmlFile>,
+        parent_b: &Element,
+        new_file: WeakArxmlFile,
+    ) -> Result<(), AutosarDataError> {
+        let mut iter_a = parent_a.sub_elements().enumerate();
+        let mut iter_b = parent_b.sub_elements();
+        let mut item_a = iter_a.next();
+        let mut item_b = iter_b.next();
+        let mut elements_a_only = Vec::<Element>::new();
+        let mut elements_b_only = Vec::<(Element, usize)>::new();
+        let mut elements_merge = Vec::<(Element, Element)>::new();
+        let min_ver_a = files
+            .iter()
+            .filter_map(|weak| weak.upgrade().map(|f| f.version()))
+            .min()
+            .unwrap_or(AutosarVersion::LATEST);
+        let min_ver_b = new_file
+            .upgrade()
+            .map(|f| f.version())
+            .unwrap_or(AutosarVersion::LATEST);
+        let version = std::cmp::min(min_ver_a, min_ver_b);
+        let splitable = parent_a.element_type().splittable_in(version);
+
+        while let (Some((pos_a, elem_a)), Some(elem_b)) = (&item_a, &item_b) {
+            if elem_a.element_name() == elem_b.element_name() {
+                if elem_a.is_identifiable() {
+                    if elem_a.item_name() == elem_b.item_name() {
+                        // equal
+                        // advance both iterators
+                        elements_merge.push((elem_a.clone(), elem_b.clone()));
+                        item_a = iter_a.next();
+                        item_b = iter_b.next();
+                    } else {
+                        // assume that the ordering on both sides is different
+                        // find a match for a among the siblings of b
+                        if let Some(sibling) = parent_b
+                            .sub_elements()
+                            .find(|e| e.element_name() == elem_a.element_name() && e.item_name() == elem_a.item_name())
+                        {
+                            // matching item found
+                            elements_merge.push((elem_a.clone(), sibling.clone()));
+                        } else {
+                            // element is unique in a
+                            if splitable {
+                                elements_a_only.push(elem_a.clone());
+                            } else {
+                                return Err(AutosarDataError::InvalidFileMerge {
+                                    path: parent_a.xml_path(),
+                                });
+                            }
+                        }
+                        item_a = iter_a.next();
+                    }
+                } else {
+                    // special case for BSW parameters - many elements used here don't have a SHORT-NAME, but they do have a DEFINITION-REF
+                    let defref_a = elem_a
+                        .get_sub_element(ElementName::DefinitionRef)
+                        .and_then(|dr| dr.character_data())
+                        .and_then(|cdata| cdata.string_value());
+                    let defref_b = elem_b
+                        .get_sub_element(ElementName::DefinitionRef)
+                        .and_then(|dr| dr.character_data())
+                        .and_then(|cdata| cdata.string_value());
+                    // defref_a and _b are simply none for all other elements which don't have a definition-ref
+                    if defref_a == defref_b {
+                        // either: defrefs exist and are identical, OR they are both None
+                        // if they are None, then there is nothing else that can be compared, so we just assume the elements are identical
+                        // advance both iterators
+                        elements_merge.push((elem_a.clone(), elem_b.clone()));
+                        item_a = iter_a.next();
+                        item_b = iter_b.next();
+                    } else {
+                        // check if a sibling of elem_b has the same definiton-ref as elem_a
+                        // this handles the case where the the elements on both sides are ordered differently
+                        if let Some(sibling) = parent_b
+                            .sub_elements()
+                            .filter(|e| e.element_name() == elem_a.element_name())
+                            .find(|e| {
+                                e.get_sub_element(ElementName::DefinitionRef)
+                                    .and_then(|dr| dr.character_data())
+                                    .and_then(|cdata| cdata.string_value())
+                                    == defref_a
+                            })
+                        {
+                            // a match for item_a exists
+                            elements_merge.push((elem_a.clone(), sibling.clone()));
+                        } else {
+                            // element is unique in a
+                            if splitable {
+                                elements_a_only.push(elem_a.clone());
+                            } else {
+                                return Err(AutosarDataError::InvalidFileMerge {
+                                    path: parent_a.xml_path(),
+                                });
+                            }
+                        }
+                        item_a = iter_a.next();
+                    }
+                }
+            } else {
+                // a and b are different kinds of elements. This is only allowed if parent is splittable
+                let parent_type = parent_a.element_type();
+                // The following check does not work, real examples still fail:
+                // if !parent_type.splittable_in(self.version()) && parent_a.element_name() != ElementName::ArPackage {
+                //     return Err(AutosarDataError::InvalidFileMerge { path: parent_a.xml_path() });
+                // }
+
+                let (_, indices_a) = parent_type.find_sub_element(elem_a.element_name(), u32::MAX).unwrap();
+                let (_, indices_b) = parent_type.find_sub_element(elem_b.element_name(), u32::MAX).unwrap();
+                if indices_a < indices_b {
+                    // elem_a comes before elem_b, advance only a
+                    // a: <parent> | <a = child 1> <child 2>
+                    // b: <parent> |               <b = child 2>
+                    elements_a_only.push(elem_a.clone());
+                    item_a = iter_a.next();
+                } else {
+                    // elem_b comes before elem_a, advance only b
+                    // a: <parent> |               <a = child 2>
+                    // b: <parent> | <b = child 1> <child 2>
+                    if !elements_merge.iter().any(|(_, merge_b)| merge_b == elem_b) {
+                        elements_b_only.push((elem_b.clone(), *pos_a));
+                        item_b = iter_b.next();
+                    }
+                }
+            }
+        }
+        // at least one of the two iterators has reached the end
+        // make sure the other one also reaches the end
+        if let Some((_, elem_a)) = item_a {
+            elements_a_only.push(elem_a);
+            for (_, elem_a) in iter_a {
+                elements_a_only.push(elem_a);
+            }
+        }
+        if let Some(elem_b) = item_b {
+            let elem_count = parent_a.0.lock().content.len();
+            if !elements_merge.iter().any(|(_, merge_b)| merge_b == &elem_b) {
+                elements_b_only.push((elem_b, elem_count));
+            }
+            for elem_b in iter_b {
+                if !elements_merge.iter().any(|(_, merge_b)| merge_b == &elem_b) {
+                    elements_b_only.push((elem_b, elem_count));
+                }
+            }
+        }
+
+        // elements in elements_a_only are already present in the model, so they only need to be restricted
+        for element in elements_a_only {
+            // files contains the permisions of the parent
+            if element.0.lock().file_membership.is_empty() {
+                element.0.lock().file_membership = files.to_owned()
+            }
+        }
+        // elements in elements_b_only are not present in the model. They need to be moved over and inserted at a reasonable position
+        let mut parent_a_locked = parent_a.0.lock();
+        for (idx, (new_element, insert_pos)) in elements_b_only.into_iter().enumerate() {
+            new_element.set_parent(ElementOrProject::Element(parent_a.downgrade()));
+            // restrict new_element, it is only present in new_file
+            new_element.0.lock().file_membership.insert(new_file.clone());
+            // add the new_element (from side b) to the content of parent_a
+            // to do this, first check valid element insertion positions
+            let (first_pos, last_pos) = parent_a_locked
+                .find_element_insert_pos(new_element.element_name(), version)
+                .map_err(|_| AutosarDataError::InvalidFileMerge {
+                    path: new_element.element_name().to_string(),
+                })?;
+            // idx number of elements have already been inserted, so the destination position must be adjusted
+            let dest = insert_pos + idx;
+            if dest < first_pos {
+                // desired position is before the first allowed position
+                parent_a_locked
+                    .content
+                    .insert(first_pos, ElementContent::Element(new_element));
+            } else if first_pos <= dest && dest <= last_pos {
+                parent_a_locked
+                    .content
+                    .insert(dest, ElementContent::Element(new_element));
+            } else {
+                // desired position is after the last allowed position
+                parent_a_locked
+                    .content
+                    .insert(last_pos, ElementContent::Element(new_element));
+            }
+        }
+        drop(parent_a_locked);
+
+        // recurse for elements that need to be merged
+        for (elem_a, elem_b) in elements_merge {
+            let files = elem_a.0.lock().file_membership.clone();
+            AutosarProject::merge_element(&elem_a, &files, &elem_b, new_file.clone())?;
+            if !elem_a.0.lock().file_membership.is_empty() {
+                elem_a.0.lock().file_membership.insert(new_file.clone());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// clean up the model after a file is removed or after a failed file merge during load
+    fn unmerge_file(&self, file: &WeakArxmlFile) {
+        let mut elements_to_delete = vec![];
+        for (_, e) in self.elements_dfs() {
+            let mut fm = e.file_membership_local();
+            if fm.contains(file) {
+                if fm.len() == 1 {
+                    // this element is only part of the file that is being removed
+                    // queue the deletion of this element (the iterator might skip items if the model is mutated while it is active)
+                    elements_to_delete.push(e);
+                } else {
+                    // the element is part of several files, so this one only needs to be removed from the set
+                    fm.remove(file);
+                    e.set_file_membership(fm);
+                }
+            }
+        }
+
+        // perform any queued deletions
+        for e in elements_to_delete {
+            if let Ok(Some(parent)) = e.parent() {
+                let _ = parent.remove_sub_element(e);
+            }
+        }
+
+        let mut self_locked = self.0.lock();
+
+        // clean up any remaining references to now-deleted identifiables
+        let mut paths_to_remove = vec![];
+        for (path, weak_elem) in &self_locked.identifiables {
+            if weak_elem.upgrade().is_none() {
+                paths_to_remove.push(path.to_owned());
+            }
+        }
+        for path in paths_to_remove {
+            self_locked.identifiables.remove(&path);
+        }
+
+        let mut ref_origins_old = FxHashMap::<String, Vec<WeakElement>>::default();
+        std::mem::swap(&mut ref_origins_old, &mut self_locked.reference_origins);
+        for (refpath, ref_elements) in &ref_origins_old {
+            let newvec: Vec<WeakElement> = ref_elements.iter().filter(|e| e.upgrade().is_some()).cloned().collect();
+            self_locked.reference_origins.insert(refpath.to_owned(), newvec);
+        }
     }
 
     /// Load an arxml file
@@ -240,11 +555,15 @@ impl AutosarProject {
         // find_result is stored first so that the lock on project is dropped
         if let Some(pos) = find_result {
             self.0.lock().files.swap_remove(pos);
-            let root_elem = file.root_element();
-            root_elem
-                .0
-                .lock()
-                .remove_internal(root_elem.downgrade(), self, Cow::from(""));
+            if self.0.lock().files.is_empty() {
+                // no other files remain in the project, so it reverts to being empty
+                self.root_element().0.lock().content.clear();
+                self.0.lock().identifiables.clear();
+                self.0.lock().reference_origins.clear();
+            } else {
+                // other files still contribute elements, so only the elements specifically associated with this file should be removed
+                self.unmerge_file(&file.downgrade());
+            }
         }
     }
 
@@ -268,8 +587,9 @@ impl AutosarProject {
     pub fn serialize_files(&self) -> HashMap<PathBuf, String> {
         let mut result = HashMap::new();
         for file in self.files() {
-            let data = file.serialize();
-            result.insert(file.filename(), data);
+            if let Ok(data) = file.serialize() {
+                result.insert(file.filename(), data);
+            }
         }
         result
     }
@@ -326,6 +646,21 @@ impl AutosarProject {
         ArxmlFileIterator::new(self.clone())
     }
 
+    /// Get a referenct to the root ```<AUTOSAR ...>``` element of this project
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let project = AutosarProject::new();
+    /// # let _file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let autosar_element = project.root_element();
+    /// ```
+    pub fn root_element(&self) -> Element {
+        let locked_proj = self.0.lock();
+        locked_proj.root_element.clone()
+    }
+
     /// get a named element by its Autosar path
     ///
     /// This is a lookup in a hash table and runs in O(1) time
@@ -352,9 +687,11 @@ impl AutosarProject {
         project.identifiables.get(path).and_then(|element| element.upgrade())
     }
 
-    /// create a depth-first iterator over all [Element]s in all [ArxmlFile]s
+    /// create a depth-first iterator over all [Element]s in the project
     ///
-    /// The AUTOSAR elements in each file will appear at depth = 0.
+    /// The iterator returns all elements from the merged model, consisting of
+    /// data from all arxml files loaded in this project.
+    ///
     /// Directly printing the return values could show something like this:
     ///
     /// <pre>
@@ -377,8 +714,28 @@ impl AutosarProject {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn elements_dfs(&self) -> AutosarDataElementsDfsIterator {
-        AutosarDataElementsDfsIterator::new(self.files())
+    pub fn elements_dfs(&self) -> ElementsDfsIterator {
+        self.root_element().elements_dfs()
+    }
+
+    /// Recursively sort all elements in the project. This is exactly identical to calling sort() on the root element of the project.
+    ///
+    /// All sub elements of the root element are sorted alphabetically.
+    /// If the sub-elements are named, then the sorting is performed according to the item names,
+    /// otherwise the serialized form of the sub-elements is used for sorting.
+    ///
+    /// Element attributes are not taken into account while sorting.
+    /// The elements are sorted in place, and sorting cannot fail, so there is no return value.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # let project = AutosarProject::new();
+    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// project.sort();
+    /// ```
+    pub fn sort(&self) {
+        self.root_element().sort()
     }
 
     /// create an iterator over all identifiable elements
@@ -525,8 +882,9 @@ impl AutosarProject {
                 if suffix.is_empty() || suffix.starts_with('/') {
                     let new_key = format!("{new_path}{suffix}");
                     // fix the identifiables hashmap
-                    let entry = project.identifiables.remove(&key).unwrap();
-                    project.identifiables.insert(new_key, entry);
+                    if let Some(entry) = project.identifiables.remove(&key) {
+                        project.identifiables.insert(new_key, entry);
+                    }
                 }
             }
         }
@@ -586,6 +944,17 @@ impl AutosarProject {
     }
 }
 
+impl AutosarProjectRaw {
+    pub(crate) fn set_version(&mut self, new_ver: AutosarVersion) {
+        let attribute_value = CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
+        let _ = self.root_element.0.lock().set_attribute_internal(
+            AttributeName::xsiSchemalocation,
+            attribute_value,
+            new_ver,
+        );
+    }
+}
+
 impl Default for AutosarProject {
     fn default() -> Self {
         Self::new()
@@ -623,13 +992,29 @@ mod test {
         const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
         <AR-PACKAGES>
-          <AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME></AR-PACKAGE>
+          <AR-PACKAGE>
+            <SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+              <SYSTEM><SHORT-NAME>Thing</SHORT-NAME></SYSTEM>
+            </ELEMENTS>
+          </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         const FILEBUF2: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
         <AR-PACKAGES>
           <AR-PACKAGE><SHORT-NAME>OtherPkg</SHORT-NAME></AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
+        const FILEBUF3: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE>
+            <SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+            <APPLICATION-PRIMITIVE-DATA-TYPE><SHORT-NAME>Thing</SHORT-NAME></APPLICATION-PRIMITIVE-DATA-TYPE>
+            </ELEMENTS>
+          </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        const NON_ARXML: &str = "The quick brown fox jumps over the lazy dog";
         let project = AutosarProject::new();
         // succefully load a buffer
         let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
@@ -641,7 +1026,10 @@ mod test {
         let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_err());
         // error: overlapping autosar paths
-        let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test2", true);
+        let result = project.load_named_arxml_buffer(FILEBUF3.as_bytes(), "test2", true);
+        assert!(result.is_err());
+        // error: not arxml data
+        let result = project.load_named_arxml_buffer(NON_ARXML.as_bytes(), "nonsense", true);
         assert!(result.is_err());
     }
 
@@ -649,6 +1037,93 @@ mod test {
     fn load_file() {
         let project = AutosarProject::new();
         assert!(project.load_arxml_file("nonexistent", true).is_err());
+    }
+
+    #[test]
+    fn data_merge() {
+        const FILEBUF1: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>Pkg_A</SHORT-NAME><ELEMENTS>
+            <ECUC-MODULE-CONFIGURATION-VALUES><SHORT-NAME>BswModule</SHORT-NAME><CONTAINERS><ECUC-CONTAINER-VALUE>
+              <SHORT-NAME>BswModuleValues</SHORT-NAME>
+              <PARAMETER-VALUES>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_A</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_B</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+              </PARAMETER-VALUES>
+            </ECUC-CONTAINER-VALUE></CONTAINERS></ECUC-MODULE-CONFIGURATION-VALUES>
+          </ELEMENTS></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_B</SHORT-NAME></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        const FILEBUF2: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>Pkg_B</SHORT-NAME></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_A</SHORT-NAME><ELEMENTS>
+            <ECUC-MODULE-CONFIGURATION-VALUES><SHORT-NAME>BswModule</SHORT-NAME><CONTAINERS><ECUC-CONTAINER-VALUE>
+              <SHORT-NAME>BswModuleValues</SHORT-NAME>
+              <PARAMETER-VALUES>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_B</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_A</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+              </PARAMETER-VALUES>
+            </ECUC-CONTAINER-VALUE></CONTAINERS></ECUC-MODULE-CONFIGURATION-VALUES>
+          </ELEMENTS></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        // test with re-ordered identifiable elements and re-ordered BSW parameter values
+        // both should be recognized and merged, so that the total number of elements does not increase
+        let project = AutosarProject::new();
+        let result = project.load_named_arxml_buffer(FILEBUF1, "test1", true);
+        assert!(result.is_ok());
+        let elemcount = project.elements_dfs().count();
+        let result = project.load_named_arxml_buffer(FILEBUF2, "test2", true);
+        assert!(result.is_ok());
+        let elemcount2 = project.elements_dfs().count();
+        // the second file is identical to the first, except for ordering.
+        // The total number of elements should not grow as a result of loading it.
+        assert_eq!(elemcount, elemcount2);
+
+        // the following two files diverge on the TIMING-RESOURCE element
+        // this is not permitted, because SYSTEM-TIMING is not splittable
+        const ERRFILE1: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME>
+          <ELEMENTS>
+            <SYSTEM-TIMING>
+              <SHORT-NAME>SystemTimings</SHORT-NAME>
+              <CATEGORY>CAT</CATEGORY>
+              <TIMING-RESOURCE>
+                <SHORT-NAME>Name_One</SHORT-NAME>
+              </TIMING-RESOURCE>
+            </SYSTEM-TIMING>
+          </ELEMENTS>
+        </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        const ERRFILE2: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME>
+          <ELEMENTS>
+            <SYSTEM-TIMING>
+              <SHORT-NAME>SystemTimings</SHORT-NAME>
+              <TIMING-RESOURCE>
+                <SHORT-NAME>Name_Two</SHORT-NAME>
+              </TIMING-RESOURCE>
+            </SYSTEM-TIMING>
+          </ELEMENTS>
+        </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        let project = AutosarProject::new();
+        let result = project.load_named_arxml_buffer(ERRFILE1, "test1", true);
+        println!("{result:#?}");
+        assert!(result.is_ok());
+        let result = project.load_named_arxml_buffer(ERRFILE2, "test2", true);
+        let error = result.unwrap_err();
+        assert!(matches!(error, AutosarDataError::InvalidFileMerge { .. }));
     }
 
     #[test]
@@ -759,7 +1234,34 @@ mod test {
 
         let result = project.serialize_files();
         assert_eq!(result.len(), 2);
-        assert_eq!(result.get(&PathBuf::from("filename1")).unwrap(), &file1.serialize());
-        assert_eq!(result.get(&PathBuf::from("filename2")).unwrap(), &file2.serialize());
+        assert_eq!(
+            result.get(&PathBuf::from("filename1")).unwrap(),
+            &file1.serialize().unwrap()
+        );
+        assert_eq!(
+            result.get(&PathBuf::from("filename2")).unwrap(),
+            &file2.serialize().unwrap()
+        );
+    }
+
+    #[test]
+    fn traits() {
+        // AutosarProject: Debug, Clone
+        let project = AutosarProject::new();
+        let p2 = project.clone();
+        assert_eq!(project, p2);
+        assert_eq!(format!("{project:#?}"), format!("{p2:#?}"));
+
+        // CharacterData
+        let cdata = CharacterData::String("x".to_string());
+        let cdata2 = cdata.clone();
+        assert_eq!(cdata, cdata2);
+        assert_eq!(format!("{cdata:#?}"), format!("{cdata2:#?}"));
+
+        // ContentType 
+        let ct: ContentType = ContentType::Elements;
+        let ct2 = ct.clone();
+        assert_eq!(ct, ct2);
+        assert_eq!(format!("{ct:#?}"), format!("{ct2:#?}"));
     }
 }
