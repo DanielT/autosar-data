@@ -89,6 +89,7 @@ mod arxmlfile;
 mod autosarmodel;
 mod chardata;
 mod element;
+mod elementraw;
 mod iterators;
 mod lexer;
 mod parser;
