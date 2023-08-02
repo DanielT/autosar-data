@@ -32,9 +32,9 @@ fn main() {
 
         println!("Generating {filename} for \'{}\'", version.describe());
 
-        let project = AutosarProject::new();
-        let arxml_file = project.create_file(&filename, version).unwrap();
-        let autosar_element = project.root_element();
+        let model = AutosarModel::new();
+        let arxml_file = model.create_file(&filename, version).unwrap();
+        let autosar_element = model.root_element();
 
         let mut counter = 1;
         create_sub_elements(&autosar_element, &mut counter, &mut completed, version);

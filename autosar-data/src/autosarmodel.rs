@@ -6,19 +6,19 @@ use std::{
 
 use crate::*;
 
-impl AutosarProject {
-    /// Create an instance of AutosarData
+impl AutosarModel {
+    /// Create an AutosarData model
     ///
-    /// Initially it contains no arxml files
+    /// Initially it contains no arxml files and only has a default <AUTOSAR> element
     ///
     /// # Example
     ///
     /// ```
     /// # use autosar_data::*;
-    /// let project = AutosarProject::new();
+    /// let model = AutosarModel::new();
     /// ```
     ///
-    pub fn new() -> AutosarProject {
+    pub fn new() -> AutosarModel {
         let version = AutosarVersion::LATEST;
         let xsi_schemalocation =
             CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", version.filename()));
@@ -39,21 +39,21 @@ impl AutosarProject {
             },
         ];
         let root_elem = Element(Arc::new(Mutex::new(ElementRaw {
-            parent: ElementOrProject::None,
+            parent: ElementOrModel::None,
             elemname: ElementName::Autosar,
             elemtype: ElementType::ROOT,
             content: SmallVec::new(),
             attributes: root_attributes,
             file_membership: HashSet::with_capacity(0),
         })));
-        let project = AutosarProject(Arc::new(Mutex::new(AutosarProjectRaw {
+        let model = AutosarModel(Arc::new(Mutex::new(AutosarModelRaw {
             files: Vec::new(),
             identifiables: FxHashMap::default(),
             reference_origins: FxHashMap::default(),
             root_element: root_elem.clone(),
         })));
-        root_elem.set_parent(ElementOrProject::Project(project.downgrade()));
-        project
+        root_elem.set_parent(ElementOrModel::Model(model.downgrade()));
+        model
     }
 
     /// Create a new [ArxmlFile] inside this AutosarData structure
@@ -64,7 +64,7 @@ impl AutosarProject {
     ///
     /// # Parameters
     ///
-    ///  - `filename`: A filename for the data from the buffer. It must be unique within the project.
+    ///  - `filename`: A filename for the data from the buffer. It must be unique within the model.
     ///    It will be used by write(), and is also used to identify this data in error messages.
     ///  - `version`: The [AutosarVersion] that will be used by the data created inside this file
     ///
@@ -73,15 +73,15 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
-    /// let file = project.create_file("filename.arxml", AutosarVersion::Autosar_00050)?;
+    /// let model = AutosarModel::new();
+    /// let file = model.create_file("filename.arxml", AutosarVersion::Autosar_00050)?;
     /// # Ok(())
     /// # }
     /// ```
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::DuplicateFilenameError]: The project already contains a file with this filename
+    ///  - [AutosarDataError::DuplicateFilenameError]: The model already contains a file with this filename
     ///  - [AutosarDataError::VersionMismatch]: The new file cannot be creatd with a version that differs from the version of existing data
     ///
     pub fn create_file<P: AsRef<Path>>(
@@ -121,16 +121,16 @@ impl AutosarProject {
     /// ```no_run
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
+    /// let model = AutosarModel::new();
     /// # let buffer = b"";
-    /// project.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
+    /// model.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
     /// # Ok(())
     /// # }
     /// ```
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::DuplicateFilenameError]: The project already contains a file with this filename
+    ///  - [AutosarDataError::DuplicateFilenameError]: The model already contains a file with this filename
     ///  - [AutosarDataError::OverlappingDataError]: The new data contains Autosar paths that are already defined by the existing data
     ///  - [AutosarDataError::ParserError]: The parser detected an error; the source field gives further details
     ///
@@ -158,14 +158,14 @@ impl AutosarProject {
         let version = parser.get_fileversion();
         let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
             version,
-            project: self.downgrade(),
+            model: self.downgrade(),
             // version: parser.get_fileversion(),
             filename: filename.clone(),
             xml_standalone: parser.get_standalone(),
         })));
 
         if self.0.lock().files.is_empty() {
-            root_element.set_parent(ElementOrProject::Project(self.downgrade()));
+            root_element.set_parent(ElementOrModel::Model(self.downgrade()));
             self.0.lock().root_element = root_element;
         } else {
             let result = self.merge_file_data(&root_element, arxml_file.downgrade());
@@ -220,7 +220,7 @@ impl AutosarProject {
         let root = self.root_element();
         let files: HashSet<WeakArxmlFile> = self.files().map(|f| f.downgrade()).collect();
 
-        AutosarProject::merge_element(&root, &files, new_root, new_file)?;
+        AutosarModel::merge_element(&root, &files, new_root, new_file)?;
 
         Ok(())
     }
@@ -383,7 +383,7 @@ impl AutosarProject {
         // elements in elements_b_only are not present in the model. They need to be moved over and inserted at a reasonable position
         let mut parent_a_locked = parent_a.0.lock();
         for (idx, (new_element, insert_pos)) in elements_b_only.into_iter().enumerate() {
-            new_element.set_parent(ElementOrProject::Element(parent_a.downgrade()));
+            new_element.set_parent(ElementOrModel::Element(parent_a.downgrade()));
             // restrict new_element, it is only present in new_file
             new_element.0.lock().file_membership.insert(new_file.clone());
             // add the new_element (from side b) to the content of parent_a
@@ -416,7 +416,7 @@ impl AutosarProject {
         // recurse for elements that need to be merged
         for (elem_a, elem_b) in elements_merge {
             let files = elem_a.0.lock().file_membership.clone();
-            AutosarProject::merge_element(&elem_a, &files, &elem_b, new_file.clone())?;
+            AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file.clone())?;
             if !elem_a.0.lock().file_membership.is_empty() {
                 elem_a.0.lock().file_membership.insert(new_file.clone());
             }
@@ -485,8 +485,8 @@ impl AutosarProject {
     /// ```no_run
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
-    /// project.load_arxml_file("filename.arxml", true)?;
+    /// let model = AutosarModel::new();
+    /// model.load_arxml_file("filename.arxml", true)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -495,7 +495,7 @@ impl AutosarProject {
     ///
     ///  - [AutosarDataError::IoErrorOpen]: The file could not be opened
     ///  - [AutosarDataError::IoErrorRead]: There was an error while reading the file
-    ///  - [AutosarDataError::DuplicateFilenameError]: The project already contains a file with this filename
+    ///  - [AutosarDataError::DuplicateFilenameError]: The model already contains a file with this filename
     ///  - [AutosarDataError::OverlappingDataError]: The new data contains Autosar paths that are already defined by the existing data
     ///  - [AutosarDataError::ParserError]: The parser detected an error; the source field gives further details
     ///
@@ -526,20 +526,20 @@ impl AutosarProject {
         self.load_named_arxml_buffer(&buffer, &filename_buf, strict)
     }
 
-    /// remove a file from the project
+    /// remove a file from the model
     ///
     /// # Parameters:
     ///
-    ///  - `file`: The file that will be removed from the project
+    ///  - `file`: The file that will be removed from the model
     ///
     /// # Example
     ///
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
-    /// let file = project.create_file("filename.arxml", AutosarVersion::Autosar_00050)?;
-    /// project.remove_file(&file);
+    /// let model = AutosarModel::new();
+    /// let file = model.create_file("filename.arxml", AutosarVersion::Autosar_00050)?;
+    /// model.remove_file(&file);
     /// # Ok(())
     /// # }
     /// ```
@@ -552,12 +552,13 @@ impl AutosarProject {
             .enumerate()
             .find(|(_, f)| *f == file)
             .map(|(pos, _)| pos);
-        // find_result is stored first so that the lock on project is dropped
+        // find_result is stored first so that the lock on model is dropped
         if let Some(pos) = find_result {
             self.0.lock().files.swap_remove(pos);
             if self.0.lock().files.is_empty() {
-                // no other files remain in the project, so it reverts to being empty
+                // no other files remain in the model, so it reverts to being empty
                 self.root_element().0.lock().content.clear();
+                self.root_element().set_file_membership(HashSet::new());
                 self.0.lock().identifiables.clear();
                 self.0.lock().reference_origins.clear();
             } else {
@@ -567,7 +568,7 @@ impl AutosarProject {
         }
     }
 
-    /// serialize each of the files in the project
+    /// serialize each of the files in the model
     ///
     /// returns the result in a HashMap of <file_name, file_content>
     ///
@@ -576,8 +577,8 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
-    /// for (pathbuf, file_content) in project.serialize_files() {
+    /// let model = AutosarModel::new();
+    /// for (pathbuf, file_content) in model.serialize_files() {
     ///     // do something with it
     /// }
     /// # Ok(())
@@ -594,7 +595,7 @@ impl AutosarProject {
         result
     }
 
-    /// write all files in the project
+    /// write all files in the model
     ///
     /// This is a wrapper around serialize_files. The current filename of each file will be used to write the serialized data.
     ///
@@ -606,9 +607,9 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
+    /// let model = AutosarModel::new();
     /// // load or create files
-    /// project.write()?;
+    /// model.write()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -634,9 +635,9 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
+    /// let model = AutosarModel::new();
     /// // load or create files
-    /// for file in project.files() {
+    /// for file in model.files() {
     ///     // do something with the file
     /// }
     /// # Ok(())
@@ -646,15 +647,15 @@ impl AutosarProject {
         ArxmlFileIterator::new(self.clone())
     }
 
-    /// Get a referenct to the root ```<AUTOSAR ...>``` element of this project
+    /// Get a referenct to the root ```<AUTOSAR ...>``` element of this model
     ///
     /// # Example
     ///
     /// ```
     /// # use autosar_data::*;
-    /// # let project = AutosarProject::new();
-    /// # let _file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// let autosar_element = project.root_element();
+    /// # let model = AutosarModel::new();
+    /// # let _file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let autosar_element = model.root_element();
     /// ```
     pub fn root_element(&self) -> Element {
         let locked_proj = self.0.lock();
@@ -674,23 +675,23 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// let project = AutosarProject::new();
+    /// let model = AutosarModel::new();
     /// // [...]
-    /// if let Some(element) = project.get_element_by_path("/Path/To/Element") {
+    /// if let Some(element) = model.get_element_by_path("/Path/To/Element") {
     ///     // use the element
     /// }
     /// # Ok(())
     /// # }
     /// ```
     pub fn get_element_by_path(&self, path: &str) -> Option<Element> {
-        let project = self.0.lock();
-        project.identifiables.get(path).and_then(|element| element.upgrade())
+        let model = self.0.lock();
+        model.identifiables.get(path).and_then(|element| element.upgrade())
     }
 
-    /// create a depth-first iterator over all [Element]s in the project
+    /// create a depth-first iterator over all [Element]s in the model
     ///
     /// The iterator returns all elements from the merged model, consisting of
-    /// data from all arxml files loaded in this project.
+    /// data from all arxml files loaded in this model.
     ///
     /// Directly printing the return values could show something like this:
     ///
@@ -707,8 +708,8 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// # let project = AutosarProject::new();
-    /// for (depth, element) in project.elements_dfs() {
+    /// # let model = AutosarModel::new();
+    /// for (depth, element) in model.elements_dfs() {
     ///     // [...]
     /// }
     /// # Ok(())
@@ -718,7 +719,7 @@ impl AutosarProject {
         self.root_element().elements_dfs()
     }
 
-    /// Recursively sort all elements in the project. This is exactly identical to calling sort() on the root element of the project.
+    /// Recursively sort all elements in the model. This is exactly identical to calling sort() on the root element of the model.
     ///
     /// All sub elements of the root element are sorted alphabetically.
     /// If the sub-elements are named, then the sorting is performed according to the item names,
@@ -730,9 +731,9 @@ impl AutosarProject {
     /// # Example
     /// ```
     /// # use autosar_data::*;
-    /// # let project = AutosarProject::new();
-    /// # let file = project.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// project.sort();
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// model.sort();
     /// ```
     pub fn sort(&self) {
         self.root_element().sort()
@@ -752,16 +753,16 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// # let project = AutosarProject::new();
-    /// for (path, element) in project.identifiable_elements() {
+    /// # let model = AutosarModel::new();
+    /// for (path, element) in model.identifiable_elements() {
     ///     // [...]
     /// }
     /// # Ok(())
     /// # }
     /// ```
     pub fn identifiable_elements(&self) -> AutosarDataIdentElementsIterator {
-        let project = self.0.lock();
-        AutosarDataIdentElementsIterator::new(&project.identifiables)
+        let model = self.0.lock();
+        AutosarDataIdentElementsIterator::new(&model.identifiables)
     }
 
     /// return all elements referring to the given target path
@@ -779,8 +780,8 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// # let project = AutosarProject::new();
-    /// for weak_element in project.get_references_to("/Path/To/Element") {
+    /// # let model = AutosarModel::new();
+    /// for weak_element in model.get_references_to("/Path/To/Element") {
     ///     // [...]
     /// }
     /// # Ok(())
@@ -804,8 +805,8 @@ impl AutosarProject {
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
-    /// # let project = AutosarProject::new();
-    /// for broken_ref_weak in project.check_references() {
+    /// # let model = AutosarModel::new();
+    /// for broken_ref_weak in model.check_references() {
     ///     if let Some(broken_ref) = broken_ref_weak.upgrade() {
     ///         // update or delete ref?
     ///     }
@@ -816,9 +817,9 @@ impl AutosarProject {
     pub fn check_references(&self) -> Vec<WeakElement> {
         let mut broken_refs = Vec::new();
 
-        let project = self.0.lock();
-        for (path, element_list) in &project.reference_origins {
-            if let Some(target_elem_weak) = project.identifiables.get(path) {
+        let model = self.0.lock();
+        for (path, element_list) in &model.reference_origins {
+            if let Some(target_elem_weak) = model.identifiables.get(path) {
                 // reference target exists
                 if let Some(target_elem) = target_elem_weak.upgrade() {
                     // the target of the reference exists, but the reference can still be technically invalid
@@ -860,30 +861,30 @@ impl AutosarProject {
     }
 
     /// create a weak reference to this data
-    pub(crate) fn downgrade(&self) -> WeakAutosarProject {
-        WeakAutosarProject(Arc::downgrade(&self.0))
+    pub(crate) fn downgrade(&self) -> WeakAutosarModel {
+        WeakAutosarModel(Arc::downgrade(&self.0))
     }
 
     // add an identifiable element to the cache
     pub(crate) fn add_identifiable(&self, new_path: String, elem: WeakElement) {
-        let mut project = self.0.lock();
-        project.identifiables.insert(new_path, elem);
+        let mut model = self.0.lock();
+        model.identifiables.insert(new_path, elem);
     }
 
     // fix a single identifiable element or tree of elements in the cache which has been moved/renamed
     pub(crate) fn fix_identifiables(&self, old_path: &str, new_path: &str) {
-        let mut project = self.0.lock();
+        let mut model = self.0.lock();
 
         // the renamed element might contain other identifiable elements that are affected by the renaming
-        let keys: Vec<String> = project.identifiables.keys().cloned().collect();
+        let keys: Vec<String> = model.identifiables.keys().cloned().collect();
         for key in keys {
             // find keys referring to entries inside the renamed package
             if let Some(suffix) = key.strip_prefix(old_path) {
                 if suffix.is_empty() || suffix.starts_with('/') {
                     let new_key = format!("{new_path}{suffix}");
                     // fix the identifiables hashmap
-                    if let Some(entry) = project.identifiables.remove(&key) {
-                        project.identifiables.insert(new_key, entry);
+                    if let Some(entry) = model.identifiables.remove(&key) {
+                        model.identifiables.insert(new_key, entry);
                     }
                 }
             }
@@ -892,8 +893,8 @@ impl AutosarProject {
 
     // remove a deleted element from the cache
     pub(crate) fn remove_identifiable(&self, path: &str) {
-        let mut project = self.0.lock();
-        project.identifiables.remove(path);
+        let mut model = self.0.lock();
+        model.identifiables.remove(path);
     }
 
     pub(crate) fn add_reference_origin(&self, new_ref: &str, origin: WeakElement) {
@@ -944,7 +945,7 @@ impl AutosarProject {
     }
 }
 
-impl AutosarProjectRaw {
+impl AutosarModelRaw {
     pub(crate) fn set_version(&mut self, new_ver: AutosarVersion) {
         let attribute_value = CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
         let _ = self.root_element.0.lock().set_attribute_internal(
@@ -955,21 +956,21 @@ impl AutosarProjectRaw {
     }
 }
 
-impl Default for AutosarProject {
+impl Default for AutosarModel {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PartialEq for AutosarProject {
+impl PartialEq for AutosarModel {
     fn eq(&self, other: &Self) -> bool {
         Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
     }
 }
 
-impl WeakAutosarProject {
-    pub(crate) fn upgrade(&self) -> Option<AutosarProject> {
-        Weak::upgrade(&self.0).map(AutosarProject)
+impl WeakAutosarModel {
+    pub(crate) fn upgrade(&self) -> Option<AutosarModel> {
+        Weak::upgrade(&self.0).map(AutosarModel)
     }
 }
 
@@ -979,11 +980,11 @@ mod test {
 
     #[test]
     fn create_file() {
-        let project = AutosarProject::new();
-        let file = project.create_file("test", AutosarVersion::Autosar_00050);
+        let model = AutosarModel::new();
+        let file = model.create_file("test", AutosarVersion::Autosar_00050);
         assert!(file.is_ok());
         // error: duplicate file name
-        let file = project.create_file("test", AutosarVersion::Autosar_00050);
+        let file = model.create_file("test", AutosarVersion::Autosar_00050);
         assert!(file.is_err());
     }
 
@@ -1015,28 +1016,28 @@ mod test {
           </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         const NON_ARXML: &str = "The quick brown fox jumps over the lazy dog";
-        let project = AutosarProject::new();
+        let model = AutosarModel::new();
         // succefully load a buffer
-        let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
+        let result = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_ok());
         // succefully load a second buffer
-        let result = project.load_named_arxml_buffer(FILEBUF2.as_bytes(), "other", true);
+        let result = model.load_named_arxml_buffer(FILEBUF2.as_bytes(), "other", true);
         assert!(result.is_ok());
         // error: duplicate file name
-        let result = project.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
+        let result = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_err());
         // error: overlapping autosar paths
-        let result = project.load_named_arxml_buffer(FILEBUF3.as_bytes(), "test2", true);
+        let result = model.load_named_arxml_buffer(FILEBUF3.as_bytes(), "test2", true);
         assert!(result.is_err());
         // error: not arxml data
-        let result = project.load_named_arxml_buffer(NON_ARXML.as_bytes(), "nonsense", true);
+        let result = model.load_named_arxml_buffer(NON_ARXML.as_bytes(), "nonsense", true);
         assert!(result.is_err());
     }
 
     #[test]
     fn load_file() {
-        let project = AutosarProject::new();
-        assert!(project.load_arxml_file("nonexistent", true).is_err());
+        let model = AutosarModel::new();
+        assert!(model.load_arxml_file("nonexistent", true).is_err());
     }
 
     #[test]
@@ -1079,13 +1080,13 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#.as_bytes();
         // test with re-ordered identifiable elements and re-ordered BSW parameter values
         // both should be recognized and merged, so that the total number of elements does not increase
-        let project = AutosarProject::new();
-        let result = project.load_named_arxml_buffer(FILEBUF1, "test1", true);
+        let model = AutosarModel::new();
+        let result = model.load_named_arxml_buffer(FILEBUF1, "test1", true);
         assert!(result.is_ok());
-        let elemcount = project.elements_dfs().count();
-        let result = project.load_named_arxml_buffer(FILEBUF2, "test2", true);
+        let elemcount = model.elements_dfs().count();
+        let result = model.load_named_arxml_buffer(FILEBUF2, "test2", true);
         assert!(result.is_ok());
-        let elemcount2 = project.elements_dfs().count();
+        let elemcount2 = model.elements_dfs().count();
         // the second file is identical to the first, except for ordering.
         // The total number of elements should not grow as a result of loading it.
         assert_eq!(elemcount, elemcount2);
@@ -1117,11 +1118,11 @@ mod test {
             </SYSTEM-TIMING>
           </ELEMENTS>
         </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
-        let project = AutosarProject::new();
-        let result = project.load_named_arxml_buffer(ERRFILE1, "test1", true);
+        let model = AutosarModel::new();
+        let result = model.load_named_arxml_buffer(ERRFILE1, "test1", true);
         println!("{result:#?}");
         assert!(result.is_ok());
-        let result = project.load_named_arxml_buffer(ERRFILE2, "test2", true);
+        let result = model.load_named_arxml_buffer(ERRFILE2, "test2", true);
         let error = result.unwrap_err();
         assert!(matches!(error, AutosarDataError::InvalidFileMerge { .. }));
     }
@@ -1133,24 +1134,61 @@ mod test {
         <AR-PACKAGES>
         <AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME></AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
-        let project = AutosarProject::new();
-        let (file, _) = project
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
-            .unwrap();
-        assert_eq!(project.files().count(), 1);
-        assert_eq!(project.identifiable_elements().count(), 1);
-        project.remove_file(&file);
-        assert_eq!(project.files().count(), 0);
-        assert_eq!(project.identifiable_elements().count(), 0);
+        const FILEBUF2: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00049.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+        <AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME>
+        <ELEMENTS><CAN-CLUSTER><SHORT-NAME>CAN_Cluster</SHORT-NAME></CAN-CLUSTER></ELEMENTS>
+        </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        const FILEBUF3: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+        <AR-PACKAGE><SHORT-NAME>Package2</SHORT-NAME>
+        <ELEMENTS><SYSTEM><SHORT-NAME>System</SHORT-NAME>
+        <FIBEX-ELEMENTS><FIBEX-ELEMENT-REF-CONDITIONAL>
+            <FIBEX-ELEMENT-REF DEST="CAN-CLUSTER">/Package/CAN_Cluster</FIBEX-ELEMENT-REF>
+        </FIBEX-ELEMENT-REF-CONDITIONAL></FIBEX-ELEMENTS>
+        </SYSTEM></ELEMENTS></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        // easy case: remove the only file
+        let model = AutosarModel::new();
+        let (file, _) = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        assert_eq!(model.files().count(), 1);
+        assert_eq!(model.identifiable_elements().count(), 1);
+        model.remove_file(&file);
+        assert_eq!(model.files().count(), 0);
+        assert_eq!(model.identifiable_elements().count(), 0);
+        // complicated: remove one of several files
+        let model = AutosarModel::new();
+        model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test1", true).unwrap();
+        assert_eq!(model.files().count(), 1);
+        let modeltxt_1 = model.root_element().serialize();
+        let (file2, _) = model.load_named_arxml_buffer(FILEBUF2.as_bytes(), "test2", true).unwrap();
+        assert_eq!(model.files().count(), 2);
+        let modeltxt_1_2 = model.root_element().serialize();
+        assert_ne!(modeltxt_1, modeltxt_1_2);
+        let (file3, _) = model.load_named_arxml_buffer(FILEBUF3.as_bytes(), "test3", true).unwrap();
+        assert_eq!(model.files().count(), 3);
+        let modeltxt_1_2_3 = model.root_element().serialize();
+        assert_ne!(modeltxt_1_2, modeltxt_1_2_3);
+        model.get_element_by_path("/Package2/System").unwrap();
+        model.remove_file(&file3);
+        let modeltxt_1_2_x = model.root_element().serialize();
+        assert_eq!(modeltxt_1_2, modeltxt_1_2_x);
+        model.remove_file(&file2);
+        let modeltxt_1_x_x = model.root_element().serialize();
+        assert_eq!(modeltxt_1, modeltxt_1_x_x);
+        assert_eq!(model.files().count(), 1);
     }
 
     #[test]
     fn refcount() {
-        let project = AutosarProject::default();
-        let weak = project.downgrade();
+        let model = AutosarModel::default();
+        let weak = model.downgrade();
         let project2 = weak.upgrade();
-        assert_eq!(Arc::strong_count(&project.0), 2);
-        assert_eq!(project, project2.unwrap());
+        assert_eq!(Arc::strong_count(&model.0), 2);
+        assert_eq!(model, project2.unwrap());
     }
 
     #[test]
@@ -1171,11 +1209,9 @@ mod test {
             </AR-PACKAGES>
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
-        let project = AutosarProject::new();
-        project
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
-            .unwrap();
-        let mut iter = project.identifiable_elements();
+        let model = AutosarModel::new();
+        model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        let mut iter = model.identifiable_elements();
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
         assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage2");
@@ -1207,11 +1243,9 @@ mod test {
             </ELEMENTS>
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
-        let project = AutosarProject::new();
-        project
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true)
-            .unwrap();
-        let invalid_refs = project.check_references();
+        let model = AutosarModel::new();
+        model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        let invalid_refs = model.check_references();
         assert_eq!(invalid_refs.len(), 2);
         let ref0 = invalid_refs[0].upgrade().unwrap();
         assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
@@ -1219,20 +1253,20 @@ mod test {
         if refpath != "/Pkg/System" && refpath != "/Some/Invalid/Path" {
             panic!("unexpected path: {refpath}");
         }
-        project.get_element_by_path("/Pkg/EcuInstance").unwrap();
-        let refs = project.get_references_to("/Pkg/EcuInstance");
+        model.get_element_by_path("/Pkg/EcuInstance").unwrap();
+        let refs = model.get_references_to("/Pkg/EcuInstance");
         assert_eq!(refs.len(), 1);
-        let refs = project.get_references_to("nonexistent");
+        let refs = model.get_references_to("nonexistent");
         assert!(refs.is_empty());
     }
 
     #[test]
     fn serialize_files() {
-        let project = AutosarProject::default();
-        let file1 = project.create_file("filename1", AutosarVersion::Autosar_00042).unwrap();
-        let file2 = project.create_file("filename2", AutosarVersion::Autosar_00042).unwrap();
+        let model = AutosarModel::default();
+        let file1 = model.create_file("filename1", AutosarVersion::Autosar_00042).unwrap();
+        let file2 = model.create_file("filename2", AutosarVersion::Autosar_00042).unwrap();
 
-        let result = project.serialize_files();
+        let result = model.serialize_files();
         assert_eq!(result.len(), 2);
         assert_eq!(
             result.get(&PathBuf::from("filename1")).unwrap(),
@@ -1245,12 +1279,18 @@ mod test {
     }
 
     #[test]
+    fn write() {
+        let model = AutosarModel::default();
+        model.write().unwrap();
+    }
+
+    #[test]
     fn traits() {
-        // AutosarProject: Debug, Clone
-        let project = AutosarProject::new();
-        let p2 = project.clone();
-        assert_eq!(project, p2);
-        assert_eq!(format!("{project:#?}"), format!("{p2:#?}"));
+        // AutosarModel: Debug, Clone
+        let model = AutosarModel::new();
+        let p2 = model.clone();
+        assert_eq!(model, p2);
+        assert_eq!(format!("{model:#?}"), format!("{p2:#?}"));
 
         // CharacterData
         let cdata = CharacterData::String("x".to_string());
@@ -1258,7 +1298,7 @@ mod test {
         assert_eq!(cdata, cdata2);
         assert_eq!(format!("{cdata:#?}"), format!("{cdata2:#?}"));
 
-        // ContentType 
+        // ContentType
         let ct: ContentType = ContentType::Elements;
         let ct2 = ct.clone();
         assert_eq!(ct, ct2);

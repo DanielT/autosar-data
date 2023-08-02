@@ -11,9 +11,9 @@ fn main() {
     }
     let filename = &args[1];
 
-    // create a project and load the file
-    let project = AutosarProject::new();
-    let arxmlfile = match project.load_arxml_file(filename, false) {
+    // create the data model and load the file
+    let model = AutosarModel::new();
+    let arxmlfile = match model.load_arxml_file(filename, false) {
         Ok((arxmlfile, warnings)) => {
             for warn_msg in warnings {
                 println!("Warning: {warn_msg}");
@@ -26,12 +26,12 @@ fn main() {
         }
     };
 
-    project.sort();
+    model.sort();
 
     // write the sorted file
     let filename_prefix = filename.strip_suffix(".arxml").unwrap_or(filename);
     let new_filename = format!("{filename_prefix}_sorted.arxml");
     arxmlfile.set_filename(&new_filename);
-    project.write().unwrap();
+    model.write().unwrap();
     println!("Sorted output has been written to \"{new_filename}\"");
 }

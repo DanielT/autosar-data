@@ -5,7 +5,7 @@ use std::{
     io::Read,
 };
 
-use autosar_data::AutosarProject;
+use autosar_data::AutosarModel;
 use autosar_data_specification::*;
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
         return;
     }
 
-    let project = AutosarProject::new();
+    let model = AutosarModel::new();
     for arg in args.iter().skip(1) {
         let filename = OsString::from(arg);
         let buffer = match load_file_data(&filename) {
@@ -28,7 +28,7 @@ fn main() {
         };
 
         let now = std::time::Instant::now();
-        let result = project.load_named_arxml_buffer(&buffer, &filename, false);
+        let result = model.load_named_arxml_buffer(&buffer, &filename, false);
         match result {
             Ok((_, warnings)) => {
                 println!("parsing succeeded in {}ms", now.elapsed().as_micros() as f64 / 1000.0);
@@ -43,10 +43,10 @@ fn main() {
         println!("loaded arxml file: {}", arg);
     }
 
-    for (_, elem) in project.elements_dfs() {
+    for (_, elem) in model.elements_dfs() {
         if elem.is_reference() && elem.element_name() != ElementName::DefinitionRef {
             let target_path = elem.character_data().and_then(|cdata| cdata.string_value()).unwrap();
-            if project.get_element_by_path(&target_path).is_none() {
+            if model.get_element_by_path(&target_path).is_none() {
                 println!("Invalid reference from {} to {target_path}", elem.element_name());
             }
         }

@@ -1,12 +1,12 @@
 use super::*;
 
 pub struct ArxmlFileIterator {
-    data: AutosarProject,
+    data: AutosarModel,
     index: usize,
 }
 
 impl ArxmlFileIterator {
-    pub(crate) fn new(data: AutosarProject) -> Self {
+    pub(crate) fn new(data: AutosarModel) -> Self {
         Self { data, index: 0 }
     }
 }
@@ -15,9 +15,9 @@ impl Iterator for ArxmlFileIterator {
     type Item = ArxmlFile;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let project = self.data.0.lock();
-        if self.index < project.files.len() {
-            let result = project.files[self.index].clone();
+        let model = self.data.0.lock();
+        if self.index < model.files.len() {
+            let result = model.files[self.index].clone();
             self.index += 1;
             return Some(result);
         }
@@ -210,7 +210,7 @@ impl Iterator for AttributeIterator {
     }
 }
 
-/// An iterator over all identifiable elements in the [AutosarProject]
+/// An iterator over all identifiable elements in the [AutosarModel]
 pub struct AutosarDataIdentElementsIterator {
     // The implementation of this iterator has two problems:
     // 1) it's not possible to return references to data protected by a mutex, which makes sense (we would be bypassing the mutex to read through the references)
@@ -254,7 +254,7 @@ mod test {
     #[test]
     fn elements_dfs_iterator() {
         let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-            parent: ElementOrProject::None,
+            parent: ElementOrModel::None,
             elemname: ElementName::ArPackage, // doesn't matter for this test
             elemtype: ElementType::ROOT,      // doesn't matter for this test
             attributes: SmallVec::new(),
@@ -262,7 +262,7 @@ mod test {
             file_membership: HashSet::with_capacity(0),
         })));
         let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
-            parent: ElementOrProject::None,
+            parent: ElementOrModel::None,
             elemname: ElementName::ArPackages, // doesn't matter for this test
             elemtype: ElementType::ROOT,       // doesn't matter for this test
             attributes: SmallVec::new(),
@@ -273,7 +273,7 @@ mod test {
             file_membership: HashSet::with_capacity(0),
         })));
         let element = Element(Arc::new(Mutex::new(ElementRaw {
-            parent: ElementOrProject::None,
+            parent: ElementOrModel::None,
             elemname: ElementName::Autosar, // doesn't matter for this test
             elemtype: ElementType::ROOT,    // doesn't matter for this test
             attributes: SmallVec::new(),
@@ -289,15 +289,19 @@ mod test {
 
     #[test]
     fn elements_dfs_next_sibling() {
-        let project = AutosarProject::new();
-        let el_autosar = project.root_element();
+        let model = AutosarModel::new();
+        let el_autosar = model.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
-        let el_ar_package_1 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "Package1") .unwrap();
+        let el_ar_package_1 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package1")
+            .unwrap();
         el_ar_package_1.create_sub_element(ElementName::Elements).unwrap();
-        let el_ar_package_2 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "Package2") .unwrap();
+        let el_ar_package_2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package2")
+            .unwrap();
         el_ar_package_2.create_sub_element(ElementName::Elements).unwrap();
 
-        let mut dfs_iter = project.elements_dfs();
+        let mut dfs_iter = model.elements_dfs();
         let (_, item) = dfs_iter.next().unwrap();
         assert_eq!(item, el_autosar);
         let (_, item) = dfs_iter.next().unwrap();
