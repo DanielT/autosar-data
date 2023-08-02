@@ -166,7 +166,7 @@ struct ElementSpec {
     character_data: Option<u16>,
     mode: ContentMode,
     ordered: bool,
-    splitable: u32,
+    splittable: u32,
 }
 
 impl AutosarVersion {
@@ -446,14 +446,14 @@ impl ElementType {
     /// This function returns a bitfield that indicates in which versions (if any) the ElementType is marked as splittable.
     /// A splittable element may be split across multiple arxml files
     pub fn splittable(&self) -> u32 {
-        DATATYPES[self.0].splitable
+        DATATYPES[self.0].splittable
     }
 
     /// Is the current ElementType splittable in the given version
     ///
     /// A splittable element may be split across multiple arxml files
     pub fn splittable_in(&self, version: AutosarVersion) -> bool {
-        (DATATYPES[self.0].splitable & (version as u32)) != 0
+        (DATATYPES[self.0].splittable & (version as u32)) != 0
     }
 
     /// ElementType::ROOT is the root ElementType of the Autosar arxml document, i.e. this is the ElementType of the AUTOSAR element
