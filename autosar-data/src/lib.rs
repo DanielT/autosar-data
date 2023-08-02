@@ -17,25 +17,25 @@
 //! ```no_run
 //! use autosar_data::*;
 //! # fn main() -> Result<(), AutosarDataError> {
-//! /* load a multi-file project */
-//! let project = AutosarProject::new();
-//! let (file_1, warnings_1) = project.load_arxml_file("some_file.arxml", false)?;
-//! let (file_2, warnings_2) = project.load_arxml_file("other_file.arxml", false)?;
+//! /* load a multi-file data model */
+//! let model = AutosarModel::new();
+//! let (file_1, warnings_1) = model.load_arxml_file("some_file.arxml", false)?;
+//! let (file_2, warnings_2) = model.load_arxml_file("other_file.arxml", false)?;
 //! /* load a buffer */
 //! # let buffer = b"";
-//! let (file_3, _) = project.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
+//! let (file_3, _) = model.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
 //!
-//! /* write all files of the project */
-//! project.write()?;
+//! /* write all files of the model */
+//! model.write()?;
 //!
 //! /* alternatively: */
-//! for file in project.files() {
+//! for file in model.files() {
 //!     let file_data = file.serialize();
 //!     // do something with file_data
 //! }
 //!
 //! /* iterate over all elements in all files */
-//! for (depth, element) in project.elements_dfs() {
+//! for (depth, element) in model.elements_dfs() {
 //!     if element.is_identifiable() {
 //!         /* the element is identifiable using an Autosar path */
 //!         println!("{depth}: {}, {}", element.element_name(), element.path()?);
@@ -45,7 +45,7 @@
 //! }
 //!
 //! /* get an element by its Autosar path */
-//! let pdu_element = project.get_element_by_path("/Package/Mid/PduName").unwrap();
+//! let pdu_element = model.get_element_by_path("/Package/Mid/PduName").unwrap();
 //!
 //! /* work with the content of elements */
 //! if let Some(length) = pdu_element
@@ -86,7 +86,7 @@ use std::{fs::File, io::Read};
 use thiserror::Error;
 
 mod arxmlfile;
-mod autosarproject;
+mod autosarmodel;
 mod chardata;
 mod element;
 mod iterators;
@@ -99,22 +99,27 @@ pub use autosar_data_specification::AutosarVersion;
 pub use autosar_data_specification::ElementName;
 pub use autosar_data_specification::EnumItem;
 
-/// AutosarProject is the top level data type in the autosar-data crate.
+/// AutosarModel is the top level data type in the autosar-data crate.
 ///
-/// All manipulations of arxml files are performed through an instance of AutosarProject
-#[derive(Debug, Clone)]
-pub struct AutosarProject(Arc<Mutex<AutosarProjectRaw>>);
-
-// Weak reference to an instance of AutosarProject
-#[derive(Debug, Clone)]
-pub(crate) struct WeakAutosarProject(Weak<Mutex<AutosarProjectRaw>>);
-
-/// An autosar project
+/// An instance of AutosarModel is required for all other operations.
 ///
-/// The project consists of a number auf arxml files, each of which contains a heirarchy of elements.
-/// In addition, this top-level structure provides chaching of Autosar paths, to allow quick resolution of cross-references.
+/// The model contains the hierarchy of Autosar elements. It can be created manually or loaded from one or more arxml files.
+/// It stores the association between elements and files.
+/// In addition, this top-level structure provides caching of Autosar paths, to allow quick resolution of cross-references.
+#[derive(Debug, Clone)]
+pub struct AutosarModel(Arc<Mutex<AutosarModelRaw>>);
+
+// Weak reference to an instance of AutosarModel
+#[derive(Debug, Clone)]
+pub(crate) struct WeakAutosarModel(Weak<Mutex<AutosarModelRaw>>);
+
+/// The inner autosar data model (unlocked)
+///
+/// The model contains the hierarchy of Autosar elements. It can be created manually or loaded from one or more arxml files.
+/// It stores the association between elements and files.
+/// In addition, this top-level structure provides caching of Autosar paths, to allow quick resolution of cross-references.
 #[derive(Debug)]
-pub(crate) struct AutosarProjectRaw {
+pub(crate) struct AutosarModelRaw {
     root_element: Element,
     files: Vec<ArxmlFile>,
     /// identifiables is a HashMap of all named elements, needed to resolve references without doing a full search.
@@ -158,7 +163,7 @@ pub enum AutosarDataError {
         source: ArxmlParserError,
     },
 
-    /// A file could not be loaded into the project, because the Autosar paths of the new data overlapped with the Autosar paths of the existing data
+    /// A file could not be loaded into the model, because the Autosar paths of the new data overlapped with the Autosar paths of the existing data
     #[error("Loading failed: element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
     OverlappingDataError { filename: PathBuf, path: String },
 
@@ -256,7 +261,7 @@ pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 #[derive(Debug)]
 pub(crate) struct ArxmlFileRaw {
     pub(crate) version: AutosarVersion,
-    project: WeakAutosarProject,
+    model: WeakAutosarModel,
     pub(crate) filename: PathBuf,
     pub(crate) xml_standalone: Option<bool>, // preserve the xml standalone attribute
 }
@@ -280,7 +285,7 @@ pub struct WeakElement(Weak<Mutex<ElementRaw>>);
 /// The data of an arxml element
 #[derive(Debug)]
 pub(crate) struct ElementRaw {
-    pub(crate) parent: ElementOrProject,
+    pub(crate) parent: ElementOrModel,
     pub(crate) elemname: ElementName,
     pub(crate) elemtype: ElementType,
     pub(crate) content: SmallVec<[ElementContent; 4]>,
@@ -335,9 +340,9 @@ pub enum ContentType {
 /// This enum is used for references to the parent of each element. For all elements other than the
 /// root element, the parent is an element. The root element itself has a referenct to the ArxmlFile structure.
 #[derive(Debug, Clone)]
-pub(crate) enum ElementOrProject {
+pub(crate) enum ElementOrModel {
     Element(WeakElement),
-    Project(WeakAutosarProject),
+    Model(WeakAutosarModel),
     None, // needed while constructing the data trees, otherwise there's a chicken vs. egg problem
 }
 

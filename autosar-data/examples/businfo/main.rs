@@ -1,6 +1,6 @@
 use std::env;
 
-use autosar_data::{AutosarProject, CharacterData, Element, ElementName, EnumItem};
+use autosar_data::{AutosarModel, CharacterData, Element, ElementName, EnumItem};
 use rustc_hash::FxHashMap;
 
 enum TimeRangeTolerance {
@@ -21,24 +21,24 @@ fn main() {
         return;
     }
 
-    let project = AutosarProject::new();
+    let model = AutosarModel::new();
 
     for filename in &args[1..] {
-        if let Err(err) = project.load_arxml_file(filename, false) {
+        if let Err(err) = model.load_arxml_file(filename, false) {
             println!("parsing failed: {err}");
             return;
         }
     }
 
-    extract_bus_info(project);
+    extract_bus_info(model);
 }
 
 // the starting point for the info we want is a CLUSTER, which is found by iterating over all identifiable elements
 // <AUTOSAR> ...
 //   <AR-PACKAGE> ...
 //     <CAN_CLUSTER> -or- <FLEXRAY-CLUSTER> -or- <J1939-CLUSTER>
-fn extract_bus_info(project: AutosarProject) {
-    for (_, weak_element) in project.identifiable_elements() {
+fn extract_bus_info(model: AutosarModel) {
+    for (_, weak_element) in model.identifiable_elements() {
         let element = weak_element.upgrade().unwrap();
         match element.element_name() {
             ElementName::CanCluster => {

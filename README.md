@@ -1,7 +1,7 @@
+# `autosar-data`
+
 [![Github Actions](https://github.com/DanielT/autosar-data/workflows/Test/badge.svg)](https://github.com/DanielT/autosar-data/actions)
 [![codecov](https://codecov.io/gh/DanielT/autosar-data/branch/main/graph/badge.svg?token=RGKUUJTWZ5)](https://codecov.io/gh/DanielT/autosar-data)
-
-# `autosar-data`
 
 This crate provides functionality to read, modify and write Autosar 4 arxml files,
 both separately and in projects consisting of multiple files.
@@ -21,25 +21,25 @@ both separately and in projects consisting of multiple files.
 ```rust
 use autosar_data::*;
 
-/* load a multi-file project */
-let project = AutosarProject::new();
-let (file_1, warnings_1) = project.load_arxml_file("some_file.arxml", false)?;
-let (file_2, warnings_2) = project.load_arxml_file("other_file.arxml", false)?;
+/* load a multi-file data model */
+let model = AutosarModel::new();
+let (file_1, warnings_1) = model.load_arxml_file("some_file.arxml", false)?;
+let (file_2, warnings_2) = model.load_arxml_file("other_file.arxml", false)?;
 
 /* load a buffer */
-let (file_3, _) = project.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
+let (file_3, _) = model.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
 
-/* write all files of the project */
-project.write()?;
+/* write all files of the model */
+model.write()?;
 
 /* alternatively: */
-for file in project.files() {
+for file in model.files() {
     let file_data = file.serialize();
     // do something with file_data
 }
 
 /* iterate over all elements in all files */
-for (depth, element) in project.elements_dfs() {
+for (depth, element) in model.elements_dfs() {
     if element.is_identifiable() {
         /* the element is identifiable using an Autosar path */
         println!("{depth}: {}, {}", element.element_name(), element.path()?);
@@ -49,7 +49,7 @@ for (depth, element) in project.elements_dfs() {
 }
 
 /* get an element by its Autosar path */
-let pdu_element = project.get_element_by_path("/Package/Mid/PduName").unwrap();
+let pdu_element = model.get_element_by_path("/Package/Mid/PduName").unwrap();
 
 /* work with the content of elements */
 if let Some(length) = pdu_element

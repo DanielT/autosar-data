@@ -278,7 +278,7 @@ impl<'a> ArxmlParser<'a> {
 
                     let path = Cow::from("");
                     let autosar_root_element = self.parse_element(
-                        ElementOrProject::None,
+                        ElementOrModel::None,
                         ElementName::Autosar,
                         attributes,
                         ElementType::ROOT,
@@ -303,7 +303,7 @@ impl<'a> ArxmlParser<'a> {
 
     fn parse_element(
         &mut self,
-        parent: ElementOrProject,
+        parent: ElementOrModel,
         element_name: ElementName,
         attributes: SmallVec<[Attribute; 1]>,
         elemtype: ElementType,
@@ -342,7 +342,7 @@ impl<'a> ArxmlParser<'a> {
                         let attributes = self.parse_attribute_text(sub_elemtype, attr_text)?;
                         // recursively parse the sub element and its sub sub elements
                         let sub_element = self.parse_element(
-                            ElementOrProject::Element(wrapped_element.downgrade()),
+                            ElementOrModel::Element(wrapped_element.downgrade()),
                             name,
                             attributes,
                             sub_elemtype,
