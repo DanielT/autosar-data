@@ -167,6 +167,7 @@ struct ElementSpec {
     mode: ContentMode,
     ordered: bool,
     splittable: u32,
+    ref_by: &'static [EnumItem],
 }
 
 impl AutosarVersion {
@@ -456,7 +457,32 @@ impl ElementType {
         (DATATYPES[self.0].splittable & (version as u32)) != 0
     }
 
-    /// ElementType::ROOT is the root ElementType of the Autosar arxml document, i.e. this is the ElementType of the AUTOSAR element
+    /// find the correct EnumItem to use in the DEST attribute when referring from this element to the other element
+    ///
+    /// Returns Some(enum_item) it the reference is possible, and None otherwise.
+    ///
+    /// Example:
+    ///
+    /// When referring to a `<CAN-TP-CONNECTION><IDENT><SHORT-NAME>foo...`
+    /// the referrring `<PHYSICAL-REQUEST-REF [...]>` must set DEST="TP-CONNECTION-IDENT"
+    pub fn reference_dest_value(&self, other: &ElementType) -> Option<EnumItem> {
+        // this element must be a reference, and the other element must be identifiable, otherwise it is not a valid target
+        if self.is_ref() && other.is_named() {
+            let dest_spec = self.find_attribute_spec(AttributeName::Dest)?.spec;
+            if let CharacterDataSpec::Enum { items } = dest_spec {
+                for ref_target_value in DATATYPES[other.0].ref_by {
+                    for (enumitem, _) in *items {
+                        if ref_target_value == enumitem {
+                            return Some(*ref_target_value);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// ElementType::ROOT is the root ElementType of the Autosar arxml document: this is the ElementType of the AUTOSAR element
     pub const ROOT: Self = ElementType(ROOT_DATATYPE);
 }
 
@@ -1011,6 +1037,44 @@ mod test {
         assert_ne!(ar_packages_type.splittable() & AutosarVersion::Autosar_00051 as u32, 0);
         assert!(ar_packages_type.splittable_in(AutosarVersion::Autosar_00051));
         assert_ne!(elements_type.splittable() & AutosarVersion::Autosar_00051 as u32, 0);
+    }
+
+    #[test]
+    fn reference_dest() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+        let (can_tp_config_type, _) = elements_type
+            .find_sub_element(ElementName::CanTpConfig, u32::MAX)
+            .unwrap();
+        let (tp_connections_type, _) = can_tp_config_type
+            .find_sub_element(ElementName::TpConnections, u32::MAX)
+            .unwrap();
+        let (can_tp_connection_type, _) = tp_connections_type
+            .find_sub_element(ElementName::CanTpConnection, u32::MAX)
+            .unwrap();
+        let (ident_type, _) = can_tp_connection_type
+            .find_sub_element(ElementName::Ident, u32::MAX)
+            .unwrap();
+
+        let (diagnostic_connection_type, _) = elements_type
+            .find_sub_element(ElementName::DiagnosticConnection, u32::MAX)
+            .unwrap();
+        let (physical_request_ref_type, _) = diagnostic_connection_type
+            .find_sub_element(ElementName::PhysicalRequestRef, u32::MAX)
+            .unwrap();
+
+        let ref_value = physical_request_ref_type.reference_dest_value(&ident_type).unwrap();
+        assert_eq!(ref_value, EnumItem::TpConnectionIdent);
+        let invalid_ref = physical_request_ref_type.reference_dest_value(&tp_connections_type);
+        assert!(invalid_ref.is_none());
+
     }
 
     #[test]

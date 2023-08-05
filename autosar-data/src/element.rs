@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use crate::iterators::*;
 use super::*;
 
 impl Element {
@@ -686,7 +685,10 @@ impl Element {
             // the target element must be identifiable, i.e. it has an autosar path
             let new_ref = target.path()?;
             // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
-            if let Ok(enum_item) = EnumItem::from_str(target.element_name().to_str()) {
+            if let Some(enum_item) = EnumItem::from_str(target.element_name().to_str())
+                .ok()
+                .or(self.element_type().reference_dest_value(&target.element_type()))
+            {
                 let model = self.model()?;
                 let version = self.min_version()?;
                 let mut element = self.0.lock();
@@ -765,7 +767,15 @@ impl Element {
                     .attribute_string(AttributeName::Dest)
                     .ok_or(AutosarDataError::InvalidReference)?;
                 if dest == target_elem.element_name().to_str() {
+                    // common case: the value of DEST is equal to the element name of the target
                     Ok(target_elem)
+                } else if let Some(refval) = self.element_type().reference_dest_value(&target_elem.element_type()) {
+                    // uncommon: find a correct DEST value in the specification
+                    if refval.to_string() == dest {
+                        Ok(target_elem)
+                    } else {
+                        Err(AutosarDataError::InvalidReference)
+                    }
                 } else {
                     Err(AutosarDataError::InvalidReference)
                 }
@@ -2323,6 +2333,16 @@ mod test {
             .and_then(|fe| fe.create_sub_element(ElementName::FibexElementRefConditional))
             .and_then(|ferc| ferc.create_sub_element(ElementName::FibexElementRef))
             .unwrap();
+        let el_physical_request_ref = el_elements
+            .create_named_sub_element(ElementName::DiagnosticConnection, "DiagnosticConnection")
+            .and_then(|dc| dc.create_sub_element(ElementName::PhysicalRequestRef))
+            .unwrap();
+        let el_connection_ident = el_elements
+            .create_named_sub_element(ElementName::CanTpConfig, "CanTpConfig")
+            .and_then(|ctc| ctc.create_sub_element(ElementName::TpConnections))
+            .and_then(|tc: Element| tc.create_sub_element(ElementName::CanTpConnection))
+            .and_then(|ctc: Element| ctc.create_named_sub_element(ElementName::Ident, "ConnectionIdent"))
+            .unwrap();
 
         // set_reference_target does not work for elements which are not references
         assert!(el_elements.set_reference_target(&el_ar_package).is_err());
@@ -2339,6 +2359,11 @@ mod test {
         // update with a different valid reference and verify that the reference can be used
         el_fibex_element_ref.set_reference_target(&el_ecu_instance2).unwrap();
         assert_eq!(el_fibex_element_ref.get_reference_target().unwrap(), el_ecu_instance2);
+
+        // set a valid reference to <CAN-TP-CONNECTION><IDENT>.
+        // This is a complex case, as the correct DEST attribute must be looked up in the specification
+        el_physical_request_ref.set_reference_target(&el_connection_ident).unwrap();
+        assert_eq!(el_physical_request_ref.get_reference_target().unwrap(), el_connection_ident);
 
         // invalid reference: bad DEST attribute
         el_fibex_element_ref

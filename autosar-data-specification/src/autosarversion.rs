@@ -78,7 +78,7 @@ impl AutosarVersion {
     /// Human readable description of the Autosar version
     ///
     /// This is particularly useful for the later versions, where the xsd files are just sequentially numbered.
-    /// For example Autosar_00050 -> "AUTOSAR 4.7.0"
+    /// For example Autosar_00050 -> "AUTOSAR R21-11"
     pub fn describe(&self) -> &'static str {
         match self {
             Self::Autosar_4_0_1 => "AUTOSAR 4.0.1",
@@ -104,7 +104,7 @@ impl AutosarVersion {
         }
     }
 
-    /// AutosarVersion::LATEST is an alias of whichever is the latest version, currently Autosar_00050
+    /// AutosarVersion::LATEST is an alias of whichever is the latest version, currently Autosar_00051
     pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00051;
 }
 
