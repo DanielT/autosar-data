@@ -1074,7 +1074,6 @@ mod test {
         assert_eq!(ref_value, EnumItem::TpConnectionIdent);
         let invalid_ref = physical_request_ref_type.reference_dest_value(&tp_connections_type);
         assert!(invalid_ref.is_none());
-
     }
 
     #[test]

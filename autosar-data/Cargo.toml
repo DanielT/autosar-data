@@ -1,6 +1,6 @@
 [package]
 name = "autosar-data"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Daniel Thaler <daniel@dthaler.de>"]
 edition = "2021"
 description = "read, write and modify Autosar arxml data"
@@ -10,7 +10,7 @@ categories = ["parser-implementations"]
 repository = "https://github.com/DanielT/autosar-data"
 
 [dependencies]
-autosar-data-specification = "0.5"
+autosar-data-specification = "0.6"
 thiserror = "~1.0"
 smallvec = { version = "~1.10.0", features = ["union", "const_generics"]}
 parking_lot = "0.12"
