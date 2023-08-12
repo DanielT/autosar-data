@@ -670,15 +670,13 @@ impl ElementRaw {
             let current_position = self
                 .content
                 .iter()
-                .enumerate()
-                .find(|(_, item)| {
+                .position(|item| {
                     if let ElementContent::Element(elem) = item {
                         *elem == *move_element
                     } else {
                         false
                     }
                 })
-                .map(|(idx, _)| idx)
                 .unwrap();
 
             if current_position < position {
@@ -744,15 +742,13 @@ impl ElementRaw {
             let idx = src_parent_locked
                 .content
                 .iter()
-                .enumerate()
-                .find(|(_, item)| {
+                .position(|item| {
                     if let ElementContent::Element(elem) = item {
                         *elem == *move_element
                     } else {
                         false
                     }
                 })
-                .map(|(idx, _)| idx)
                 .unwrap();
             src_parent_locked.content.remove(idx);
         }
@@ -852,15 +848,13 @@ impl ElementRaw {
             let idx = src_parent_locked
                 .content
                 .iter()
-                .enumerate()
-                .find(|(_, item)| {
+                .position(|item| {
                     if let ElementContent::Element(elem) = item {
                         *elem == *move_element
                     } else {
                         false
                     }
                 })
-                .map(|(idx, _)| idx)
                 .unwrap();
             src_parent_locked.content.remove(idx);
         }
@@ -1019,15 +1013,13 @@ impl ElementRaw {
         let pos = self
             .content
             .iter()
-            .enumerate()
-            .find(|(_, item)| {
+            .position(|item| {
                 if let ElementContent::Element(elem) = item {
                     *elem == sub_element
                 } else {
                     false
                 }
             })
-            .map(|(idx, _)| idx)
             .ok_or(AutosarDataError::ElementNotFound)?;
         if self.elemtype.is_named() && sub_element_locked.elemname == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state

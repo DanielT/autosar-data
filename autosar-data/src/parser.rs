@@ -556,11 +556,10 @@ impl<'a> ArxmlParser<'a> {
             // attr_name_part may have leading whitespace and will always have a trailing '='
             // these need to be stripped
             let name_len = attr_name_part.len() - 1; // exclude the trailing =
-            let (name_start, _) = attr_name_part
+            let name_start = attr_name_part
                 .iter()
-                .enumerate()
-                .find(|(_, c)| !c.is_ascii_whitespace())
-                .unwrap_or((name_len, &0u8));
+                .position(|c| !c.is_ascii_whitespace())
+                .unwrap_or(name_len);
             if let Ok(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start..name_len]) {
                 if let Some(AttributeSpec {
                     spec: ctype,
@@ -814,11 +813,7 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
         while input[len - 1].is_ascii_whitespace() {
             len -= 1;
         }
-        let (start, _) = input
-            .iter()
-            .enumerate()
-            .find(|(_, c)| !c.is_ascii_whitespace())
-            .unwrap_or((len, &0u8));
+        let start = input.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(len);
         &input[start..len]
     } else {
         input

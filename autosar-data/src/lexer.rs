@@ -87,12 +87,11 @@ impl<'a> ArxmlLexer<'a> {
             (&self.buffer[self.bufpos + 1..endpos], false)
         };
 
-        let (elemname, attributes) =
-            if let Some((splitpos, _)) = text.iter().enumerate().find(|(_, c)| c.is_ascii_whitespace()) {
-                (&text[..splitpos], &text[splitpos + 1..])
-            } else {
-                (text, &text[0..0])
-            };
+        let (elemname, attributes) = if let Some(splitpos) = text.iter().position(|c| c.is_ascii_whitespace()) {
+            (&text[..splitpos], &text[splitpos + 1..])
+        } else {
+            (text, &text[0..0])
+        };
 
         // this is a <element/>, so a EndElement event needs to be generated next
         if is_end {
@@ -141,12 +140,11 @@ impl<'a> ArxmlLexer<'a> {
             let mut encoding = &text[0..0];
             let mut standalone: Option<bool> = None;
             for attr_text in splitter {
-                let (attr_name, attr_val) =
-                    if let Some((pos, _)) = attr_text.iter().enumerate().find(|(_, c)| **c == b'=') {
-                        (&attr_text[0..pos], &attr_text[pos + 2..attr_text.len() - 1])
-                    } else {
-                        (attr_text, &attr_text[0..0])
-                    };
+                let (attr_name, attr_val) = if let Some(pos) = attr_text.iter().position(|c| *c == b'=') {
+                    (&attr_text[0..pos], &attr_text[pos + 2..attr_text.len() - 1])
+                } else {
+                    (attr_text, &attr_text[0..0])
+                };
                 if attr_name == b"version" {
                     ver = attr_val;
                 } else if attr_name == b"encoding" {
@@ -203,10 +201,9 @@ impl<'a> ArxmlLexer<'a> {
                 } else if self.buffer[self.bufpos] == b'<' {
                     // start of an <element> or </element> or <!--comment-->
                     // find a '>' character
-                    let (findpos, _) = self.buffer[self.bufpos + 1..]
+                    let findpos = self.buffer[self.bufpos + 1..]
                         .iter()
-                        .enumerate()
-                        .find(|(_, c)| **c == b'>')
+                        .position(|c| *c == b'>')
                         .ok_or_else(|| self.error(ArxmlLexerError::IncompleteData))?;
                     let endpos = self.bufpos + findpos + 1;
 

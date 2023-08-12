@@ -913,7 +913,7 @@ impl AutosarModel {
             let mut remove_list = false;
             // remove the old entry
             if let Some(referrer_list) = data.reference_origins.get_mut(old_ref) {
-                if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == origin) {
+                if let Some(index) = referrer_list.iter().position(|x| *x == origin) {
                     referrer_list.swap_remove(index);
                     remove_list = referrer_list.is_empty();
                 }
@@ -934,7 +934,7 @@ impl AutosarModel {
         let mut data = self.0.lock();
         let mut count = 1;
         if let Some(referrer_list) = data.reference_origins.get_mut(reference) {
-            if let Some((index, _)) = referrer_list.iter().enumerate().find(|(_, x)| **x == element) {
+            if let Some(index) = referrer_list.iter().position(|x| *x == element) {
                 referrer_list.swap_remove(index);
             }
             count = referrer_list.len();
