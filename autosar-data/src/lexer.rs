@@ -114,7 +114,6 @@ impl<'a> ArxmlLexer<'a> {
         debug_assert!(self.buffer[self.bufpos] == b'<');
 
         let text = &self.buffer[self.bufpos + 2..endpos];
-        self.line += count_lines(text);
         self.bufpos = endpos + 1;
 
         ArxmlEvent::EndElement(text)
