@@ -1,5 +1,6 @@
 use smallvec::smallvec;
 use std::{borrow::Cow, time::Duration};
+use std::hash::Hash;
 
 use super::*;
 
@@ -1260,14 +1261,6 @@ impl ElementRaw {
     }
 }
 
-impl PartialEq for Element {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
-    }
-}
-
-impl Eq for Element {}
-
 impl WeakElement {
     /// try to get a strong reference to the [Element]
     pub fn upgrade(&self) -> Option<Element> {
@@ -1282,6 +1275,12 @@ impl PartialEq for WeakElement {
 }
 
 impl Eq for WeakElement {}
+
+impl Hash for WeakElement {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Weak::as_ptr(&self.0) as usize);
+    }
+}
 
 impl ElementContent {
     /// returns the element contained inside this ElementContent, or None if the content is CharacterData

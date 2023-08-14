@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     path::Path,
     str::FromStr,
 };
@@ -956,6 +957,20 @@ impl AutosarModelRaw {
     }
 }
 
+impl std::fmt::Debug for AutosarModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // instead of the usual f.debug_struct().field().field() ...
+        // this is disassembled here, in order to hold self.0.lock() as briefly as possible
+        let rootelem = self.0.lock().root_element.clone();
+        let mut dbgstruct = f.debug_struct("AutosarModel");
+        dbgstruct.field("root_element", &rootelem);
+        dbgstruct.field("files", &self.0.lock().files);
+        dbgstruct.field("identifiables", &self.0.lock().identifiables);
+        dbgstruct.field("reference_origins", &self.0.lock().reference_origins);
+        dbgstruct.finish()
+    }
+}
+
 impl Default for AutosarModel {
     fn default() -> Self {
         Self::new()
@@ -968,9 +983,37 @@ impl PartialEq for AutosarModel {
     }
 }
 
+impl Eq for AutosarModel {}
+
+impl Hash for AutosarModel {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Arc::as_ptr(&self.0) as usize);
+    }
+}
+
 impl WeakAutosarModel {
     pub(crate) fn upgrade(&self) -> Option<AutosarModel> {
         Weak::upgrade(&self.0).map(AutosarModel)
+    }
+}
+
+impl std::fmt::Debug for WeakAutosarModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("AutosarModel:WeakRef {:p}", Weak::as_ptr(&self.0)))
+    }
+}
+
+impl PartialEq for WeakAutosarModel {
+    fn eq(&self, other: &Self) -> bool {
+        Weak::as_ptr(&self.0) == Weak::as_ptr(&other.0)
+    }
+}
+
+impl Eq for WeakAutosarModel {}
+
+impl Hash for WeakAutosarModel {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Weak::as_ptr(&self.0) as usize);
     }
 }
 

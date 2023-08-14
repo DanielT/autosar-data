@@ -107,11 +107,11 @@ pub use autosar_data_specification::EnumItem;
 /// The model contains the hierarchy of Autosar elements. It can be created manually or loaded from one or more arxml files.
 /// It stores the association between elements and files.
 /// In addition, this top-level structure provides caching of Autosar paths, to allow quick resolution of cross-references.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AutosarModel(Arc<Mutex<AutosarModelRaw>>);
 
 // Weak reference to an instance of AutosarModel
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct WeakAutosarModel(Weak<Mutex<AutosarModelRaw>>);
 
 /// The inner autosar data model (unlocked)
@@ -249,13 +249,13 @@ pub enum AutosarDataError {
 }
 
 /// An Autosar arxml file
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ArxmlFile(Arc<Mutex<ArxmlFileRaw>>);
 
 /// Weak reference to an arxml file
 ///
 /// (see the documentation of [std::sync::Arc] for an explanation of weak references)
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 
 /// The data of an arxml file
@@ -271,7 +271,7 @@ pub(crate) struct ArxmlFileRaw {
 ///
 /// This is a wrapper type which provides all the necessary manipulation functions. The actual element data is
 /// held behind Arc<Mutex<>>.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Element(Arc<Mutex<ElementRaw>>);
 
 /// Weak reference to an Element
@@ -280,7 +280,7 @@ pub struct Element(Arc<Mutex<ElementRaw>>);
 ///
 /// This WeakElement can be held indefinitely without forcing the referenced data to remain valid.
 /// When access is needed, the method upgrade() will attempt to get a strong reference and return an [Element]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct WeakElement(Weak<Mutex<ElementRaw>>);
 
 /// The data of an arxml element
@@ -304,7 +304,7 @@ pub struct Attribute {
 /// One content item inside an arxml element
 ///
 /// Elements may contain other elements, character data, or a mixture of both, depending on their type.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum ElementContent {
     Element(Element),
     CharacterData(CharacterData),
@@ -340,7 +340,7 @@ pub enum ContentType {
 ///
 /// This enum is used for references to the parent of each element. For all elements other than the
 /// root element, the parent is an element. The root element itself has a referenct to the ArxmlFile structure.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum ElementOrModel {
     Element(WeakElement),
     Model(WeakAutosarModel),

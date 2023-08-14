@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::hash::Hash;
 
 use super::*;
 
@@ -1646,6 +1647,62 @@ impl Element {
     }
 }
 
+impl std::fmt::Debug for Element {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut dbgstruct = f.debug_struct("Element");
+        dbgstruct.field("elemname", &self.0.lock().elemname);
+        dbgstruct.field("elemtype", &self.0.lock().elemtype);
+        dbgstruct.field("parent", &self.0.lock().parent);
+        // avoid holding the lock on self.0 while recursing to print all the sub elements
+        let content = self.0.lock().content.clone();
+        dbgstruct.field("content", &content);
+        dbgstruct.field("attributes", &self.0.lock().attributes);
+        dbgstruct.field("file_membership", &self.0.lock().file_membership);
+        dbgstruct.finish()
+    }
+}
+
+impl PartialEq for Element {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
+    }
+}
+
+impl Eq for Element {}
+
+impl Hash for Element {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Arc::as_ptr(&self.0) as usize);
+    }
+}
+
+impl std::fmt::Debug for WeakElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Element:WeakRef {:p}", Weak::as_ptr(&self.0)))
+    }
+}
+
+// custom debug implementation: skip printing the name of the wrapper-enum and directly show the content
+impl std::fmt::Debug for ElementOrModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ElementOrModel::Element(elem) => elem.fmt(f),
+            ElementOrModel::Model(model) => model.fmt(f),
+            ElementOrModel::None => f.write_str("None"),
+        }
+    }
+}
+
+// custom debug implementation: skip printing the name of the wrapper-enum and directly show the content
+impl std::fmt::Debug for ElementContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ElementContent::Element(elem) => elem.fmt(f),
+            ElementContent::CharacterData(cdata) => cdata.fmt(f),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::*;
@@ -2362,8 +2419,13 @@ mod test {
 
         // set a valid reference to <CAN-TP-CONNECTION><IDENT>.
         // This is a complex case, as the correct DEST attribute must be looked up in the specification
-        el_physical_request_ref.set_reference_target(&el_connection_ident).unwrap();
-        assert_eq!(el_physical_request_ref.get_reference_target().unwrap(), el_connection_ident);
+        el_physical_request_ref
+            .set_reference_target(&el_connection_ident)
+            .unwrap();
+        assert_eq!(
+            el_physical_request_ref.get_reference_target().unwrap(),
+            el_connection_ident
+        );
 
         // invalid reference: bad DEST attribute
         el_fibex_element_ref

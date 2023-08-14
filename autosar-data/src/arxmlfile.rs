@@ -251,6 +251,18 @@ impl Hash for ArxmlFile {
     }
 }
 
+impl std::fmt::Debug for ArxmlFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let self_locked = self.0.lock();
+        f.debug_struct("ArxmlFile")
+            .field("filename", &self_locked.filename)
+            .field("version", &self_locked.version)
+            .field("model", &self_locked.model)
+            .field("xml_standalone", &self_locked.xml_standalone)
+            .finish()
+    }
+}
+
 impl WeakArxmlFile {
     /// try to get a strong reference to the [ArxmlFile]
     ///
@@ -271,6 +283,12 @@ impl Eq for WeakArxmlFile {}
 impl Hash for WeakArxmlFile {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write_usize(Weak::as_ptr(&self.0) as usize);
+    }
+}
+
+impl std::fmt::Debug for WeakArxmlFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("ArxmlFile:WeakRef {:p}", Weak::as_ptr(&self.0)))
     }
 }
 
