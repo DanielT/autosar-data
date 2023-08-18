@@ -1,6 +1,6 @@
 [package]
 name = "autosar-data-specification"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Daniel Thaler <daniel@dthaler.de>"]
 edition = "2021"
 description = "specification of the Autosar arxml file format as rust data structures"
