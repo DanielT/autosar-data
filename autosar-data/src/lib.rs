@@ -73,7 +73,7 @@
 //!
 
 use autosar_data_specification::*;
-use iterators::*;
+pub use iterators::*;
 use lexer::*;
 use parking_lot::Mutex;
 use parser::*;
@@ -361,6 +361,7 @@ pub enum CompatibilityError {
     IncompatibleAttributeValue {
         element: Element,
         attribute: AttributeName,
+        attribute_value: String,
         version_mask: u32,
     },
 }

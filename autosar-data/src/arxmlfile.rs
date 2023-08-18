@@ -117,8 +117,22 @@ impl ArxmlFile {
     /// // or
     /// file.set_filename(&Path::new("bar.arxml"));
     /// ```
-    pub fn set_filename<P: AsRef<Path>>(&self, new_filename: P) {
-        self.0.lock().filename = new_filename.as_ref().to_path_buf();
+    pub fn set_filename<P: AsRef<Path>>(&self, new_filename: P) -> Result<(), AutosarDataError> {
+        let new_filename = new_filename.as_ref().to_path_buf();
+        if self
+            .model()?
+            .files()
+            .map(|f| (f.clone(), f.filename()))
+            .any(|(file, filename)| file != *self && filename == new_filename)
+        {
+            Err(AutosarDataError::DuplicateFilenameError {
+                verb: "set_filename",
+                filename: new_filename,
+            })
+        } else {
+            self.0.lock().filename = new_filename;
+            Ok(())
+        }
     }
 
     /// Get a reference to the [AutosarModel] object that contains this file
@@ -309,7 +323,7 @@ mod test {
         let result = model.create_file("test", AutosarVersion::Autosar_4_0_1);
         let file = result.unwrap();
         let filename = PathBuf::from("newname.arxml");
-        file.set_filename(filename.clone());
+        file.set_filename(filename.clone()).unwrap();
         assert_eq!(file.filename(), filename);
     }
 

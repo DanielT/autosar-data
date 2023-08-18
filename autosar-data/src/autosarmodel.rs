@@ -740,14 +740,9 @@ impl AutosarModel {
         self.root_element().sort()
     }
 
-    /// create an iterator over all identifiable elements
+    /// Create a list of the Autosar paths of all identifiable elements
     ///
-    /// It returns the full Autosar path of each element together with a reference to the element.
-    /// The returned values are sorted alphabetically by the path value.
-    ///
-    /// The iterator created by identifiable_elements() returns values from an internal list
-    /// that is built when identifiable_elements() is called. This means that the iteration can
-    /// never show any changes that were made to the data after the iterator was created.
+    /// The list contains the full Autosar path of each element, sorted alphabetically.
     ///
     /// # Example
     ///
@@ -755,15 +750,18 @@ impl AutosarModel {
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let model = AutosarModel::new();
-    /// for (path, element) in model.identifiable_elements() {
+    /// for path in model.identifiable_elements() {
+    ///     let element = model.get_element_by_path(&path).unwrap();
     ///     // [...]
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn identifiable_elements(&self) -> AutosarDataIdentElementsIterator {
+    pub fn identifiable_elements(&self) -> Vec<String> {
         let model = self.0.lock();
-        AutosarDataIdentElementsIterator::new(&model.identifiables)
+        let mut identifiables_list: Vec<String> = model.identifiables.keys().map(|path| path.to_owned()).collect();
+        identifiables_list.sort();
+        identifiables_list
     }
 
     /// return all elements referring to the given target path
@@ -1198,10 +1196,10 @@ mod test {
         let model = AutosarModel::new();
         let (file, _) = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         assert_eq!(model.files().count(), 1);
-        assert_eq!(model.identifiable_elements().count(), 1);
+        assert_eq!(model.identifiable_elements().len(), 1);
         model.remove_file(&file);
         assert_eq!(model.files().count(), 0);
-        assert_eq!(model.identifiable_elements().count(), 0);
+        assert_eq!(model.identifiable_elements().len(), 0);
         // complicated: remove one of several files
         let model = AutosarModel::new();
         model
@@ -1260,13 +1258,13 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#;
         let model = AutosarModel::new();
         model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
-        let mut iter = model.identifiable_elements();
-        assert_eq!(iter.next().unwrap().0, "/OuterPackage1");
-        assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage1");
-        assert_eq!(iter.next().unwrap().0, "/OuterPackage1/InnerPackage2");
-        assert_eq!(iter.next().unwrap().0, "/OuterPackage2");
-        assert_eq!(iter.next().unwrap().0, "/OuterPackage2/InnerPackage1");
-        assert_eq!(iter.next().unwrap().0, "/OuterPackage2/InnerPackage2");
+        let identifiable_elements = model.identifiable_elements();
+        assert_eq!(identifiable_elements[0], "/OuterPackage1");
+        assert_eq!(identifiable_elements[1], "/OuterPackage1/InnerPackage1");
+        assert_eq!(identifiable_elements[2], "/OuterPackage1/InnerPackage2");
+        assert_eq!(identifiable_elements[3], "/OuterPackage2");
+        assert_eq!(identifiable_elements[4], "/OuterPackage2/InnerPackage1");
+        assert_eq!(identifiable_elements[5], "/OuterPackage2/InnerPackage2");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use smallvec::smallvec;
-use std::{borrow::Cow, time::Duration};
 use std::hash::Hash;
+use std::{borrow::Cow, time::Duration};
 
 use super::*;
 
@@ -1064,13 +1064,16 @@ impl ElementRaw {
 
     /// set the character data of this element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData,
+    /// or elements with element.content_type == Mixed, but which only contain a single CharacterData item
     pub(crate) fn set_character_data(
         &mut self,
         chardata: CharacterData,
         version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
-        if self.elemtype.content_mode() == ContentMode::Characters {
+        if self.elemtype.content_mode() == ContentMode::Characters
+            || (self.elemtype.content_mode() == ContentMode::Mixed && self.content.len() <= 1)
+        {
             if let Some(cdata_spec) = self.elemtype.chardata_spec() {
                 if CharacterData::check_value(&chardata, cdata_spec, version) {
                     // update the character data
@@ -1088,9 +1091,13 @@ impl ElementRaw {
 
     /// get the character content of the element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData,
+    /// or elements with element.content_type == Mixed, but which only contain a single CharacterData item
     pub(crate) fn character_data(&self) -> Option<CharacterData> {
-        if let ContentMode::Characters = self.elemtype.content_mode() {
+        if self.content.len() == 1
+            && (self.elemtype.content_mode() == ContentMode::Characters
+                || self.elemtype.content_mode() == ContentMode::Mixed)
+        {
             if let Some(ElementContent::CharacterData(cdata)) = self.content.get(0) {
                 return Some(cdata.clone());
             }
@@ -1102,17 +1109,6 @@ impl ElementRaw {
     pub(crate) fn attribute_value(&self, attrname: AttributeName) -> Option<CharacterData> {
         if let Some(attr) = self.attributes.iter().find(|attr| attr.attrname == attrname) {
             return Some(attr.content.clone());
-        }
-        None
-    }
-
-    /// get the content of a named attribute as a string
-    pub(crate) fn attribute_string(&self, attrname: AttributeName) -> Option<String> {
-        if let Some(chardata) = self.attribute_value(attrname) {
-            match chardata {
-                CharacterData::String(stringval) => return Some(stringval),
-                other => return Some(other.to_string()),
-            }
         }
         None
     }
@@ -1198,7 +1194,7 @@ impl ElementRaw {
             ContentMode::Sequence | ContentMode::Choice | ContentMode::Bag => {
                 // sort the content if sorting is allowed (!ordered) and there is more than one child element
                 let len = self.content.len();
-                if !self.elemtype.ordered() && len > 1 {
+                if !self.elemtype.is_ordered() && len > 1 {
                     // remove all child elements from this element and sort them
                     let mut sorting_vec: Vec<(Vec<usize>, String, Element)> = Vec::with_capacity(len);
                     for idx in (0..self.content.len()).rev() {

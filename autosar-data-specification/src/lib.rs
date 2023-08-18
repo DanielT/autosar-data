@@ -438,7 +438,7 @@ impl ElementType {
     ///
     /// An example of this is ARGUMENTS in BSW-MODULE-ENTRY. ARGUMENTS is ordered, because each of its
     /// SW-SERVICE-ARG sub elements represents a function argument
-    pub fn ordered(&self) -> bool {
+    pub fn is_ordered(&self) -> bool {
         DATATYPES[self.0].ordered
     }
 
@@ -1017,8 +1017,8 @@ mod test {
             .find_sub_element(ElementName::Arguments, u32::MAX)
             .unwrap();
 
-        assert!(!bsw_module_entry.ordered());
-        assert!(arguments.ordered());
+        assert!(!bsw_module_entry.is_ordered());
+        assert!(arguments.is_ordered());
     }
 
     #[test]

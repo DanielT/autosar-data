@@ -1,3 +1,5 @@
+#[cfg(feature = "pylib")]
+use pyo3::prelude::*;
 
 #[derive(Debug)]
 /// Error type returned when from_str / parse for AutosarVersion fails
@@ -5,6 +7,7 @@ pub struct ParseAutosarVersionError;
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
+#[cfg_attr(feature = "pylib", pyclass)]
 #[repr(u32)]
 /// Enum of all Autosar versions
 pub enum AutosarVersion {

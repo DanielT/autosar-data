@@ -31,7 +31,7 @@ fn main() {
     // write the sorted file
     let filename_prefix = filename.strip_suffix(".arxml").unwrap_or(filename);
     let new_filename = format!("{filename_prefix}_sorted.arxml");
-    arxmlfile.set_filename(&new_filename);
+    arxmlfile.set_filename(&new_filename).unwrap();
     model.write().unwrap();
     println!("Sorted output has been written to \"{new_filename}\"");
 }

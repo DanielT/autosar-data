@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use std::hash::Hash;
+use std::str::FromStr;
 
 use super::*;
 
@@ -765,7 +765,8 @@ impl Element {
                     .ok_or(AutosarDataError::InvalidReference)?;
 
                 let dest = self
-                    .attribute_string(AttributeName::Dest)
+                    .attribute_value(AttributeName::Dest)
+                    .map(|cdata| cdata.to_string())
                     .ok_or(AutosarDataError::InvalidReference)?;
                 if dest == target_elem.element_name().to_str() {
                     // common case: the value of DEST is equal to the element name of the target
@@ -1183,21 +1184,6 @@ impl Element {
         self.0.lock().attribute_value(attrname)
     }
 
-    /// Get the content of an attribute as a string
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # let model = AutosarModel::new();
-    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = model.root_element();
-    /// let value = element.attribute_string(AttributeName::Dest);
-    /// ```
-    pub fn attribute_string(&self, attrname: AttributeName) -> Option<String> {
-        self.0.lock().attribute_string(attrname)
-    }
-
     /// Set the value of a named attribute
     ///
     /// If no attribute by that name exists, and the attribute is a valid attribute of the element, then the attribute will be created.
@@ -1469,6 +1455,7 @@ impl Element {
                             compat_errors.push(CompatibilityError::IncompatibleAttributeValue {
                                 element: self.clone(),
                                 attribute: attribute.attrname,
+                                attribute_value: attribute.content.to_string(),
                                 version_mask: value_version_mask,
                             });
                         }
@@ -1625,6 +1612,144 @@ impl Element {
         }
     }
 
+    /// add the current element to the given file
+    ///
+    /// In order to successfully cause the element to appear in the serialized file data, all parent elements
+    /// of the current element will also be added if required.
+    ///
+    /// If the model only has a single file then this function does nothing.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # use std::collections::HashSet;
+    /// # let model = AutosarModel::new();
+    /// let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = model.root_element();
+    /// element.add_to_file(&file);
+    /// ```
+    ///
+    /// # Possible Errors
+    ///
+    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///
+    pub fn add_to_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
+        let model = self.model()?;
+        let weak_file = file.downgrade();
+        // current_fileset is the set of files which contain the current element
+        let (_, mut current_fileset) = self.file_membership().unwrap_or((false, HashSet::new()));
+        // if the model only has a single file or if the element is already in the set then there is nothing to do
+        if model.0.lock().files.len() > 1 && !current_fileset.contains(&weak_file) {
+            current_fileset.insert(weak_file.clone());
+            // go up the hierarchy of elements, since parent elements may also need to be adjusted
+            let mut cur_elem_opt = Some(self.clone());
+            while let Some(cur_elem) = &cur_elem_opt {
+                let parent = cur_elem.parent()?;
+                // the current element either inherits its fileset from a parent, or it has its own (restricting the files allowed on the parent)
+                // if it has it's own fileset, then this element is the source of current_fileset (currently lacking weak_file)
+                if !cur_elem.0.lock().file_membership.is_empty() {
+                    // update the local fileset
+                    cur_elem.0.lock().file_membership = current_fileset.clone();
+                    // get the fileset of the parent of this element - since this element did not inherit the parent's set, it will have a different (larger) set
+                    let (_, new_fileset) = parent
+                        .as_ref()
+                        .and_then(|p| p.file_membership().ok())
+                        .unwrap_or((false, HashSet::<WeakArxmlFile>::new()));
+                    // the parent may already be part of the new file
+                    if new_fileset.contains(&weak_file) {
+                        // nothing more to do
+                        break;
+                    } else {
+                        // continue up the hierarchy, with the parent's fileset as the current set
+                        current_fileset = new_fileset;
+                        current_fileset.insert(weak_file.clone());
+                    }
+                } else {
+                    // this element inherited its fileset from the parent
+                    // a local fileset may only be set if the parent element type is splittable
+                    if parent
+                        .as_ref()
+                        .map(|p| p.element_type().splittable() != 0)
+                        .unwrap_or(true)
+                    {
+                        cur_elem.0.lock().file_membership = current_fileset.clone();
+                    }
+                }
+                cur_elem_opt = parent;
+            }
+        }
+        Ok(())
+    }
+
+    /// remove this element from a file
+    ///
+    /// If the model consists of multiple files, then the set of files in
+    /// which this element appears will be restricted.
+    /// It may be required to also omit its parent(s), up to the next splittable point.
+    ///
+    /// If the element is only present in single file then an attempt to delete it will be made instead.
+    /// Deleting the element fails if the element is the root AUTOSAR element, or if it is a SHORT-NAME.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # use std::collections::HashSet;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let file2 = model.create_file("test2", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = model.root_element();
+    /// assert!(model.files().count() > 1);
+    /// element.remove_from_file(&file);
+    /// ```
+    ///
+    /// # Possible Errors
+    ///
+    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///
+    pub fn remove_from_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
+        let weak_file = file.downgrade();
+        let (_, mut current_fileset) = self.file_membership().unwrap_or((false, HashSet::new()));
+        // nothing to do if the element is not in the set
+        if current_fileset.contains(&weak_file) {
+            if current_fileset.len() > 1 {
+                current_fileset.remove(&weak_file);
+                // go up the hierarchy of parents, until either
+                // - the element is reached from which the current_fileset was inherited
+                // - a splittable parent element is reached, where a new restriction can be added
+                let mut cur_elem_opt = Some(self.clone());
+                while let Some(cur_elem) = &cur_elem_opt {
+                    let parent = cur_elem.parent()?;
+                    if !cur_elem.0.lock().file_membership.is_empty() {
+                        // current_fileset was inherited from this parent, remove the file from its set
+                        cur_elem.0.lock().file_membership.remove(&weak_file);
+                        break;
+                    } else if parent
+                        .as_ref()
+                        .map(|p| p.element_type().splittable() != 0)
+                        .unwrap_or(true)
+                    {
+                        // this parent element is splittable, so a restriction can be added here
+                        cur_elem.0.lock().file_membership = current_fileset.clone();
+                        break;
+                    }
+
+                    cur_elem_opt = parent;
+                }
+            } else {
+                // the element is only present in one file, so try to delete it instead
+                if let Some(parent) = self.parent()? {
+                    let _ = parent.remove_sub_element(self.to_owned());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// return a path that includes non-identifiable elements by their xml names
     ///
     /// This function cannot fail completely, it will always collect as much information as possible
@@ -1634,7 +1759,7 @@ impl Element {
 
     /// find the minumum version of all arxml files which contain this element
     ///
-    /// typicall this reduces to finding out which single file contains the element and returning this version
+    /// typically this reduces to finding out which single file contains the element and returning this version
     fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
         let (_, files) = self.file_membership()?;
         let mut ver = AutosarVersion::LATEST;
@@ -2140,7 +2265,10 @@ mod test {
             .is_err());
 
         // directly return an attribute as a string
-        let xmlns = el_autosar.attribute_string(AttributeName::xmlns).unwrap();
+        let xmlns = el_autosar
+            .attribute_value(AttributeName::xmlns)
+            .map(|cdata| cdata.to_string())
+            .unwrap();
         assert_eq!(xmlns, "http://autosar.org/schema/r4.0".to_string());
 
         // attribute operation fails when a parent element is locked
@@ -2857,6 +2985,7 @@ mod test {
         let el_ar_package = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Pkg")
             .unwrap();
+        let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
 
         let fm: HashSet<WeakArxmlFile> = vec![file1.downgrade()].iter().cloned().collect();
         // setting the file membership of el_ar_packages should fail
@@ -2874,5 +3003,29 @@ mod test {
         let filetxt1 = file1.serialize().unwrap();
         let filetxt2 = file2.serialize().unwrap();
         assert_ne!(filetxt1, filetxt2);
+
+        // adding el_elements to file1 does nothing, since it is already present in this file
+        el_elements.add_to_file(&file1).unwrap();
+        let (local, fm3) = el_elements.file_membership().unwrap();
+        assert!(!local);
+        assert_eq!(fm3.len(), 1);
+
+        // removing el_elements from file2 does nothing, it is not present in this file
+        el_elements.remove_from_file(&file2).unwrap();
+        let (local, fm3) = el_elements.file_membership().unwrap();
+        assert!(!local);
+        assert_eq!(fm3.len(), 1);
+
+        // adding el_elements to file2 succeeds
+        el_elements.add_to_file(&file2).unwrap();
+        let (local, fm3) = el_elements.file_membership().unwrap();
+        assert!(!local);
+        assert_eq!(fm3.len(), 2);
+
+        // removing el_elements from file1 and file2 causes it to be deleted
+        assert!(el_ar_package.get_sub_element(ElementName::Elements).is_some());
+        el_elements.remove_from_file(&file1).unwrap();
+        el_elements.remove_from_file(&file2).unwrap();
+        assert!(el_ar_package.get_sub_element(ElementName::Elements).is_none());
     }
 }

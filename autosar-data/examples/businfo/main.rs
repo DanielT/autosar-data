@@ -38,8 +38,11 @@ fn main() {
 //   <AR-PACKAGE> ...
 //     <CAN_CLUSTER> -or- <FLEXRAY-CLUSTER> -or- <J1939-CLUSTER>
 fn extract_bus_info(model: AutosarModel) {
-    for (_, weak_element) in model.identifiable_elements() {
-        let element = weak_element.upgrade().unwrap();
+    for element in model
+        .identifiable_elements()
+        .iter()
+        .filter_map(|path| model.get_element_by_path(&path))
+    {
         match element.element_name() {
             ElementName::CanCluster => {
                 display_can_cluster(&element);
