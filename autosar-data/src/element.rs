@@ -1586,18 +1586,7 @@ impl Element {
     ///
     /// Setting an empty set has a special meaning: it reverts the membership to default,
     /// i.e. inherited from the parent with no additional restriction
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # use std::collections::HashSet;
-    /// # let model = AutosarModel::new();
-    /// let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
-    /// # let element = model.root_element();
-    /// element.set_file_membership(HashSet::from([file.downgrade()]));
-    /// ```
-    pub fn set_file_membership(&self, file_membership: HashSet<WeakArxmlFile>) {
+    pub(crate) fn set_file_membership(&self, file_membership: HashSet<WeakArxmlFile>) {
         // find out if the parent is splittable. If the parent is unavaliable, assume
         // that the caller knows what they're doing and assume it is splittable
         let parent_splittable = self
