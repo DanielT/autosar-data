@@ -24,7 +24,7 @@ fn main() {
     let model = AutosarModel::new();
 
     for filename in &args[1..] {
-        if let Err(err) = model.load_arxml_file(filename, false) {
+        if let Err(err) = model.load_file(filename, false) {
             println!("parsing failed: {err}");
             return;
         }

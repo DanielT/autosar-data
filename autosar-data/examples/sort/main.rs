@@ -13,7 +13,7 @@ fn main() {
 
     // create the data model and load the file
     let model = AutosarModel::new();
-    let arxmlfile = match model.load_arxml_file(filename, false) {
+    let arxmlfile = match model.load_file(filename, false) {
         Ok((arxmlfile, warnings)) => {
             for warn_msg in warnings {
                 println!("Warning: {warn_msg}");
