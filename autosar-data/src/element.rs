@@ -1846,7 +1846,7 @@ mod test {
     fn element_creation() {
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
+            .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_autosar = model.root_element();
         let el_ar_package = model.get_element_by_path("/TestPackage").unwrap();
@@ -2054,7 +2054,7 @@ mod test {
     fn element_copy() {
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
+            .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_ar_package = model.get_element_by_path("/TestPackage").unwrap();
         el_ar_package
@@ -2137,7 +2137,7 @@ mod test {
     fn element_deletion() {
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
+            .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_ar_package = model.get_element_by_path("/TestPackage").unwrap();
         let el_short_name = el_ar_package.get_sub_element(ElementName::ShortName).unwrap();
@@ -2216,7 +2216,7 @@ mod test {
     fn attributes() {
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
+            .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_autosar = model.root_element();
         let el_ar_packages = el_autosar.get_sub_element(ElementName::ArPackages).unwrap();
@@ -2286,7 +2286,7 @@ mod test {
     fn mixed_content() {
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
+            .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
         let el_ar_package = model.get_element_by_path("/TestPackage").unwrap();
         let el_long_name = el_ar_package.create_sub_element(ElementName::LongName).unwrap();
@@ -2776,7 +2776,7 @@ mod test {
 </AUTOSAR>"#;
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), OsString::from("test"), true)
+            .load_buffer(FILEBUF.as_bytes(), OsString::from("test"), true)
             .unwrap();
         model.files().next().unwrap();
         let el_autosar = model.root_element();
@@ -2824,7 +2824,7 @@ mod test {
 </AUTOSAR>"#;
         let model = AutosarModel::new();
         let (file, _) = model
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+            .load_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
             .unwrap();
         model.files().next().unwrap();
         let el_autosar = model.root_element();

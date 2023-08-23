@@ -28,7 +28,7 @@ fn main() {
         };
 
         let now = std::time::Instant::now();
-        let result = model.load_named_arxml_buffer(&buffer, &filename, false);
+        let result = model.load_buffer(&buffer, &filename, false);
         match result {
             Ok((_, warnings)) => {
                 println!("parsing succeeded in {}ms", now.elapsed().as_micros() as f64 / 1000.0);

@@ -124,7 +124,7 @@ impl AutosarModel {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// let model = AutosarModel::new();
     /// # let buffer = b"";
-    /// model.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
+    /// model.load_buffer(buffer, "filename.arxml", true)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -135,16 +135,16 @@ impl AutosarModel {
     ///  - [AutosarDataError::OverlappingDataError]: The new data contains Autosar paths that are already defined by the existing data
     ///  - [AutosarDataError::ParserError]: The parser detected an error; the source field gives further details
     ///
-    pub fn load_named_arxml_buffer<P: AsRef<Path>>(
+    pub fn load_buffer<P: AsRef<Path>>(
         &self,
         buffer: &[u8],
         filename: P,
         strict: bool,
     ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
-        self.load_named_arxml_buffer_internal(buffer, filename.as_ref().to_path_buf(), strict)
+        self.load_buffer_internal(buffer, filename.as_ref().to_path_buf(), strict)
     }
 
-    fn load_named_arxml_buffer_internal(
+    fn load_buffer_internal(
         &self,
         buffer: &[u8],
         filename: PathBuf,
@@ -474,7 +474,7 @@ impl AutosarModel {
 
     /// Load an arxml file
     ///
-    /// This function is a wrapper around load_named_arxml_buffer to make the common case of loading a file from disk more convenient
+    /// This function is a wrapper around load_buffer to make the common case of loading a file from disk more convenient
     ///
     /// # Parameters:
     ///
@@ -487,7 +487,7 @@ impl AutosarModel {
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
     /// let model = AutosarModel::new();
-    /// model.load_arxml_file("filename.arxml", true)?;
+    /// model.load_file("filename.arxml", true)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -500,7 +500,7 @@ impl AutosarModel {
     ///  - [AutosarDataError::OverlappingDataError]: The new data contains Autosar paths that are already defined by the existing data
     ///  - [AutosarDataError::ParserError]: The parser detected an error; the source field gives further details
     ///
-    pub fn load_arxml_file<P: AsRef<Path>>(
+    pub fn load_file<P: AsRef<Path>>(
         &self,
         filename: P,
         strict: bool,
@@ -524,7 +524,7 @@ impl AutosarModel {
                 ioerror: err,
             })?;
 
-        self.load_named_arxml_buffer(&buffer, &filename_buf, strict)
+        self.load_buffer(&buffer, &filename_buf, strict)
     }
 
     /// remove a file from the model
@@ -1059,26 +1059,26 @@ mod test {
         const NON_ARXML: &str = "The quick brown fox jumps over the lazy dog";
         let model = AutosarModel::new();
         // succefully load a buffer
-        let result = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
+        let result = model.load_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_ok());
         // succefully load a second buffer
-        let result = model.load_named_arxml_buffer(FILEBUF2.as_bytes(), "other", true);
+        let result = model.load_buffer(FILEBUF2.as_bytes(), "other", true);
         assert!(result.is_ok());
         // error: duplicate file name
-        let result = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true);
+        let result = model.load_buffer(FILEBUF.as_bytes(), "test", true);
         assert!(result.is_err());
         // error: overlapping autosar paths
-        let result = model.load_named_arxml_buffer(FILEBUF3.as_bytes(), "test2", true);
+        let result = model.load_buffer(FILEBUF3.as_bytes(), "test2", true);
         assert!(result.is_err());
         // error: not arxml data
-        let result = model.load_named_arxml_buffer(NON_ARXML.as_bytes(), "nonsense", true);
+        let result = model.load_buffer(NON_ARXML.as_bytes(), "nonsense", true);
         assert!(result.is_err());
     }
 
     #[test]
     fn load_file() {
         let model = AutosarModel::new();
-        assert!(model.load_arxml_file("nonexistent", true).is_err());
+        assert!(model.load_file("nonexistent", true).is_err());
     }
 
     #[test]
@@ -1122,10 +1122,10 @@ mod test {
         // test with re-ordered identifiable elements and re-ordered BSW parameter values
         // both should be recognized and merged, so that the total number of elements does not increase
         let model = AutosarModel::new();
-        let result = model.load_named_arxml_buffer(FILEBUF1, "test1", true);
+        let result = model.load_buffer(FILEBUF1, "test1", true);
         assert!(result.is_ok());
         let elemcount = model.elements_dfs().count();
-        let result = model.load_named_arxml_buffer(FILEBUF2, "test2", true);
+        let result = model.load_buffer(FILEBUF2, "test2", true);
         assert!(result.is_ok());
         let elemcount2 = model.elements_dfs().count();
         // the second file is identical to the first, except for ordering.
@@ -1160,10 +1160,10 @@ mod test {
           </ELEMENTS>
         </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
         let model = AutosarModel::new();
-        let result = model.load_named_arxml_buffer(ERRFILE1, "test1", true);
+        let result = model.load_buffer(ERRFILE1, "test1", true);
         println!("{result:#?}");
         assert!(result.is_ok());
-        let result = model.load_named_arxml_buffer(ERRFILE2, "test2", true);
+        let result = model.load_buffer(ERRFILE2, "test2", true);
         let error = result.unwrap_err();
         assert!(matches!(error, AutosarDataError::InvalidFileMerge { .. }));
     }
@@ -1194,7 +1194,7 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#;
         // easy case: remove the only file
         let model = AutosarModel::new();
-        let (file, _) = model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        let (file, _) = model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         assert_eq!(model.files().count(), 1);
         assert_eq!(model.identifiable_elements().len(), 1);
         model.remove_file(&file);
@@ -1203,18 +1203,18 @@ mod test {
         // complicated: remove one of several files
         let model = AutosarModel::new();
         model
-            .load_named_arxml_buffer(FILEBUF.as_bytes(), "test1", true)
+            .load_buffer(FILEBUF.as_bytes(), "test1", true)
             .unwrap();
         assert_eq!(model.files().count(), 1);
         let modeltxt_1 = model.root_element().serialize();
         let (file2, _) = model
-            .load_named_arxml_buffer(FILEBUF2.as_bytes(), "test2", true)
+            .load_buffer(FILEBUF2.as_bytes(), "test2", true)
             .unwrap();
         assert_eq!(model.files().count(), 2);
         let modeltxt_1_2 = model.root_element().serialize();
         assert_ne!(modeltxt_1, modeltxt_1_2);
         let (file3, _) = model
-            .load_named_arxml_buffer(FILEBUF3.as_bytes(), "test3", true)
+            .load_buffer(FILEBUF3.as_bytes(), "test3", true)
             .unwrap();
         assert_eq!(model.files().count(), 3);
         let modeltxt_1_2_3 = model.root_element().serialize();
@@ -1257,7 +1257,7 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let model = AutosarModel::new();
-        model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         let identifiable_elements = model.identifiable_elements();
         assert_eq!(identifiable_elements[0], "/OuterPackage1");
         assert_eq!(identifiable_elements[1], "/OuterPackage1/InnerPackage1");
@@ -1291,7 +1291,7 @@ mod test {
         </AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#;
         let model = AutosarModel::new();
-        model.load_named_arxml_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         let invalid_refs = model.check_references();
         assert_eq!(invalid_refs.len(), 2);
         let ref0 = invalid_refs[0].upgrade().unwrap();

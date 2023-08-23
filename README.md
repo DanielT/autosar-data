@@ -23,11 +23,11 @@ use autosar_data::*;
 
 /* load a multi-file data model */
 let model = AutosarModel::new();
-let (file_1, warnings_1) = model.load_arxml_file("some_file.arxml", false)?;
-let (file_2, warnings_2) = model.load_arxml_file("other_file.arxml", false)?;
+let (file_1, warnings_1) = model.load_file("some_file.arxml", false)?;
+let (file_2, warnings_2) = model.load_file("other_file.arxml", false)?;
 
 /* load a buffer */
-let (file_3, _) = model.load_named_arxml_buffer(buffer, "filename.arxml", true)?;
+let (file_3, _) = model.load_buffer(buffer, "filename.arxml", true)?;
 
 /* write all files of the model */
 model.write()?;

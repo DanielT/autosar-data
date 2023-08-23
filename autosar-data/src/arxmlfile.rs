@@ -224,7 +224,7 @@ impl ArxmlFile {
     /// let file_text = r#"<?xml version="1.0" encoding="utf-8" standalone="no"?>
     /// <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     /// </AUTOSAR>"#.as_bytes();
-    /// let (file, _warnings) = model.load_named_arxml_buffer(file_text, "filename.arxml", true).unwrap();
+    /// let (file, _warnings) = model.load_buffer(file_text, "filename.arxml", true).unwrap();
     /// assert_eq!(file.xml_standalone(), Some(false));
     /// ```
     pub fn xml_standalone(&self) -> Option<bool> {
@@ -354,7 +354,7 @@ mod test {
             <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             </AUTOSAR>"#.as_bytes();
         let (file, _warnings) = model
-            .load_named_arxml_buffer(file_text, "filename.arxml", true)
+            .load_buffer(file_text, "filename.arxml", true)
             .unwrap();
         assert_eq!(file.xml_standalone(), Some(false));
     }
@@ -411,11 +411,11 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#.as_bytes();
 
         let model = AutosarModel::new();
-        let (file, _) = model.load_named_arxml_buffer(FILEBUF_1, "file1.arxml", false).unwrap();
+        let (file, _) = model.load_buffer(FILEBUF_1, "file1.arxml", false).unwrap();
         let proj_elem_count = model.elements_dfs().count();
         let file_elem_count = file.elements_dfs().count();
         assert_eq!(proj_elem_count, file_elem_count);
-        model.load_named_arxml_buffer(FILEBUF_2, "file2.arxml", false).unwrap();
+        model.load_buffer(FILEBUF_2, "file2.arxml", false).unwrap();
         let proj_elem_count_2 = model.elements_dfs().count();
         let file_elem_count_2 = file.elements_dfs().count();
         assert!(proj_elem_count < proj_elem_count_2);
