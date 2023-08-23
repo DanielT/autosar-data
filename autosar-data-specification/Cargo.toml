@@ -8,9 +8,3 @@ license = "MIT OR Apache-2.0"
 keywords = ["arxml", "automotive", "file-format", "Autosar"]
 categories = ["parser-implementations"]
 repository = "https://github.com/DanielT/autosar-data"
-
-[features]
-pylib = ["dep:pyo3"]
-
-[dependencies]
-pyo3 = { version = "0.19.2", optional = true }
