@@ -1,9 +1,12 @@
+use num_derive::FromPrimitive;
+use num_traits::cast::FromPrimitive;
+
 #[derive(Debug)]
 /// Error type returned when from_str / parse for AutosarVersion fails
 pub struct ParseAutosarVersionError;
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash, FromPrimitive)]
 #[repr(u32)]
 /// Enum of all Autosar versions
 pub enum AutosarVersion {
@@ -103,6 +106,16 @@ impl AutosarVersion {
         }
     }
 
+    /// make an AutosarVersion from a u32 value
+    /// 
+    /// All `AutosarVersion`s are associated with a power of two u32 value, for example Autosar_4_3_0 == 0x100
+    /// If the given value is a valid constant of AutosarVersion, the enum value will be returnd
+    /// 
+    /// This is useful in order to decode version masks
+    pub fn from_val(n: u32) -> Option<Self> {
+        Self::from_u32(n)
+    }
+
     /// AutosarVersion::LATEST is an alias of whichever is the latest version, currently Autosar_00051
     pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00051;
 }
@@ -141,4 +154,3 @@ impl std::fmt::Display for AutosarVersion {
         f.write_str(self.describe())
     }
 }
-

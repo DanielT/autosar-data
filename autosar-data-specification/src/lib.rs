@@ -586,6 +586,21 @@ impl std::fmt::Debug for CharacterDataSpec {
     }
 }
 
+/// expand a version mask (u32) to a list of versions in the mask
+pub fn expand_version_mask(version_mask: u32) -> Vec<AutosarVersion> {
+    let mut versions = vec![];
+    for i in 0..u32::BITS {
+        let val = 1u32 << i;
+        if version_mask & val != 0 {
+            if let Some(enum_value) = AutosarVersion::from_val(val) {
+                versions.push(enum_value);
+            }
+        }
+    }
+
+    versions
+}
+
 pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
     const HASHCONST1: u32 = 0x541C69B2; // these 4 constant values are not special, just random values
     const HASHCONST2: u32 = 0x3B17161B;
@@ -1116,5 +1131,38 @@ mod test {
         hashset.insert(en);
         let inserted = hashset.insert(en2);
         assert!(!inserted);
+    }
+
+    #[test]
+    fn test_expand_version_mask() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+        let (_, element_indices) = elements_type
+            .find_sub_element(ElementName::AdaptiveApplicationSwComponentType, u32::MAX)
+            .unwrap();
+        let version_mask = elements_type.get_sub_element_version_mask(&element_indices).unwrap();
+
+        assert_eq!(
+            &[
+                AutosarVersion::Autosar_00042,
+                AutosarVersion::Autosar_00043,
+                AutosarVersion::Autosar_00044,
+                AutosarVersion::Autosar_00045,
+                AutosarVersion::Autosar_00046,
+                AutosarVersion::Autosar_00047,
+                AutosarVersion::Autosar_00048,
+                AutosarVersion::Autosar_00049,
+                AutosarVersion::Autosar_00050,
+                AutosarVersion::Autosar_00051,
+            ],
+            &*expand_version_mask(version_mask)
+        );
     }
 }
