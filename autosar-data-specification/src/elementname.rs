@@ -1,15 +1,11 @@
 use crate::hashfunc;
 
-#[cfg(feature = "pylib")]
-use pyo3::prelude::*;
-
 #[derive(Debug)]
 /// The error type ParseElementNameError is returned when from_str() / parse() fails for ElementName
 pub struct ParseElementNameError;
 
 #[allow(dead_code, non_camel_case_types)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "pylib", pyclass)]
 #[repr(u16)]
 /// Enum of all element names in Autosar
 pub enum ElementName {
