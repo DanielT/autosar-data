@@ -1,4 +1,3 @@
-use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::str::Utf8Error;
@@ -322,7 +321,7 @@ impl<'a> ArxmlParser<'a> {
 
         let mut elem_idx: Vec<usize> = Vec::new();
         let mut short_name_found = false;
-        let mut element_count = FxHashMap::<u16, usize>::default();
+        // let mut element_count = FxHashMap::<u16, usize>::default();
 
         loop {
             // track the current element name in the parser for error messages - set this in every loop iteration, since it gets overwritten during the recursive calls
@@ -335,10 +334,12 @@ impl<'a> ArxmlParser<'a> {
                         self.check_element_conflict(name, elemtype, &elem_idx, &idx)?;
                         elem_idx = idx;
 
-                        // make sure there aren't too many of this element
-                        self.check_multiplicity(name, elemtype, &elem_idx, &mut element_count)?;
+                        // make sure there aren't too many of this kind of element
+                        if !element.content.is_empty() {
+                            self.check_multiplicity(name, elemtype, &elem_idx, &element)?;
+                        }
 
-                        // atributes for the sub-element must be parsed before calling parse_element, or else the borrow checker hates us
+                        // attributes for the sub-element must be parsed before calling parse_element, or else the borrow checker hates us
                         let attributes = self.parse_attribute_text(sub_elemtype, attr_text)?;
                         // recursively parse the sub element and its sub sub elements
                         let sub_element = self.parse_element(
@@ -517,18 +518,21 @@ impl<'a> ArxmlParser<'a> {
         name: ElementName,
         elemtype: ElementType,
         elem_idx: &[usize],
-        element_count: &mut FxHashMap<u16, usize>,
+        element: &ElementRaw,
     ) -> Result<(), AutosarDataError> {
-        // check the multiplicity - in practice the only restriction that matters here is having too many elements where the multiplicity is not Any
-        // element_count will contain the current cout for this element if it has been seen before - if not, there cannot be a multiplicity problem
-        if let Some(count_value) = element_count.get_mut(&(name as u16)) {
-            // get the parent type id, i.e. the type of the containing element or group
-            let datatype_mode = elemtype.get_sub_element_container_mode(elem_idx);
-            // multiplicity only matters if the mode is Choice or Sequence - modes Mixed and Bag allow arbitrary amounts of all elements
-            if datatype_mode == ContentMode::Sequence || datatype_mode == ContentMode::Choice {
-                if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(elem_idx) {
-                    *count_value += 1;
-                    if multiplicity != ElementMultiplicity::Any {
+        // get the parent type id, i.e. the type of the containing element or group
+        let datatype_mode = elemtype.get_sub_element_container_mode(elem_idx);
+        // multiplicity only matters if the mode is Choice or Sequence - modes Mixed and Bag allow arbitrary amounts of all elements
+        if datatype_mode == ContentMode::Sequence || datatype_mode == ContentMode::Choice {
+            if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(elem_idx) {
+                // multiplicity only needs to be checked if it is not Any - i.e. One / ZeroOrOne
+                if multiplicity != ElementMultiplicity::Any {
+                    // there is a conflict if there is already a subelement with the same ElementName
+                    if element.content.iter().any(|ec| {
+                        ec.unwrap_element()
+                            .map(|subelem| subelem.element_name() == name)
+                            .unwrap_or(false)
+                    }) {
                         self.optional_error(ArxmlParserError::TooManySubElements {
                             element: self.current_element,
                             sub_element: name,
@@ -536,8 +540,6 @@ impl<'a> ArxmlParser<'a> {
                     }
                 }
             }
-        } else {
-            element_count.insert(name as u16, 1);
         }
         Ok(())
     }
@@ -828,8 +830,8 @@ mod test {
     fn test_helper(buffer: &[u8], target_error: std::mem::Discriminant<ArxmlParserError>, optional: bool) {
         let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), buffer, true);
         let result = parser.parse_arxml();
-        println!("Result: {result:?}");
         if let Err(AutosarDataError::ParserError { source, .. }) = result {
+            println!("Error result: {source:?}");
             assert_eq!(
                 std::mem::discriminant(&source),
                 target_error,
@@ -841,9 +843,9 @@ mod test {
 
         if optional {
             let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), buffer, false);
-            let result = parser.parse_arxml();
-            println!("Result: {result:?}");
+            let _result = parser.parse_arxml();
             if let Some(AutosarDataError::ParserError { source, .. }) = parser.warnings.get(0) {
+                println!("Warnings result: {source:?}");
                 assert_eq!(
                     std::mem::discriminant(source),
                     target_error,
@@ -860,6 +862,8 @@ mod test {
     <something>"#;
     const INVALID_HEADER_3: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="nonsense" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#;
+    const INVALID_HEADER_4: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00049.xsd" xmlns="http://other" xmlns:xsi="http://other">"#;
 
     #[test]
     fn test_invalid_header() {
@@ -878,8 +882,16 @@ mod test {
             std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader),
             false,
         );
+        test_helper(
+            INVALID_HEADER_4.as_bytes(),
+            std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader),
+            false,
+        );
     }
 
+    const SCHEMA_VERSION_LC: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 autosar_4-3-0.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    </AUTOSAR>"#;
     const INVALID_VERSION_4_3_1: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-3-1.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     </AUTOSAR>"#;
@@ -892,6 +904,10 @@ mod test {
 
     #[test]
     fn test_invalid_version() {
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), SCHEMA_VERSION_LC.as_bytes(), true);
+        let result = parser.parse_arxml();
+        assert!(result.is_ok());
+
         let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidAutosarVersion {
             input_verstring: "".to_string(),
             replacement: AutosarVersion::Autosar_00044,

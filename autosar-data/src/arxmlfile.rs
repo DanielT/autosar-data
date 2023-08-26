@@ -353,9 +353,7 @@ mod test {
         let file_text = r#"<?xml version="1.0" encoding="utf-8" standalone="no"?>
             <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
             </AUTOSAR>"#.as_bytes();
-        let (file, _warnings) = model
-            .load_buffer(file_text, "filename.arxml", true)
-            .unwrap();
+        let (file, _warnings) = model.load_buffer(file_text, "filename.arxml", true).unwrap();
         assert_eq!(file.xml_standalone(), Some(false));
     }
 

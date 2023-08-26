@@ -1202,20 +1202,14 @@ mod test {
         assert_eq!(model.identifiable_elements().len(), 0);
         // complicated: remove one of several files
         let model = AutosarModel::new();
-        model
-            .load_buffer(FILEBUF.as_bytes(), "test1", true)
-            .unwrap();
+        model.load_buffer(FILEBUF.as_bytes(), "test1", true).unwrap();
         assert_eq!(model.files().count(), 1);
         let modeltxt_1 = model.root_element().serialize();
-        let (file2, _) = model
-            .load_buffer(FILEBUF2.as_bytes(), "test2", true)
-            .unwrap();
+        let (file2, _) = model.load_buffer(FILEBUF2.as_bytes(), "test2", true).unwrap();
         assert_eq!(model.files().count(), 2);
         let modeltxt_1_2 = model.root_element().serialize();
         assert_ne!(modeltxt_1, modeltxt_1_2);
-        let (file3, _) = model
-            .load_buffer(FILEBUF3.as_bytes(), "test3", true)
-            .unwrap();
+        let (file3, _) = model.load_buffer(FILEBUF3.as_bytes(), "test3", true).unwrap();
         assert_eq!(model.files().count(), 3);
         let modeltxt_1_2_3 = model.root_element().serialize();
         assert_ne!(modeltxt_1_2, modeltxt_1_2_3);
