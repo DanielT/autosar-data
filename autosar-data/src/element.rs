@@ -1009,6 +1009,22 @@ impl Element {
         }
     }
 
+    /// returns the number of content items in this element
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let pkg = model.root_element().create_sub_element(ElementName::ArPackages)
+    /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?;
+    /// assert_eq!(pkg.content_item_count(), 1);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn content_item_count(&self) -> usize {
+        self.0.lock().content.len()
+    }
+
     /// Get the character content of the element
     ///
     /// This method only applies to elements which contain character data, i.e. element.content_type() == CharacterData
@@ -1081,6 +1097,38 @@ impl Element {
         WeakElement(Arc::downgrade(&self.0))
     }
 
+    /// return the position of this element within the parent element
+    ///
+    /// None may be returned if the element has been deleted, or for the root element (AUTOSAR) which has no parent.
+    /// The returned position can be used with `get_sub_element_at()`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let el_ar_packages = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
+    /// let el_pkg1 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "Pkg1").unwrap();
+    /// let el_pkg2 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "Pkg2").unwrap();
+    /// let el_pkg3 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "Pkg3").unwrap();
+    /// let position = el_pkg2.position().unwrap();
+    /// assert_eq!(position, 1);
+    /// assert_eq!(el_pkg2, el_ar_packages.get_sub_element_at(position).unwrap());
+    /// ```
+    pub fn position(&self) -> Option<usize> {
+        if let Ok(Some(parent)) = self.parent() {
+            parent
+                .0
+                .lock()
+                .content
+                .iter()
+                .position(|ec| matches!(ec, ElementContent::Element(elem) if elem == self))
+        } else {
+            None
+        }
+    }
+
     /// Create an iterator over all sub elements of this element
     ///
     /// # Example
@@ -1124,6 +1172,32 @@ impl Element {
                     return Some(subelem.clone());
                 }
             }
+        }
+        None
+    }
+
+    /// Get the sub element at the given position.
+    ///
+    /// Returns None if no such element exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let pkg = model.root_element().create_sub_element(ElementName::ArPackages)
+    /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?;
+    /// let element = pkg.get_sub_element_at(0).unwrap();
+    /// assert_eq!(element.element_name(), ElementName::ShortName);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn get_sub_element_at(&self, position: usize) -> Option<Element> {
+        let locked_elem = self.0.lock();
+        if let Some(ElementContent::Element(subelem)) = locked_elem.content.get(position) {
+            return Some(subelem.clone());
         }
         None
     }
@@ -1857,6 +1931,7 @@ mod test {
 
         let count = el_elements.sub_elements().count();
         assert_eq!(count, 3);
+        assert_eq!(count, el_elements.content_item_count());
 
         // inserting another COMPU-METHOD into ELEMENTS hould be allowed at any position
         let (start_pos, end_pos) = el_elements
@@ -2151,6 +2226,33 @@ mod test {
         // deleting identifiable elements should also cause the cached references to them to be removed
         assert_eq!(model.0.lock().identifiables.len(), 0);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn element_position() {
+        let model = AutosarModel::new();
+        model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package1 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg1")
+            .unwrap();
+        let el_ar_package2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg2")
+            .unwrap();
+        let el_ar_package3 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg3")
+            .unwrap();
+
+        assert_eq!(el_ar_packages.content_item_count(), 3);
+        assert_eq!(el_ar_package2.position().unwrap(), 1);
+        assert_eq!(el_ar_packages.get_sub_element_at(1).unwrap(), el_ar_package2);
+        assert_eq!(el_ar_package3.position().unwrap(), 2);
+        assert_eq!(el_ar_packages.get_sub_element_at(2).unwrap(), el_ar_package3);
+
+        // there is no subelement at position 1
+        let nonexistent = el_ar_package1.get_sub_element_at(1);
+        assert_eq!(nonexistent, None);
     }
 
     #[test]
