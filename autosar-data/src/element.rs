@@ -3044,7 +3044,7 @@ mod test {
             .unwrap();
 
         model.sort();
-        // validae that identifiable elements have been sorted
+        // validate that identifiable elements have been sorted
         let mut iter = el_ar_packages.sub_elements();
         let item1 = iter.next().unwrap();
         let item2 = iter.next().unwrap();

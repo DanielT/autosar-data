@@ -112,51 +112,24 @@ impl Iterator for ArxmlFileElementsDfsIterator {
 }
 
 pub struct ElementsDfsIterator {
-    element: Element,
-    elements_iter: Option<ElementsIterator>,
-    current_dfs_iter: Option<Box<ElementsDfsIterator>>,
-    depth: usize,
+    elements: Vec<Element>,
+    position: Vec<usize>,
 }
 
 impl ElementsDfsIterator {
     pub(crate) fn new(element: &Element) -> Self {
         Self {
-            element: element.clone(),
-            elements_iter: None,
-            current_dfs_iter: None,
-            depth: 0,
+            elements: vec![element.clone()],
+            position: vec![]
         }
     }
 
     pub fn next_sibling(&mut self) -> Option<(usize, Element)> {
-        // descend throgh the hierarchy of dfs_iters
-        if let Some(dfs_iter) = &mut self.current_dfs_iter {
-            // check if the dfs_iter for the "grandchildren" exists. If it does, then descend to the child
-            // otherwise do not descend, because it is time to emit the sibling
-            if dfs_iter.current_dfs_iter.is_some() {
-                if let Some(result) = dfs_iter.next_sibling() {
-                    return Some(result);
-                }
-            }
-        }
-        // switch to next sub_element
-        if let Some(elements_iter) = &mut self.elements_iter {
-            if let Some(next_elem) = elements_iter.next() {
-                self.current_dfs_iter = Some(Box::new(ElementsDfsIterator {
-                    element: next_elem,
-                    elements_iter: None,
-                    current_dfs_iter: None,
-                    depth: self.depth + 1,
-                }));
-                // first call of the dfs_iter should alway yield Some(x), because the first element
-                // to be returned is the same one that was used to construct the dfs iterator
-                return self.next();
-            }
-            return None;
-        }
-        // return the starting element
-        self.elements_iter = Some(self.element.sub_elements());
-        Some((self.depth, self.element.clone()))
+        // when an element has bee returned, next always immediatly sets up to show its sub-elements
+        // to show a sibling instead we just need to discard the info related to the sub-element
+        self.elements.pop();
+        self.position.pop();
+        self.next()
     }
 }
 
@@ -164,32 +137,36 @@ impl Iterator for ElementsDfsIterator {
     type Item = (usize, Element);
 
     fn next(&mut self) -> Option<Self::Item> {
-        // first try to descend
-        if let Some(dfs_iter) = &mut self.current_dfs_iter {
-            if let Some(result) = dfs_iter.next() {
-                return Some(result);
+        while !self.elements.is_empty() {
+            let depth = self.elements.len() - 1;
+            let element = &self.elements[depth];
+
+            if self.position.len() == depth {
+                // return the current element and set up to return its sub-elements next
+                self.position.push(0);
+
+                return Some((depth, element.clone()));
+            } else {
+                // return sub elements?
+                if element.content_item_count() > self.position[depth] {
+                    // more items to show
+                    if let Some(e) = element.get_sub_element_at(self.position[depth]) {
+                        self.elements.push(e)
+                    }
+                    // show the next item in the next call
+                    self.position[depth] += 1;
+                } else {
+                    // back up one level
+                    self.elements.pop();
+                    self.position.pop();
+                }
             }
         }
-        // switch to next sub_element
-        if let Some(elements_iter) = &mut self.elements_iter {
-            if let Some(next_elem) = elements_iter.next() {
-                self.current_dfs_iter = Some(Box::new(ElementsDfsIterator {
-                    element: next_elem,
-                    elements_iter: None,
-                    current_dfs_iter: None,
-                    depth: self.depth + 1,
-                }));
-                // first call of the dfs_iter should alway yield Some(x), because the first element
-                // to be returned is the same one that was used to construct the dfs iterator
-                return self.next();
-            }
-            return None;
-        }
-        // return the starting element
-        self.elements_iter = Some(self.element.sub_elements());
-        Some((self.depth, self.element.clone()))
+
+        None
     }
 }
+
 
 pub struct AttributeIterator {
     pub(crate) element: Element,
