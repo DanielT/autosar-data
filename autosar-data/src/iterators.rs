@@ -120,7 +120,7 @@ impl ElementsDfsIterator {
     pub(crate) fn new(element: &Element) -> Self {
         Self {
             elements: vec![element.clone()],
-            position: vec![]
+            position: vec![],
         }
     }
 
@@ -166,7 +166,6 @@ impl Iterator for ElementsDfsIterator {
         None
     }
 }
-
 
 pub struct AttributeIterator {
     pub(crate) element: Element,
