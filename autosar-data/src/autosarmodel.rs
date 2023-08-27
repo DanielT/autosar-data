@@ -416,7 +416,11 @@ impl AutosarModel {
 
         // recurse for elements that need to be merged
         for (elem_a, elem_b) in elements_merge {
-            let files = elem_a.0.lock().file_membership.clone();
+            let files = if !elem_a.0.lock().file_membership.is_empty() {
+                elem_a.0.lock().file_membership.clone()
+            } else {
+                files.clone()
+            };
             AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file.clone())?;
             if !elem_a.0.lock().file_membership.is_empty() {
                 elem_a.0.lock().file_membership.insert(new_file.clone());
@@ -1096,10 +1100,14 @@ mod test {
                 <ECUC-NUMERICAL-PARAM-VALUE>
                   <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_B</DEFINITION-REF>
                 </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_C</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
               </PARAMETER-VALUES>
             </ECUC-CONTAINER-VALUE></CONTAINERS></ECUC-MODULE-CONFIGURATION-VALUES>
           </ELEMENTS></AR-PACKAGE>
           <AR-PACKAGE><SHORT-NAME>Pkg_B</SHORT-NAME></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_C</SHORT-NAME></AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#.as_bytes();
         const FILEBUF2: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -1120,17 +1128,27 @@ mod test {
           </ELEMENTS></AR-PACKAGE>
         </AR-PACKAGES></AUTOSAR>"#.as_bytes();
         // test with re-ordered identifiable elements and re-ordered BSW parameter values
-        // both should be recognized and merged, so that the total number of elements does not increase
+        // file2 is a subset of file1, so the total number of elements does not increase
         let model = AutosarModel::new();
-        let result = model.load_buffer(FILEBUF1, "test1", true);
-        assert!(result.is_ok());
-        let elemcount = model.elements_dfs().count();
-        let result = model.load_buffer(FILEBUF2, "test2", true);
-        assert!(result.is_ok());
-        let elemcount2 = model.elements_dfs().count();
-        // the second file is identical to the first, except for ordering.
-        // The total number of elements should not grow as a result of loading it.
-        assert_eq!(elemcount, elemcount2);
+        let (file1, _) = model.load_buffer(FILEBUF1, "test1", true).unwrap();
+        let file1_elemcount = file1.elements_dfs().count();
+        let (file2, _) = model.load_buffer(FILEBUF2, "test2", true).unwrap();
+        let file2_elemcount = file2.elements_dfs().count();
+        let model_elemcount = model.elements_dfs().count();
+        assert_eq!(file1_elemcount, model_elemcount);
+        assert!(file1_elemcount > file2_elemcount);
+        let el_pkg_c = model.get_element_by_path("/Pkg_C").unwrap();
+        let (loc, fm) = el_pkg_c.file_membership().unwrap();
+        assert_eq!(loc, true);
+        assert_eq!(fm.len(), 1);
+        let el_npv2 = model
+            .get_element_by_path("/Pkg_A/BswModule/BswModuleValues")
+            .and_then(|bmv| bmv.get_sub_element(ElementName::ParameterValues))
+            .and_then(|pv| pv.get_sub_element_at(2))
+            .unwrap();
+        let (loc, fm) = el_npv2.file_membership().unwrap();
+        assert_eq!(loc, true);
+        assert_eq!(fm.len(), 1);
 
         // the following two files diverge on the TIMING-RESOURCE element
         // this is not permitted, because SYSTEM-TIMING is not splittable
@@ -1161,7 +1179,6 @@ mod test {
         </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
         let model = AutosarModel::new();
         let result = model.load_buffer(ERRFILE1, "test1", true);
-        println!("{result:#?}");
         assert!(result.is_ok());
         let result = model.load_buffer(ERRFILE2, "test2", true);
         let error = result.unwrap_err();
