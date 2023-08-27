@@ -2,9 +2,12 @@
 
 [![Github Actions](https://github.com/DanielT/autosar-data/workflows/Test/badge.svg)](https://github.com/DanielT/autosar-data/actions)
 [![codecov](https://codecov.io/gh/DanielT/autosar-data/branch/main/graph/badge.svg?token=RGKUUJTWZ5)](https://codecov.io/gh/DanielT/autosar-data)
+[![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue)](#license)
 
 This crate provides functionality to read, modify and write Autosar 4 arxml files,
 both separately and in projects consisting of multiple files.
+
+There is also a Python module which is based on this crate: [autosar-data-py](https://github.com/DanielT/autosar-data-py) [![PyPI version](https://badge.fury.io/py/autosar-data.svg)](https://badge.fury.io/py/autosar-data)
 
 ## Features
 
@@ -71,3 +74,10 @@ Two complete example programs can be found in the examples directory of the sour
 
 - businfo, which extracts information about bus settings, frames, pdus and signals from an autosar ECU extract
 - generate_files, which for each Autosar version generates an arxml file containing a least one instance of every specified element
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([`LICENSE-MIT`](./LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
