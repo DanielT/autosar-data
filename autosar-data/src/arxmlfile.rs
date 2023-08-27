@@ -66,13 +66,6 @@ impl ArxmlFile {
         if compat_errors.is_empty() {
             let mut file = self.0.lock();
             file.version = new_ver;
-            // let attribute_value =
-            //     CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
-            // let _ = file.root_element.0.lock().set_attribute_internal(
-            //     AttributeName::xsiSchemalocation,
-            //     attribute_value,
-            //     new_ver,
-            // );
             Ok(())
         } else {
             Err(AutosarDataError::VersionIncompatibleData { version: new_ver })
@@ -330,10 +323,25 @@ mod test {
     #[test]
     fn version() {
         let model: AutosarModel = AutosarModel::new();
-        let result = model.create_file("test", AutosarVersion::Autosar_4_0_1);
-        let file = result.unwrap();
-        file.set_version(AutosarVersion::Autosar_00050).unwrap();
-        assert_eq!(file.version(), AutosarVersion::Autosar_00050);
+        let file = model.create_file("test", AutosarVersion::Autosar_00051).unwrap();
+
+        let el_elements = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .and_then(|arpkgs| arpkgs.create_named_sub_element(ElementName::ArPackage, "Pkg"))
+            .and_then(|arpkg| arpkg.create_sub_element(ElementName::Elements))
+            .unwrap();
+        let incompatible_elem = el_elements
+            .create_named_sub_element(ElementName::AdaptiveApplicationSwComponentType, "incompatible")
+            .unwrap();
+
+        let result = file.set_version(AutosarVersion::Autosar_4_0_1);
+        assert!(result.is_err());
+
+        el_elements.remove_sub_element(incompatible_elem).unwrap();
+
+        file.set_version(AutosarVersion::Autosar_4_0_1).unwrap();
+        assert_eq!(file.version(), AutosarVersion::Autosar_4_0_1);
     }
 
     #[test]

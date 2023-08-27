@@ -119,7 +119,6 @@ pub(crate) struct WeakAutosarModel(Weak<Mutex<AutosarModelRaw>>);
 /// The model contains the hierarchy of Autosar elements. It can be created manually or loaded from one or more arxml files.
 /// It stores the association between elements and files.
 /// In addition, this top-level structure provides caching of Autosar paths, to allow quick resolution of cross-references.
-#[derive(Debug)]
 pub(crate) struct AutosarModelRaw {
     root_element: Element,
     files: Vec<ArxmlFile>,
@@ -259,7 +258,6 @@ pub struct ArxmlFile(Arc<Mutex<ArxmlFileRaw>>);
 pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 
 /// The data of an arxml file
-#[derive(Debug)]
 pub(crate) struct ArxmlFileRaw {
     pub(crate) version: AutosarVersion,
     model: WeakAutosarModel,
@@ -284,7 +282,6 @@ pub struct Element(Arc<Mutex<ElementRaw>>);
 pub struct WeakElement(Weak<Mutex<ElementRaw>>);
 
 /// The data of an arxml element
-#[derive(Debug)]
 pub(crate) struct ElementRaw {
     pub(crate) parent: ElementOrModel,
     pub(crate) elemname: ElementName,
@@ -364,4 +361,24 @@ pub enum CompatibilityError {
         attribute_value: String,
         version_mask: u32,
     },
+}
+
+#[cfg(test)]
+mod test {
+    use std::{error::Error, path::PathBuf};
+
+    use crate::AutosarDataError;
+
+    #[test]
+    fn error_traits() {
+        let err = AutosarDataError::ParserError {
+            filename: PathBuf::from("filename.arxml"),
+            line: 123,
+            source: crate::parser::ArxmlParserError::InvalidArxmlFileHeader,
+        };
+        assert!(err.source().is_some());
+        let errstr = format!("{err}");
+        let errdbg = format!("{err:#?}");
+        assert!(errstr != errdbg);
+    }
 }

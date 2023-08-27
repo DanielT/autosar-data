@@ -726,9 +726,9 @@ mod test {
     fn get_sub_element_multiplicity() {
         let prm_char_type = get_prm_char_element_type();
         let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
-        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
+        let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices).unwrap().0;
         let multiplicity2 = prm_char_type.get_sub_element_multiplicity(&indices).unwrap();
-        if let Some((SubElement::Element { multiplicity, .. }, ..)) = sub_elem_spec {
+        if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
             assert_eq!(*multiplicity, multiplicity2);
         }
 
@@ -1131,6 +1131,32 @@ mod test {
         hashset.insert(en);
         let inserted = hashset.insert(en2);
         assert!(!inserted);
+
+        // CharacterDataSpec: Debug
+        let cdata_spec = CharacterDataSpec::String {
+            preserve_whitespace: true,
+            max_length: None,
+        };
+        let txt = format!("{cdata_spec:#?}");
+        assert!(txt.starts_with("String"));
+        let cdata_spec = CharacterDataSpec::Pattern {
+            check_fn: crate::regex::validate_regex_1,
+            regex: r"0x[0-9a-z]*",
+            max_length: None,
+        };
+        let txt = format!("{cdata_spec:#?}");
+        assert!(txt.starts_with("Pattern"));
+        let cdata_spec = CharacterDataSpec::Enum {
+            items: &[(EnumItem::Custom, 0x7e000)],
+        };
+        let txt = format!("{cdata_spec:#?}");
+        assert!(txt.starts_with("Enum"));
+        let cdata_spec = CharacterDataSpec::Double;
+        let txt = format!("{cdata_spec:#?}");
+        assert!(txt.starts_with("Double"));
+        let cdata_spec = CharacterDataSpec::UnsignedInteger;
+        let txt = format!("{cdata_spec:#?}");
+        assert!(txt.starts_with("UnsignedInteger"));
     }
 
     #[test]
