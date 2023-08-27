@@ -51,6 +51,9 @@ fn main() {
             }
         }
     }
+
+    // let the OS clean up the model when the process exits
+    std::mem::forget(model);
 }
 
 fn load_file_data(filename: &OsStr) -> Result<Vec<u8>, std::io::Error> {
