@@ -1493,6 +1493,21 @@ impl Element {
         self.0.lock().elemtype
     }
 
+    // an element might have a diffeent element type depending on the version - as a result of a
+    // changed datatype of the CharacterData, or because the element ordering was changed
+    fn recalc_element_type(&self, target_version: AutosarVersion) -> ElementType {
+        if let Ok(Some(parent)) = self.parent() {
+            if let Some((etype, ..)) = parent
+                .element_type()
+                .find_sub_element(self.element_name(), target_version as u32)
+            {
+                return etype;
+            }
+        }
+
+        self.element_type()
+    }
+
     /// check if the sub elements and attributes of this element are compatible with some target_version
     pub(crate) fn check_version_compatibility(
         &self,
@@ -1501,6 +1516,9 @@ impl Element {
     ) -> (Vec<CompatibilityError>, u32) {
         let mut compat_errors = Vec::new();
         let mut overall_version_mask = u32::MAX;
+
+        // make sure compatibility checks are performed with the element type used in the target version
+        let elemtype_new = self.recalc_element_type(target_version);
 
         // check the compatibility of all the attributes in this element
         {
@@ -1511,7 +1529,7 @@ impl Element {
                     spec: value_spec,
                     version: version_mask,
                     ..
-                }) = element.elemtype.find_attribute_spec(attribute.attrname)
+                }) = elemtype_new.find_attribute_spec(attribute.attrname)
                 {
                     overall_version_mask &= version_mask;
                     // check if the attribute is allowed at all
@@ -1542,9 +1560,9 @@ impl Element {
         // check the compatibility of all sub-elements
         for sub_element in self.sub_elements() {
             if sub_element.0.lock().file_membership.is_empty() || sub_element.0.lock().file_membership.contains(file) {
-                if let Some((_, indices)) = self
-                    .element_type()
-                    .find_sub_element(sub_element.element_name(), u32::MAX)
+                if let Some((_, indices)) = elemtype_new
+                    .find_sub_element(sub_element.element_name(), target_version as u32)
+                    .or(elemtype_new.find_sub_element(sub_element.element_name(), u32::MAX))
                 {
                     let version_mask = self.element_type().get_sub_element_version_mask(&indices).unwrap();
                     overall_version_mask &= version_mask;
@@ -2939,6 +2957,22 @@ mod test {
                 }
             }
         }
+
+        // regression test - CompuScales in CompuInternalToPhys was falsely detected as incompatible
+        let model = AutosarModel::new();
+        let file = model.create_file("filename", AutosarVersion::Autosar_00046).unwrap();
+        model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))
+            .and_then(|e| e.create_sub_element(ElementName::Elements))
+            .and_then(|e| e.create_named_sub_element(ElementName::CompuMethod, "CompuMethod"))
+            .and_then(|e| e.create_sub_element(ElementName::CompuInternalToPhys))
+            .and_then(|e| e.create_sub_element(ElementName::CompuScales))
+            .and_then(|e| e.create_sub_element(ElementName::CompuScale))
+            .unwrap();
+        let (compat_errors, _) = file.check_version_compatibility(AutosarVersion::Autosar_4_3_0);
+        assert!(compat_errors.is_empty());
     }
 
     #[test]
