@@ -451,6 +451,17 @@ impl ElementRaw {
         model: &AutosarModel,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
+        // check if self (target of the move) is a sub element of new_element
+        // if it is, then the move is not allowed
+        let mut wrapped_parent = self.parent.clone();
+        while let ElementOrModel::Element(weak_parent) = wrapped_parent {
+            let parent = weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
+            if parent == *other {
+                return Err(AutosarDataError::ForbiddenCopyOfParent);
+            }
+            wrapped_parent = parent.0.lock().parent.clone();
+        }
+
         // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
         // Additionally, implementing this manually provides the opportunity to filter out
         // elements that ae not compatible with the version of the current file.

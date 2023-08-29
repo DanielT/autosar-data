@@ -458,6 +458,10 @@ impl Element {
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
+        if self == other {
+            // trying to copy self into self never makes sense, and would deadlock
+            return Err(AutosarDataError::InvalidSubElement);
+        }
         let model = self.model()?;
         let version = self.min_version()?;
         self.0
@@ -505,6 +509,10 @@ impl Element {
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
+        if self == other {
+            // trying to copy self into self never makes sense, and would deadlock
+            return Err(AutosarDataError::InvalidSubElement);
+        }
         let model = self.model()?;
         let version = self.min_version()?;
         self.0
@@ -2213,6 +2221,20 @@ mod test {
         // can't copy an element that is not a valid sub element here
         let result = el_ar_package2.create_copied_sub_element_at(&el_compu_method, 0);
         assert!(result.is_err()); // COMPU-METHOS id not a valid sub-element of AR-PACKAGE
+    }
+
+    #[test]
+    fn element_copy_loop() {
+        let model = AutosarModel::new();
+        model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
+
+        let result = el_ar_package.create_copied_sub_element(&el_ar_packages);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -230,6 +230,10 @@ pub enum AutosarDataError {
     #[error("Cannot move an element into its own sub element")]
     ForbiddenMoveToSubElement,
 
+    /// Cannot copy an element (or a hierarchy including the element) into itself
+    #[error("Cannot create a copy that includes the destination")]
+    ForbiddenCopyOfParent,
+
     /// A parent element is currently locked by a different operation. The operation wa aborted to avoid a deadlock.
     #[error("A parent element is currently locked by a different operation")]
     ParentElementLocked,
