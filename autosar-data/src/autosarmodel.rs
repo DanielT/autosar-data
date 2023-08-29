@@ -390,7 +390,7 @@ impl AutosarModel {
             // add the new_element (from side b) to the content of parent_a
             // to do this, first check valid element insertion positions
             let (first_pos, last_pos) = parent_a_locked
-                .find_element_insert_pos(new_element.element_name(), version)
+                .calc_element_insert_range(new_element.element_name(), version)
                 .map_err(|_| AutosarDataError::InvalidFileMerge {
                     path: new_element.element_name().to_string(),
                 })?;

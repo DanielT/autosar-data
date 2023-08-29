@@ -248,7 +248,7 @@ impl ElementRaw {
         element_name: ElementName,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let (_start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        let (_start_pos, end_pos) = self.calc_element_insert_range(element_name, version)?;
         self.create_sub_element_inner(self_weak, element_name, end_pos, version)
     }
 
@@ -264,7 +264,7 @@ impl ElementRaw {
         position: usize,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let (start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        let (start_pos, end_pos) = self.calc_element_insert_range(element_name, version)?;
         if start_pos <= position && position <= end_pos {
             self.create_sub_element_inner(self_weak, element_name, position, version)
         } else {
@@ -313,7 +313,7 @@ impl ElementRaw {
         model: &AutosarModel,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let (_start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        let (_start_pos, end_pos) = self.calc_element_insert_range(element_name, version)?;
         self.create_named_sub_element_inner(self_weak, element_name, item_name, end_pos, model, version)
     }
 
@@ -331,7 +331,7 @@ impl ElementRaw {
         model: &AutosarModel,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let (start_pos, end_pos) = self.find_element_insert_pos(element_name, version)?;
+        let (start_pos, end_pos) = self.calc_element_insert_range(element_name, version)?;
         if start_pos <= position && position <= end_pos {
             self.create_named_sub_element_inner(self_weak, element_name, item_name, position, model, version)
         } else {
@@ -417,7 +417,7 @@ impl ElementRaw {
             let other_element = other.0.lock();
             other_element.elemname
         };
-        let (_, end) = self.find_element_insert_pos(other_elemname, version)?;
+        let (_, end) = self.calc_element_insert_range(other_elemname, version)?;
         self.create_copied_sub_element_inner(self_weak, other, end, model, version)
     }
 
@@ -435,7 +435,7 @@ impl ElementRaw {
             let other_element = other.0.lock();
             other_element.elemname
         };
-        let (start_pos, end_pos) = self.find_element_insert_pos(other_elemname, version)?;
+        let (start_pos, end_pos) = self.calc_element_insert_range(other_elemname, version)?;
         if start_pos <= position && position <= end_pos {
             self.create_copied_sub_element_inner(self_weak, other, position, model, version)
         } else {
@@ -620,7 +620,7 @@ impl ElementRaw {
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
         let move_element_name = move_element.element_name();
-        let (_, end_pos) = self.find_element_insert_pos(move_element_name, version)?;
+        let (_, end_pos) = self.calc_element_insert_range(move_element_name, version)?;
 
         if model == model_src {
             let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
@@ -653,7 +653,7 @@ impl ElementRaw {
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
         let move_element_name = move_element.element_name();
-        let (start_pos, end_pos) = self.find_element_insert_pos(move_element_name, version)?;
+        let (start_pos, end_pos) = self.calc_element_insert_range(move_element_name, version)?;
 
         if start_pos <= position && position <= end_pos {
             if model == model_src {
@@ -919,8 +919,8 @@ impl ElementRaw {
         Ok(move_element.clone())
     }
 
-    /// find the upper and lower bound on the insert position for a sub element
-    pub(crate) fn find_element_insert_pos(
+    /// find the upper and lower bound on the insert position for a new sub element
+    pub(crate) fn calc_element_insert_range(
         &self,
         element_name: ElementName,
         version: AutosarVersion,

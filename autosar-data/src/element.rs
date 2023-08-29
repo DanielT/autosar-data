@@ -1622,7 +1622,7 @@ impl Element {
             for (element_name, _, version_mask, named_mask) in etype.sub_element_spec_iter() {
                 if version.compatible(version_mask) {
                     let named = version.compatible(named_mask);
-                    let available = self.0.lock().find_element_insert_pos(element_name, version).is_ok();
+                    let available = self.0.lock().calc_element_insert_range(element_name, version).is_ok();
                     valid_sub_elements.push((element_name, named, available));
                 }
             }
@@ -1839,11 +1839,46 @@ impl Element {
         Ok(())
     }
 
-    /// return a path that includes non-identifiable elements by their xml names
+    /// Return a path that includes non-identifiable elements by their xml names
     ///
-    /// This function cannot fail completely, it will always collect as much information as possible
+    /// This function cannot fail completely, it will always collect as much information as possible.
+    /// It is intended for display in error messages.
     pub fn xml_path(&self) -> String {
         self.0.lock().xml_path()
+    }
+
+    /// Find the upper and lower bound on the insert position for a new sub element
+    ///
+    /// If the sub element is allowed for this element given its current content, this function
+    /// returns the lower and upper bound on the position the new sub element could have.
+    /// If the sub element is not allowed, then an Err is returned instead.
+    ///
+    /// The lower and upper bounds are inclusive: lower <= (element insert pos) <= upper.
+    /// In many situations lower == upper, this means there is only a single valid position.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # use std::collections::HashSet;
+    /// # let model = AutosarModel::new();
+    /// let (lbound, ubound) = model.root_element()
+    ///     .calc_element_insert_range(ElementName::ArPackages, AutosarVersion::LATEST)?;
+    /// model.root_element().create_sub_element_at(ElementName::ArPackages, lbound)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Possible Errors
+    ///
+    /// - [AutosarDataError::ElementInsertionConflict]: The sub element conflicts with an existing sub element
+    /// - [AutosarDataError::InvalidSubElement]: The sub element is not valid inside this element
+    pub fn calc_element_insert_range(
+        &self,
+        element_name: ElementName,
+        version: AutosarVersion,
+    ) -> Result<(usize, usize), AutosarDataError> {
+        self.0.lock().calc_element_insert_range(element_name, version)
     }
 
     /// find the minumum version of all arxml files which contain this element
@@ -1963,7 +1998,7 @@ mod test {
         let (start_pos, end_pos) = el_elements
             .0
             .lock()
-            .find_element_insert_pos(ElementName::CompuMethod, AutosarVersion::Autosar_00050)
+            .calc_element_insert_range(ElementName::CompuMethod, AutosarVersion::Autosar_00050)
             .unwrap();
         assert_eq!(start_pos, 0);
         assert_eq!(end_pos, 3); // upper limit is 3 since there are currently 3 elements
@@ -1986,7 +2021,7 @@ mod test {
         let (start_pos, end_pos) = el_compu_scale
             .0
             .lock()
-            .find_element_insert_pos(ElementName::ShortLabel, AutosarVersion::Autosar_00050)
+            .calc_element_insert_range(ElementName::ShortLabel, AutosarVersion::Autosar_00050)
             .unwrap();
         assert_eq!(start_pos, 0);
         assert_eq!(end_pos, 0);
@@ -1995,7 +2030,7 @@ mod test {
         let (start_pos, end_pos) = el_compu_scale
             .0
             .lock()
-            .find_element_insert_pos(ElementName::CompuConst, AutosarVersion::Autosar_00050)
+            .calc_element_insert_range(ElementName::CompuConst, AutosarVersion::Autosar_00050)
             .unwrap();
         assert_eq!(start_pos, 1);
         assert_eq!(end_pos, 1);
@@ -2008,13 +2043,13 @@ mod test {
         let result = el_compu_scale
             .0
             .lock()
-            .find_element_insert_pos(ElementName::CompuConst, AutosarVersion::Autosar_00050);
+            .calc_element_insert_range(ElementName::CompuConst, AutosarVersion::Autosar_00050);
         assert!(result.is_err());
         // it is also not possible to create a second COMPU-RATIONAL-COEFFS
         let result = el_compu_scale
             .0
             .lock()
-            .find_element_insert_pos(ElementName::CompuRationalCoeffs, AutosarVersion::Autosar_00050);
+            .calc_element_insert_range(ElementName::CompuRationalCoeffs, AutosarVersion::Autosar_00050);
         assert!(result.is_err());
 
         // creating a sub element at an invalid position fails
@@ -3012,14 +3047,14 @@ mod test {
         assert!(el_short_name
             .0
             .lock()
-            .find_element_insert_pos(ElementName::Desc, AutosarVersion::Autosar_00050)
+            .calc_element_insert_range(ElementName::Desc, AutosarVersion::Autosar_00050)
             .is_err());
 
         // find_element_insert_pos fails to find a place for a sequence element with multiplicity 0-1
         assert!(el_autosar
             .0
             .lock()
-            .find_element_insert_pos(ElementName::ArPackages, AutosarVersion::Autosar_00050)
+            .calc_element_insert_range(ElementName::ArPackages, AutosarVersion::Autosar_00050)
             .is_err());
     }
 
