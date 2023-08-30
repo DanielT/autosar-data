@@ -367,6 +367,18 @@ pub enum CompatibilityError {
     },
 }
 
+/// information about a sub element
+///
+/// This structure is returned by list_valid_sub_elements
+pub struct ValidSubElementInfo {
+    /// name of the potential sub element
+    pub element_name: ElementName,
+    /// is the sub element named, i.e. does it need to be created with create_named_sub_element
+    pub is_named: bool,
+    /// is the sub element currently allowed, given the existing content of the element. Note that some sub elements are mutually exclusive.
+    pub is_allowed: bool,
+}
+
 #[cfg(test)]
 mod test {
     use std::{error::Error, path::PathBuf};

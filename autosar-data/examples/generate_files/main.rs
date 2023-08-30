@@ -63,12 +63,17 @@ fn create_sub_elements(
     let elem_name = elem.element_name();
     let mut any_created = false;
     let mut element_complete = true;
-    for (se_name, named, _) in elem.list_valid_sub_elements() {
+    for ValidSubElementInfo {
+        element_name: se_name,
+        is_named,
+        ..
+    } in elem.list_valid_sub_elements()
+    {
         if completed.get(&(elem_name, se_name)).is_none() {
-            match create_sub_element_helper(elem, se_name, named, counter) {
+            match create_sub_element_helper(elem, se_name, is_named, counter) {
                 Ok(sub_elem) => {
                     any_created = true;
-                    if named {
+                    if is_named {
                         completed.insert((se_name, ElementName::ShortName));
                     }
                     completed.insert((elem_name, se_name));
@@ -76,7 +81,7 @@ fn create_sub_elements(
                     let (se_complete, _) = create_sub_elements(&sub_elem, counter, completed, version);
                     if !se_complete {
                         completed.remove(&(elem_name, se_name));
-                        while let Ok(sub_elem) = create_sub_element_helper(elem, se_name, named, counter) {
+                        while let Ok(sub_elem) = create_sub_element_helper(elem, se_name, is_named, counter) {
                             let (se_complete, se_any_created) =
                                 create_sub_elements(&sub_elem, counter, completed, version);
                             if se_complete {

@@ -1610,20 +1610,24 @@ impl Element {
     /// # let model = AutosarModel::new();
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// # let element = model.root_element();
-    /// for (element_name, is_named, is_allowed) in element.list_valid_sub_elements() {
+    /// for ValidSubElementInfo{element_name, is_named, is_allowed} in element.list_valid_sub_elements() {
     ///     // ...
     /// }
     /// ```
-    pub fn list_valid_sub_elements(&self) -> Vec<(ElementName, bool, bool)> {
+    pub fn list_valid_sub_elements(&self) -> Vec<ValidSubElementInfo> {
         let etype = self.0.lock().elemtype;
         let mut valid_sub_elements = Vec::new();
 
         if let Ok(version) = self.min_version() {
             for (element_name, _, version_mask, named_mask) in etype.sub_element_spec_iter() {
                 if version.compatible(version_mask) {
-                    let named = version.compatible(named_mask);
-                    let available = self.0.lock().calc_element_insert_range(element_name, version).is_ok();
-                    valid_sub_elements.push((element_name, named, available));
+                    let is_named = version.compatible(named_mask);
+                    let is_allowed = self.0.lock().calc_element_insert_range(element_name, version).is_ok();
+                    valid_sub_elements.push(ValidSubElementInfo {
+                        element_name,
+                        is_named,
+                        is_allowed,
+                    });
                 }
             }
         }
