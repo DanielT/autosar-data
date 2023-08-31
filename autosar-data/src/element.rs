@@ -1730,9 +1730,13 @@ impl Element {
     ///
     pub fn add_to_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
         let model = self.model()?;
+        if file.model()? != model {
+            // adding a file from a different model is not permitted
+            return Err(AutosarDataError::InvalidFile);
+        }
         let weak_file = file.downgrade();
         // current_fileset is the set of files which contain the current element
-        let (_, mut current_fileset) = self.file_membership().unwrap_or((false, HashSet::new()));
+        let (_, mut current_fileset) = self.file_membership()?;
         // if the model only has a single file or if the element is already in the set then there is nothing to do
         if model.0.lock().files.len() > 1 && !current_fileset.contains(&weak_file) {
             current_fileset.insert(weak_file.clone());
@@ -1805,7 +1809,11 @@ impl Element {
     ///
     pub fn remove_from_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
         let weak_file = file.downgrade();
-        let (_, mut current_fileset) = self.file_membership().unwrap_or((false, HashSet::new()));
+        if file.model()? != self.model()? {
+            // adding a file from a different model is not permitted
+            return Err(AutosarDataError::InvalidFile);
+        }
+        let (_, mut current_fileset) = self.file_membership()?;
         // nothing to do if the element is not in the set
         if current_fileset.contains(&weak_file) {
             if current_fileset.len() > 1 {
@@ -3190,6 +3198,12 @@ mod test {
         let filetxt2 = file2.serialize().unwrap();
         assert_ne!(filetxt1, filetxt2);
 
+        // can't use a file from a different model in add_to_file / remove_from_file
+        let model2 = AutosarModel::new();
+        let model2_file = model2.create_file("file", AutosarVersion::LATEST).unwrap();
+        assert!(el_elements.add_to_file(&model2_file).is_err());
+        assert!(el_elements.remove_from_file(&model2_file).is_err());
+
         // adding el_elements to file1 does nothing, since it is already present in this file
         el_elements.add_to_file(&file1).unwrap();
         let (local, fm3) = el_elements.file_membership().unwrap();
@@ -3213,5 +3227,6 @@ mod test {
         el_elements.remove_from_file(&file1).unwrap();
         el_elements.remove_from_file(&file2).unwrap();
         assert!(el_ar_package.get_sub_element(ElementName::Elements).is_none());
+        assert!(el_elements.remove_from_file(&file2).is_err());
     }
 }

@@ -246,6 +246,10 @@ pub enum AutosarDataError {
     #[error("The given value is not valid for this attribute")]
     InvalidAttributeValue,
 
+    /// The file is from a different model and may not be used in this operation
+    #[error("The file is from a different model and may not be used in this operation")]
+    InvalidFile,
+
     /// The newly loaded file diverges from the combined model on an element which is not splittable according to the metamodel
     #[error("The new file could not be merged, because it diverges from the model on non-splittable element {}", .path)]
     InvalidFileMerge { path: String },
