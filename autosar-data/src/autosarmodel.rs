@@ -102,6 +102,10 @@ impl AutosarModel {
         let new_file = ArxmlFile::new(filename, version, self);
 
         data.files.push(new_file.clone());
+
+        // every file contains the root element (but not its children)
+        let _ = data.root_element.add_to_file_restricted(&new_file);
+
         Ok(new_file)
     }
 
@@ -167,11 +171,13 @@ impl AutosarModel {
 
         if self.0.lock().files.is_empty() {
             root_element.set_parent(ElementOrModel::Model(self.downgrade()));
+            root_element.0.lock().file_membership.insert(arxml_file.downgrade());
             self.0.lock().root_element = root_element;
         } else {
             let result = self.merge_file_data(&root_element, arxml_file.downgrade());
             if let Err(error) = result {
-                self.unmerge_file(&arxml_file.downgrade());
+                // self.unmerge_file(&arxml_file.downgrade());
+                let _ = self.root_element().remove_from_file(&arxml_file);
                 return Err(error);
             }
         }
@@ -221,7 +227,8 @@ impl AutosarModel {
         let root = self.root_element();
         let files: HashSet<WeakArxmlFile> = self.files().map(|f| f.downgrade()).collect();
 
-        AutosarModel::merge_element(&root, &files, new_root, new_file)?;
+        AutosarModel::merge_element(&root, &files, new_root, &new_file)?;
+        self.root_element().0.lock().file_membership.insert(new_file);
 
         Ok(())
     }
@@ -230,7 +237,7 @@ impl AutosarModel {
         parent_a: &Element,
         files: &HashSet<WeakArxmlFile>,
         parent_b: &Element,
-        new_file: WeakArxmlFile,
+        new_file: &WeakArxmlFile,
     ) -> Result<(), AutosarDataError> {
         let mut iter_a = parent_a.sub_elements().enumerate();
         let mut iter_b = parent_b.sub_elements();
@@ -390,27 +397,17 @@ impl AutosarModel {
             // add the new_element (from side b) to the content of parent_a
             // to do this, first check valid element insertion positions
             let (first_pos, last_pos) = parent_a_locked
-                .calc_element_insert_range(new_element.element_name(), version)
+                .calc_element_insert_range(new_element.element_name(), min_ver_b)
                 .map_err(|_| AutosarDataError::InvalidFileMerge {
                     path: new_element.element_name().to_string(),
                 })?;
             // idx number of elements have already been inserted, so the destination position must be adjusted
             let dest = insert_pos + idx;
-            if dest < first_pos {
-                // desired position is before the first allowed position
-                parent_a_locked
-                    .content
-                    .insert(first_pos, ElementContent::Element(new_element));
-            } else if first_pos <= dest && dest <= last_pos {
-                parent_a_locked
-                    .content
-                    .insert(dest, ElementContent::Element(new_element));
-            } else {
-                // desired position is after the last allowed position
-                parent_a_locked
-                    .content
-                    .insert(last_pos, ElementContent::Element(new_element));
-            }
+            // clamp dest, so that first_pos <= dest <= last_pos
+            let dest = dest.max(first_pos).min(last_pos);
+            parent_a_locked
+                .content
+                .insert(dest, ElementContent::Element(new_element));
         }
         drop(parent_a_locked);
 
@@ -421,59 +418,13 @@ impl AutosarModel {
             } else {
                 files.clone()
             };
-            AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file.clone())?;
+            AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file)?;
             if !elem_a.0.lock().file_membership.is_empty() {
                 elem_a.0.lock().file_membership.insert(new_file.clone());
             }
         }
 
         Ok(())
-    }
-
-    /// clean up the model after a file is removed or after a failed file merge during load
-    fn unmerge_file(&self, file: &WeakArxmlFile) {
-        let mut elements_to_delete = vec![];
-        for (_, e) in self.elements_dfs() {
-            let mut fm = e.file_membership_local();
-            if fm.contains(file) {
-                if fm.len() == 1 {
-                    // this element is only part of the file that is being removed
-                    // queue the deletion of this element (the iterator might skip items if the model is mutated while it is active)
-                    elements_to_delete.push(e);
-                } else {
-                    // the element is part of several files, so this one only needs to be removed from the set
-                    fm.remove(file);
-                    e.set_file_membership(fm);
-                }
-            }
-        }
-
-        // perform any queued deletions
-        for e in elements_to_delete {
-            if let Ok(Some(parent)) = e.parent() {
-                let _ = parent.remove_sub_element(e);
-            }
-        }
-
-        let mut self_locked = self.0.lock();
-
-        // clean up any remaining references to now-deleted identifiables
-        let mut paths_to_remove = vec![];
-        for (path, weak_elem) in &self_locked.identifiables {
-            if weak_elem.upgrade().is_none() {
-                paths_to_remove.push(path.to_owned());
-            }
-        }
-        for path in paths_to_remove {
-            self_locked.identifiables.remove(&path);
-        }
-
-        let mut ref_origins_old = FxHashMap::<String, Vec<WeakElement>>::default();
-        std::mem::swap(&mut ref_origins_old, &mut self_locked.reference_origins);
-        for (refpath, ref_elements) in &ref_origins_old {
-            let newvec: Vec<WeakElement> = ref_elements.iter().filter(|e| e.upgrade().is_some()).cloned().collect();
-            self_locked.reference_origins.insert(refpath.to_owned(), newvec);
-        }
     }
 
     /// Load an arxml file
@@ -568,7 +519,8 @@ impl AutosarModel {
                 self.0.lock().reference_origins.clear();
             } else {
                 // other files still contribute elements, so only the elements specifically associated with this file should be removed
-                self.unmerge_file(&file.downgrade());
+                let _ = self.root_element().remove_from_file(file);
+                // self.unmerge_file(&file.downgrade());
             }
         }
     }
@@ -1005,23 +957,11 @@ impl std::fmt::Debug for WeakAutosarModel {
     }
 }
 
-impl PartialEq for WeakAutosarModel {
-    fn eq(&self, other: &Self) -> bool {
-        Weak::as_ptr(&self.0) == Weak::as_ptr(&other.0)
-    }
-}
-
-impl Eq for WeakAutosarModel {}
-
-impl Hash for WeakAutosarModel {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_usize(Weak::as_ptr(&self.0) as usize);
-    }
-}
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn create_file() {
@@ -1081,8 +1021,28 @@ mod test {
 
     #[test]
     fn load_file() {
+        let dir = tempdir().unwrap();
+
         let model = AutosarModel::new();
-        assert!(model.load_file("nonexistent", true).is_err());
+        let filename = dir.path().with_file_name("nonexistent.arxml");
+        assert!(model.load_file(&filename, true).is_err());
+
+        let filename = dir.path().with_file_name("test.arxml");
+        model.create_file(&filename, AutosarVersion::LATEST).unwrap();
+        model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .and_then(|ap| ap.create_named_sub_element(ElementName::ArPackage, "Pkg"))
+            .unwrap();
+        model.write().unwrap();
+
+        assert!(filename.exists());
+
+        // careate a new model without data
+        let model = AutosarModel::new();
+        model.load_file(&filename, true).unwrap();
+        let el_pkg = model.get_element_by_path("/Pkg");
+        assert!(el_pkg.is_some());
     }
 
     #[test]
@@ -1137,10 +1097,15 @@ mod test {
         let model_elemcount = model.elements_dfs().count();
         assert_eq!(file1_elemcount, model_elemcount);
         assert!(file1_elemcount > file2_elemcount);
+        // verify file membership after merging
+        let (local, fileset) = model.root_element().file_membership().unwrap();
+        assert_eq!(local, true);
+        assert_eq!(fileset.len(), 2);
+
         let el_pkg_c = model.get_element_by_path("/Pkg_C").unwrap();
-        let (loc, fm) = el_pkg_c.file_membership().unwrap();
-        assert_eq!(loc, true);
-        assert_eq!(fm.len(), 1);
+        let (local, fileset) = el_pkg_c.file_membership().unwrap();
+        assert_eq!(local, true);
+        assert_eq!(fileset.len(), 1);
         let el_npv2 = model
             .get_element_by_path("/Pkg_A/BswModule/BswModuleValues")
             .and_then(|bmv| bmv.get_sub_element(ElementName::ParameterValues))
@@ -1303,14 +1268,25 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#;
         let model = AutosarModel::new();
         model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+        let el_fibex_elements = model
+            .get_element_by_path("/Pkg/System")
+            .and_then(|sys| sys.get_sub_element(ElementName::FibexElements))
+            .unwrap();
+        let el_fibex_element_ref = el_fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .and_then(|ferc| ferc.create_sub_element(ElementName::FibexElementRef))
+            .unwrap();
+        el_fibex_element_ref
+            .set_character_data(CharacterData::String("/Pkg/System".to_string()))
+            .unwrap();
         let invalid_refs = model.check_references();
-        assert_eq!(invalid_refs.len(), 2);
+        assert_eq!(invalid_refs.len(), 3);
         let ref0 = invalid_refs[0].upgrade().unwrap();
         assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
         let refpath = ref0.character_data().and_then(|cdata| cdata.string_value()).unwrap();
-        if refpath != "/Pkg/System" && refpath != "/Some/Invalid/Path" {
-            panic!("unexpected path: {refpath}");
-        }
+        // there is no defined order in which the references will be checked, so any of the three broken refs could be returned first
+        assert!(refpath == "/Pkg/System" || refpath == "/Some/Invalid/Path");
+
         model.get_element_by_path("/Pkg/EcuInstance").unwrap();
         let refs = model.get_references_to("/Pkg/EcuInstance");
         assert_eq!(refs.len(), 1);
@@ -1344,11 +1320,15 @@ mod test {
 
     #[test]
     fn traits() {
-        // AutosarModel: Debug, Clone
+        // AutosarModel: Debug, Clone, Hash
         let model = AutosarModel::new();
-        let p2 = model.clone();
-        assert_eq!(model, p2);
-        assert_eq!(format!("{model:#?}"), format!("{p2:#?}"));
+        let model_cloned = model.clone();
+        assert_eq!(model, model_cloned);
+        assert_eq!(format!("{model:#?}"), format!("{model_cloned:#?}"));
+        let mut hashset = HashSet::<AutosarModel>::new();
+        hashset.insert(model);
+        let inserted = hashset.insert(model_cloned);
+        assert!(!inserted);        
 
         // CharacterData
         let cdata = CharacterData::String("x".to_string());

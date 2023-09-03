@@ -392,22 +392,13 @@ impl<'a> ArxmlParser<'a> {
                 }
                 ArxmlEvent::Characters(text_content) => {
                     if let Some(character_data_spec) = elemtype.chardata_spec() {
-                        match elemtype.content_mode() {
-                            ContentMode::Sequence | ContentMode::Choice | ContentMode::Bag => {
-                                self.optional_error(ArxmlParserError::CharacterContentForbidden {
-                                    element: element.elemname,
-                                })?
-                            }
-                            ContentMode::Characters | ContentMode::Mixed => {
-                                let value = self.parse_character_data(text_content, character_data_spec)?;
-                                if elemtype.is_ref() {
-                                    if let CharacterData::String(refpath) = &value {
-                                        self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
-                                    }
-                                }
-                                element.content.push(ElementContent::CharacterData(value));
+                        let value = self.parse_character_data(text_content, character_data_spec)?;
+                        if elemtype.is_ref() {
+                            if let CharacterData::String(refpath) = &value {
+                                self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
                             }
                         }
+                        element.content.push(ElementContent::CharacterData(value));
                     } else {
                         self.optional_error(ArxmlParserError::CharacterContentForbidden {
                             element: element.elemname,
@@ -916,6 +907,7 @@ mod test {
         test_helper(INVALID_VERSION_4_4_0.as_bytes(), discriminant, true);
         test_helper(INVALID_VERSION_4_5_0.as_bytes(), discriminant, true);
     }
+
     const UNKNOWN_VERSION: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_something_else.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     </AUTOSAR>"#;
@@ -926,6 +918,17 @@ mod test {
             input_verstring: "".to_string(),
         });
         test_helper(UNKNOWN_VERSION.as_bytes(), discriminant, true);
+    }
+
+    const UNEXPECTED_XML_FILE_HEADER: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <?xml version="1.0" encoding="utf-8"?>
+    </AUTOSAR>"#;
+
+    #[test]
+    fn test_unexpected_xml_file_header() {
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnexpectedXmlFileHeader { element: ElementName::Autosar });
+        test_helper(UNEXPECTED_XML_FILE_HEADER.as_bytes(), discriminant, true);
     }
 
     const INCORRECT_BEGIN_ELEMENT: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -1059,6 +1062,10 @@ mod test {
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <AR-PACKAGES UnknownAttribute="value">
     </AR-PACKAGES></AUTOSAR>"#;
+    const UNKNOWN_ATTRIBUTE_2: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <AR-PACKAGES DEST="value">
+    </AR-PACKAGES></AUTOSAR>"#;
 
     #[test]
     fn test_unknown_attribute() {
@@ -1067,6 +1074,11 @@ mod test {
             attribute: "".to_string(),
         });
         test_helper(UNKNOWN_ATTRIBUTE.as_bytes(), discriminant, true);
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnknownAttributeError {
+            element: ElementName::Autosar,
+            attribute: "DEST".to_string(),
+        });
+        test_helper(UNKNOWN_ATTRIBUTE_2.as_bytes(), discriminant, true);
     }
 
     const REQUIRED_ATTRIBUTE_MISSING: &str = r#"<?xml version="1.0" encoding="utf-8"?>

@@ -101,10 +101,6 @@ impl<'a> ArxmlLexer<'a> {
 
         self.line += count_lines(text);
         self.bufpos = endpos + 1;
-
-        if elemname.is_empty() {
-            println!("empty element name in {}", String::from_utf8_lossy(text))
-        }
         ArxmlEvent::BeginElement(elemname, attributes)
     }
 
@@ -271,33 +267,13 @@ mod test {
         let data =
             b"<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
-        match lexer.next() {
-            Ok((_, ArxmlEvent::ArxmlHeader(None))) => {}
-            _ => panic!("got an error instead of ArxmlHeader"),
-        }
-        match lexer.next() {
-            Ok((_, ArxmlEvent::BeginElement(elem, attrs))) => {
-                assert_eq!(elem, b"element");
-                assert_eq!(attrs.len(), 17)
-            }
-            _ => panic!("got an error instead of BeginElement"),
-        }
-        match lexer.next() {
-            Ok((_, ArxmlEvent::Characters(text))) => {
-                assert_eq!(text, b"contained characters")
-            }
-            _ => panic!("got an error instead of Characters"),
-        }
-        match lexer.next() {
-            Ok((_, ArxmlEvent::EndElement(elem))) => {
-                assert_eq!(elem, b"element");
-            }
-            _ => panic!("got an error instead of EndElement"),
-        }
-        match lexer.next() {
-            Ok((_, ArxmlEvent::EndOfFile)) => {}
-            _ => panic!("got an error instead of EndOfFile"),
-        }
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::ArxmlHeader(None)))));
+        assert!(
+            matches!(lexer.next(), Ok((_, ArxmlEvent::BeginElement(elem, attrs))) if elem == b"element" && attrs.len() == 17)
+        );
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::Characters(text))) if text == b"contained characters"));
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::EndElement(elem))) if elem == b"element"));
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::EndOfFile))));
     }
 
     #[test]
@@ -305,26 +281,16 @@ mod test {
         let data =
             b"\xEF\xBB\xBF<?xml version=\"1.0\" encoding=\"utf-8\"?><element attr=\"gggg\" attr3>contained characters</element>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
-        match lexer.next() {
-            Ok((_, ArxmlEvent::ArxmlHeader(None))) => {}
-            _ => panic!("got an error instead of ArxmlHeader"),
-        }
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::ArxmlHeader(None)))));
     }
 
     #[test]
     fn test_incomplete_data() {
         let data = b"<element";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
-        match lexer.next() {
-            Ok(_) => panic!("expected error, got OK"),
-            Err(AutosarDataError::LexerError {
-                source: ArxmlLexerError::IncompleteData,
-                ..
-            }) => {
-                // OK
-            }
-            Err(_) => panic!("unexpected error"),
-        }
+        assert!(
+            matches!(lexer.next(), Err(AutosarDataError::LexerError {source, ..}) if source == ArxmlLexerError::IncompleteData)
+        );
     }
 
     #[test]
@@ -332,16 +298,9 @@ mod test {
         let data = b"<element><>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(lexer.next().is_ok());
-        match lexer.next() {
-            Ok(_) => panic!("expected error, got OK"),
-            Err(AutosarDataError::LexerError {
-                source: ArxmlLexerError::InvalidElement,
-                ..
-            }) => {
-                // OK
-            }
-            Err(_) => panic!("unexpected error"),
-        }
+        assert!(
+            matches!(lexer.next(), Err(AutosarDataError::LexerError{source, ..}) if source == ArxmlLexerError::InvalidElement)
+        );
     }
 
     #[test]
@@ -349,16 +308,19 @@ mod test {
         let data = b"<element><?what>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(lexer.next().is_ok());
-        match lexer.next() {
-            Ok(_) => panic!("expected error, got OK"),
-            Err(AutosarDataError::LexerError {
-                source: ArxmlLexerError::InvalidProcessingInstruction,
-                ..
-            }) => {
-                // OK
-            }
-            Err(_) => panic!("unexpected error"),
-        }
+        assert!(
+            matches!(lexer.next(), Err(AutosarDataError::LexerError{source, ..}) if source == ArxmlLexerError::InvalidProcessingInstruction)
+        );
+    }
+
+    #[test]
+    fn test_comment() {
+        let data = b"<!-- foo--><element>";
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
+        // the comment is skipped, and lexer.next() directly returns the following element
+        assert!(
+            matches!(lexer.next(), Ok((_, ArxmlEvent::BeginElement(_elem, _attrs))))
+        );
     }
 
     #[test]
@@ -366,32 +328,24 @@ mod test {
         let data = b"<element><!-- foo>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(lexer.next().is_ok());
-        match lexer.next() {
-            Ok(_) => panic!("expected error, got OK"),
-            Err(AutosarDataError::LexerError {
-                source: ArxmlLexerError::InvalidComment,
-                ..
-            }) => {
-                // OK
-            }
-            Err(e) => panic!("unexpected error, {e}"),
-        }
+        assert!(
+            matches!(lexer.next(), Err(AutosarDataError::LexerError{source, ..}) if source == ArxmlLexerError::InvalidComment)
+        );
     }
 
     #[test]
     fn test_invalid_xml_header() {
         let data = br#"<?xml version="1.0" encoding="cp1252"?>"#;
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
-        match lexer.next() {
-            Ok(_) => panic!("expected error, got OK"),
-            Err(AutosarDataError::LexerError {
-                source: ArxmlLexerError::InvalidXmlHeader,
-                ..
-            }) => {
-                // OK
-            }
-            Err(e) => panic!("unexpected error, {e}"),
-        }
+        assert!(
+            matches!(lexer.next(), Err(AutosarDataError::LexerError{source, ..}) if source == ArxmlLexerError::InvalidXmlHeader)
+        );
+
+        let data = br#"<?xml ?>"#;
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
+        assert!(
+            matches!(lexer.next(), Err(AutosarDataError::LexerError{source, ..}) if source == ArxmlLexerError::InvalidXmlHeader)
+        );
     }
 
     #[test]

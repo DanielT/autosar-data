@@ -288,6 +288,7 @@ impl Element {
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::ItemNameRequired]: The sub element requires an item name, so you must use create_named_sub_element().
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, AutosarDataError> {
         let version = self.min_version()?;
         self.0
@@ -325,6 +326,7 @@ impl Element {
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::ItemNameRequired]: The sub element requires an item name, so you must use create_named_sub_element_at().
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn create_sub_element_at(
         &self,
         element_name: ElementName,
@@ -364,6 +366,7 @@ impl Element {
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::ElementNotIdentifiable]: The sub element does not have an item name, so you must use create_sub_element() instead.
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn create_named_sub_element(
         &self,
         element_name: ElementName,
@@ -406,6 +409,7 @@ impl Element {
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::ElementNotIdentifiable]: The sub element does not have an item name, so you must use create_sub_element() instead.
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn create_named_sub_element_at(
         &self,
         element_name: ElementName,
@@ -457,6 +461,7 @@ impl Element {
     ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
@@ -508,6 +513,7 @@ impl Element {
     ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
@@ -555,6 +561,7 @@ impl Element {
     ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
     ///  - [AutosarDataError::VersionMismatch]: The Autosar versions of the source and destination are different
     ///  - [AutosarDataError::ForbiddenMoveToSubElement]: The destination is a sub element of the source. Moving here is not possible
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn move_element_here(&self, move_element: &Element) -> Result<Element, AutosarDataError> {
         let model_src = move_element.model()?;
         let model = self.model()?;
@@ -607,6 +614,7 @@ impl Element {
     ///  - [AutosarDataError::VersionMismatch]: The Autosar versions of the source and destination are different
     ///  - [AutosarDataError::ForbiddenMoveToSubElement]: The destination is a sub element of the source. Moving here is not possible
     ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn move_element_here_at(&self, move_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
         let model_src = move_element.model()?;
         let model = self.model()?;
@@ -688,6 +696,7 @@ impl Element {
     ///  - [AutosarDataError::NotReferenceElement]: The current element is not a reference, so it is not possible to set a reference target
     ///  - [AutosarDataError::InvalidReference]: The target element is not a valid reference target for this reference
     ///  - [AutosarDataError::ElementNotIdentifiable]: The target element is not identifiable, so it cannot be referenced by an Autosar path
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn set_reference_target(&self, target: &Element) -> Result<(), AutosarDataError> {
         // the current element must be a reference
         if self.is_reference() {
@@ -1286,6 +1295,7 @@ impl Element {
     ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
     ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
         self.0.lock().set_attribute_internal(attrname, value, version)
@@ -1311,6 +1321,7 @@ impl Element {
     ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
     ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
         self.0.lock().set_attribute_string(attrname, stringvalue, version)
@@ -1658,6 +1669,7 @@ impl Element {
     ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
     pub fn file_membership(&self) -> Result<(bool, HashSet<WeakArxmlFile>), AutosarDataError> {
         let mut cur_elem_opt = Some(self.clone());
         while let Some(cur_elem) = &cur_elem_opt {
@@ -1673,9 +1685,8 @@ impl Element {
             cur_elem_opt = cur_elem.parent()?;
         }
 
-        // no file membership info found at any level, so all elements inherit the default membership: all files
-        let fileset: HashSet<WeakArxmlFile> = self.model()?.files().map(|f| f.downgrade()).collect();
-        Ok((false, fileset))
+        // no file membership info found at any level - this only happens if the model does not contain any files
+        Err(AutosarDataError::NoFilesInModel)
     }
 
     /// return the file membership of this element without trying to get an inherited value
@@ -1729,54 +1740,72 @@ impl Element {
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn add_to_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
-        let model = self.model()?;
-        if file.model()? != model {
-            // adding a file from a different model is not permitted
-            return Err(AutosarDataError::InvalidFile);
-        }
-        let weak_file = file.downgrade();
-        // current_fileset is the set of files which contain the current element
-        let (_, mut current_fileset) = self.file_membership()?;
-        // if the model only has a single file or if the element is already in the set then there is nothing to do
-        if model.0.lock().files.len() > 1 && !current_fileset.contains(&weak_file) {
-            current_fileset.insert(weak_file.clone());
-            // go up the hierarchy of elements, since parent elements may also need to be adjusted
-            let mut cur_elem_opt = Some(self.clone());
-            while let Some(cur_elem) = &cur_elem_opt {
-                let parent = cur_elem.parent()?;
-                // the current element either inherits its fileset from a parent, or it has its own (restricting the files allowed on the parent)
-                // if it has it's own fileset, then this element is the source of current_fileset (currently lacking weak_file)
-                if !cur_elem.0.lock().file_membership.is_empty() {
-                    // update the local fileset
-                    cur_elem.0.lock().file_membership = current_fileset.clone();
-                    // get the fileset of the parent of this element - since this element did not inherit the parent's set, it will have a different (larger) set
-                    let (_, new_fileset) = parent
-                        .as_ref()
-                        .and_then(|p| p.file_membership().ok())
-                        .unwrap_or((false, HashSet::<WeakArxmlFile>::new()));
-                    // the parent may already be part of the new file
-                    if new_fileset.contains(&weak_file) {
-                        // nothing more to do
-                        break;
-                    } else {
-                        // continue up the hierarchy, with the parent's fileset as the current set
-                        current_fileset = new_fileset;
-                        current_fileset.insert(weak_file.clone());
-                    }
-                } else {
-                    // this element inherited its fileset from the parent
-                    // a local fileset may only be set if the parent element type is splittable
-                    if parent
-                        .as_ref()
-                        .map(|p| p.element_type().splittable() != 0)
-                        .unwrap_or(true)
-                    {
-                        cur_elem.0.lock().file_membership = current_fileset.clone();
+        let parent_splittable = self
+            .parent()?
+            .map(|p| p.element_type().splittable() != 0)
+            .unwrap_or(true);
+        if parent_splittable {
+            if file.model()? == self.model()? {
+                let weak_file = file.downgrade();
+                // current_fileset is the set of files which contain the current element
+                let (_, current_fileset) = self.file_membership()?;
+                // if the model only has a single file or if the element is already in the set then there is nothing to do
+                if !current_fileset.contains(&weak_file) {
+                    let mut updated_fileset = current_fileset;
+                    updated_fileset.insert(weak_file);
+                    self.0.lock().file_membership = updated_fileset;
+
+                    // recursively continue with the parent
+                    if let Some(parent) = self.parent()? {
+                        parent.add_to_file_restricted(file)?;
                     }
                 }
-                cur_elem_opt = parent;
+                Ok(())
+            } else {
+                // adding a file from a different model is not permitted
+                Err(AutosarDataError::InvalidFile)
+            }
+        } else {
+            Err(AutosarDataError::FilesetModificationForbidden)
+        }
+    }
+
+    /// add only this element and its direct parents to a file, but not its children
+    pub(crate) fn add_to_file_restricted(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
+        let weak_file = file.downgrade();
+        let (local, current_fileset) = self.file_membership().unwrap_or((true, HashSet::new()));
+
+        if !current_fileset.contains(&weak_file) {
+            // if the current element is splittable, then all of its subelements are allowed to have their own filesets
+            // unless something else is already set, they should get the current unmodified file membership of this element
+            // which does not include the new file
+            if self.element_type().splittable() != 0 {
+                for se in self.sub_elements() {
+                    if let Some(mut subelem) = se.0.try_lock() {
+                        if subelem.file_membership.is_empty() {
+                            subelem.file_membership = current_fileset.clone();
+                        }
+                    }
+                }
+            }
+
+            let mut extended_fileset = current_fileset;
+            extended_fileset.insert(weak_file);
+            // if the parent is splittable, or if the current element already has a fileset, then that fileset should be updated
+            let parent_splittable = self
+                .parent()?
+                .map(|p| p.element_type().splittable() != 0)
+                .unwrap_or(true);
+            if parent_splittable || local {
+                self.0.lock().file_membership = extended_fileset;
+            }
+
+            // recursively continue with the parent
+            if let Some(parent) = self.parent()? {
+                parent.add_to_file_restricted(file)?;
             }
         }
+
         Ok(())
     }
 
@@ -1808,47 +1837,54 @@ impl Element {
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn remove_from_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
-        let weak_file = file.downgrade();
-        if file.model()? != self.model()? {
-            // adding a file from a different model is not permitted
-            return Err(AutosarDataError::InvalidFile);
-        }
-        let (_, mut current_fileset) = self.file_membership()?;
-        // nothing to do if the element is not in the set
-        if current_fileset.contains(&weak_file) {
-            if current_fileset.len() > 1 {
-                current_fileset.remove(&weak_file);
-                // go up the hierarchy of parents, until either
-                // - the element is reached from which the current_fileset was inherited
-                // - a splittable parent element is reached, where a new restriction can be added
-                let mut cur_elem_opt = Some(self.clone());
-                while let Some(cur_elem) = &cur_elem_opt {
-                    let parent = cur_elem.parent()?;
-                    if !cur_elem.0.lock().file_membership.is_empty() {
-                        // current_fileset was inherited from this parent, remove the file from its set
-                        cur_elem.0.lock().file_membership.remove(&weak_file);
-                        break;
-                    } else if parent
-                        .as_ref()
-                        .map(|p| p.element_type().splittable() != 0)
-                        .unwrap_or(true)
-                    {
-                        // this parent element is splittable, so a restriction can be added here
-                        cur_elem.0.lock().file_membership = current_fileset.clone();
-                        break;
+        let parent_splittable = self
+            .parent()?
+            .map(|p| p.element_type().splittable() != 0)
+            .unwrap_or(true);
+        if parent_splittable {
+            if file.model()? == self.model()? {
+                let weak_file = file.downgrade();
+
+                // current_fileset is the set of files which contain the current element
+                let (_, current_fileset) = self.file_membership()?;
+                let mut restricted_fileset = current_fileset;
+                restricted_fileset.remove(&weak_file);
+                if restricted_fileset.is_empty() {
+                    // the element will no longer be part of any file, so try to delete it
+                    if let Some(parent) = self.parent()? {
+                        let _ = parent.remove_sub_element(self.to_owned());
                     }
-
-                    cur_elem_opt = parent;
                 }
+                // this works even if the element was just removed
+                self.0.lock().file_membership = restricted_fileset;
+
+                // update all sub elements with non-default file_membership
+                let mut to_delete = Vec::new();
+                for (_, subelem) in self.elements_dfs() {
+                    // only need to care about those where file_membership is not empty. All other inherit from their parent
+                    if !subelem.0.lock().file_membership.is_empty() {
+                        subelem.0.lock().file_membership.remove(&weak_file);
+                        // if the file_membership just went to empty, then subelem should be deleted
+                        if subelem.0.lock().file_membership.is_empty() {
+                            to_delete.push(subelem);
+                        }
+                    }
+                }
+                // delete elements that are no longer in any file
+                for delete_elem in to_delete {
+                    if let Ok(Some(parent)) = delete_elem.parent() {
+                        let _ = parent.remove_sub_element(delete_elem);
+                    }
+                }
+
+                Ok(())
             } else {
-                // the element is only present in one file, so try to delete it instead
-                if let Some(parent) = self.parent()? {
-                    let _ = parent.remove_sub_element(self.to_owned());
-                }
+                // adding a file from a different model is not permitted
+                Err(AutosarDataError::InvalidFile)
             }
+        } else {
+            Err(AutosarDataError::FilesetModificationForbidden)
         }
-
-        Ok(())
     }
 
     /// Return a path that includes non-identifiable elements by their xml names
@@ -1874,6 +1910,7 @@ impl Element {
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # use std::collections::HashSet;
     /// # let model = AutosarModel::new();
+    /// # model.create_file("test", AutosarVersion::LATEST).unwrap();
     /// let (lbound, ubound) = model.root_element()
     ///     .calc_element_insert_range(ElementName::ArPackages, AutosarVersion::LATEST)?;
     /// model.root_element().create_sub_element_at(ElementName::ArPackages, lbound)?;
@@ -1895,9 +1932,12 @@ impl Element {
 
     /// find the minumum version of all arxml files which contain this element
     ///
-    /// typically this reduces to finding out which single file contains the element and returning this version
+    /// typically this reduces to finding out which single file contains the element and returning this version.
     fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
         let (_, files) = self.file_membership()?;
+        if files.is_empty() {
+            return Err(AutosarDataError::NoFilesInModel);
+        }
         let mut ver = AutosarVersion::LATEST;
         for f in files.iter().filter_map(|file| file.upgrade()) {
             if f.version() < ver {
@@ -2193,6 +2233,7 @@ mod test {
         model
             .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
         let el_ar_package = model.get_element_by_path("/TestPackage").unwrap();
         el_ar_package
             .set_attribute(AttributeName::Uuid, CharacterData::String("0123456".to_string()))
@@ -2225,7 +2266,7 @@ mod test {
 
         let project2 = AutosarModel::new();
         project2
-            .create_file(OsString::from("test.arxml"), AutosarVersion::Autosar_00044)
+            .create_file("test.arxml", AutosarVersion::Autosar_00044)
             .unwrap();
 
         // it should not be possible to create an AR-PACKAGE element directly in the AUTOSAR element by copying data
@@ -2396,6 +2437,7 @@ mod test {
         model
             .load_buffer(BASIC_AUTOSAR_FILE.as_bytes(), OsString::from("test.arxml"), true)
             .unwrap();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
         let el_autosar = model.root_element();
         let el_ar_packages = el_autosar.get_sub_element(ElementName::ArPackages).unwrap();
 
@@ -3179,7 +3221,7 @@ mod test {
         let el_ar_package = el_ar_packages
             .create_named_sub_element(ElementName::ArPackage, "Pkg")
             .unwrap();
-        let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
+        el_ar_package.create_sub_element(ElementName::Elements).unwrap();
 
         let fm: HashSet<WeakArxmlFile> = vec![file1.downgrade()].iter().cloned().collect();
         // setting the file membership of el_ar_packages should fail
@@ -3201,32 +3243,32 @@ mod test {
         // can't use a file from a different model in add_to_file / remove_from_file
         let model2 = AutosarModel::new();
         let model2_file = model2.create_file("file", AutosarVersion::LATEST).unwrap();
-        assert!(el_elements.add_to_file(&model2_file).is_err());
-        assert!(el_elements.remove_from_file(&model2_file).is_err());
+        assert!(el_ar_package.add_to_file(&model2_file).is_err());
+        assert!(el_ar_package.remove_from_file(&model2_file).is_err());
 
-        // adding el_elements to file1 does nothing, since it is already present in this file
-        el_elements.add_to_file(&file1).unwrap();
-        let (local, fm3) = el_elements.file_membership().unwrap();
-        assert!(!local);
+        // adding el_ar_package to file1 does nothing, since it is already present in this file
+        el_ar_package.add_to_file(&file1).unwrap();
+        let (local, fm3) = el_ar_package.file_membership().unwrap();
+        assert!(local);
         assert_eq!(fm3.len(), 1);
 
-        // removing el_elements from file2 does nothing, it is not present in this file
-        el_elements.remove_from_file(&file2).unwrap();
-        let (local, fm3) = el_elements.file_membership().unwrap();
-        assert!(!local);
+        // removing el_ar_package from file2 does nothing, it is not present in this file
+        el_ar_package.remove_from_file(&file2).unwrap();
+        let (local, fm3) = el_ar_package.file_membership().unwrap();
+        assert!(local);
         assert_eq!(fm3.len(), 1);
 
-        // adding el_elements to file2 succeeds
-        el_elements.add_to_file(&file2).unwrap();
-        let (local, fm3) = el_elements.file_membership().unwrap();
-        assert!(!local);
+        // adding el_ar_package to file2 succeeds
+        el_ar_package.add_to_file(&file2).unwrap();
+        let (local, fm3) = el_ar_package.file_membership().unwrap();
+        assert!(local);
         assert_eq!(fm3.len(), 2);
 
-        // removing el_elements from file1 and file2 causes it to be deleted
+        // removing el_ar_package from file1 and file2 causes it to be deleted
         assert!(el_ar_package.get_sub_element(ElementName::Elements).is_some());
-        el_elements.remove_from_file(&file1).unwrap();
-        el_elements.remove_from_file(&file2).unwrap();
+        el_ar_package.remove_from_file(&file1).unwrap();
+        el_ar_package.remove_from_file(&file2).unwrap();
         assert!(el_ar_package.get_sub_element(ElementName::Elements).is_none());
-        assert!(el_elements.remove_from_file(&file2).is_err());
+        assert!(el_ar_package.remove_from_file(&file2).is_err());
     }
 }

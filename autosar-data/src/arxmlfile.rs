@@ -176,6 +176,7 @@ impl ArxmlFile {
     /// # Possible errors
     ///
     /// [AutosarDataError::ItemDeleted]: The model is no longer valid
+    /// [AutosarDataError::EmptyFile]: The file is empty and cannot be serialized
     ///
     /// # Example
     ///
@@ -186,6 +187,11 @@ impl ArxmlFile {
     /// let text = file.serialize();
     /// ```
     pub fn serialize(&self) -> Result<String, AutosarDataError> {
+        let model = self.model()?;
+        if !model.root_element().file_membership()?.1.contains(&self.downgrade()) {
+            return Err(AutosarDataError::EmptyFile);
+        }
+
         let mut outstring = String::with_capacity(1024 * 1024);
 
         match self.xml_standalone() {
@@ -193,7 +199,6 @@ impl ArxmlFile {
             Some(false) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>"),
             None => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
         }
-        let model = self.model()?;
         model.0.lock().set_version(self.0.lock().version);
         model
             .root_element()
@@ -426,6 +431,101 @@ mod test {
         let file_elem_count_2 = file.elements_dfs().count();
         assert!(proj_elem_count < proj_elem_count_2);
         assert_eq!(file_elem_count, file_elem_count_2);
+    }
+
+    #[test]
+    fn multiple_files_1() {
+        // two files are created, both contain AUTOSAR. Then a child element of AUTOSAR is created, which is present in both files
+        let model = AutosarModel::new();
+        let file_a = model.create_file("a", AutosarVersion::LATEST).unwrap();
+        let file_b = model.create_file("b", AutosarVersion::LATEST).unwrap();
+        let el_a_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        // el_a_packages is part of both file_a and file_b, because both files automatically contain the
+        // root AUTOSAR element, and AR_PACKAGES inherits this
+        let (_, fs) = el_a_packages.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade()));
+        assert!(fs.contains(&file_b.downgrade()));
+    }
+
+    #[test]
+    fn multiple_files_2() {
+        // one file is created, which contains AUTOSAR. Then a child element is created, which is automatically part of this file.
+        // then a second file is created, but the element is NOT part of the new file
+        let model = AutosarModel::new();
+        let file_a = model.create_file("a", AutosarVersion::LATEST).unwrap();
+        let el_a_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let file_b = model.create_file("b", AutosarVersion::LATEST).unwrap();
+        // el_a_packages is only part of file_a
+        let (_, fs) = el_a_packages.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade()));
+        assert!(!fs.contains(&file_b.downgrade()));
+    }
+
+    #[test]
+    fn multiple_files_3() {
+        // a file is created with multiple sub elements. A pat of this hierarchy is added to a second file
+        let model = AutosarModel::new();
+        let file_a = model.create_file("a", AutosarVersion::LATEST).unwrap();
+        let el_ar_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let el_pkg1 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg1")
+            .unwrap();
+        let el_pkg2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg2")
+            .unwrap();
+        let file_b = model.create_file("b", AutosarVersion::LATEST).unwrap();
+        let (_, fs) = el_pkg1.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade())); // el_pkg1 is part of file_a
+        assert!(!fs.contains(&file_b.downgrade())); // el_pkg1 is not part of file_b
+        let (_, fs) = el_pkg2.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade())); // el_pkg2 is part of file_a
+        assert!(!fs.contains(&file_b.downgrade())); // el_pkg2 is not part of file_b
+
+        // add el_pkg2 to file_b
+        el_pkg2.add_to_file(&file_b).unwrap();
+        let (_, fs) = el_pkg1.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade())); // el_pkg1 is part of file_a
+        assert!(!fs.contains(&file_b.downgrade())); // el_pkg1 is not part of file_b
+        let (_, fs) = el_pkg2.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade())); // el_pkg2 is part of file_a
+        assert!(fs.contains(&file_b.downgrade())); // el_pkg2 is part of file_b
+
+        // el_ar_packages was automatically added to file_b, in order to add el_pkg2
+        let (_, fs) = el_ar_packages.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade())); // el_ar_packages is part of file_a
+        assert!(fs.contains(&file_b.downgrade())); // el_ar_packages is part of file_b
+
+        // remove el_pkg2 from file_a
+        let (_, fs) = el_pkg2.file_membership().unwrap();
+        assert!(fs.contains(&file_a.downgrade())); // el_pkg2 is part of file_a
+        assert!(fs.contains(&file_b.downgrade())); // el_pkg2 is part of file_b
+        el_pkg2.remove_from_file(&file_a).unwrap();
+        let (_, fs) = el_pkg2.file_membership().unwrap();
+        assert!(!fs.contains(&file_a.downgrade())); // el_pkg2 is part of file_a
+        assert!(fs.contains(&file_b.downgrade())); // el_pkg2 is part of file_b
+
+        // add_to_file / remove_from_file cannot be called on all elements
+        let el_elements = el_pkg1.create_sub_element(ElementName::Elements).unwrap();
+        let result = el_elements.add_to_file(&file_a);
+        assert!(matches!(result, Err(AutosarDataError::FilesetModificationForbidden)));
+        let result: Result<(), AutosarDataError> = el_elements.remove_from_file(&file_a);
+        assert!(matches!(result, Err(AutosarDataError::FilesetModificationForbidden)));
+
+        // serializing a single file
+        let text_before = file_a.serialize().unwrap();
+        model.remove_file(&file_b);
+        assert!(model.get_element_by_path("/Pkg2").is_none());
+        let text_after = file_a.serialize().unwrap();
+        assert_eq!(text_before, text_after);
     }
 
     #[test]

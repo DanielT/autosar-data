@@ -250,9 +250,21 @@ pub enum AutosarDataError {
     #[error("The file is from a different model and may not be used in this operation")]
     InvalidFile,
 
+    /// The file is empty and cannot be serialized
+    #[error("The file is empty and cannot be serialized")]
+    EmptyFile,
+
     /// The newly loaded file diverges from the combined model on an element which is not splittable according to the metamodel
     #[error("The new file could not be merged, because it diverges from the model on non-splittable element {}", .path)]
     InvalidFileMerge { path: String },
+
+    /// The operation cannot be completed because the model does not contain any files
+    #[error("The operation cannot be completed because the model does not contain any files")]
+    NoFilesInModel,
+
+    /// Modifying the fileset of this element is not allowed
+    #[error("Modifying the fileset of this element is not allowed, because the parent of the element is not marked as splittable")]
+    FilesetModificationForbidden,
 }
 
 /// An Autosar arxml file

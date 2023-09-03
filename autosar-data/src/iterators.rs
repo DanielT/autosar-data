@@ -229,6 +229,7 @@ mod test {
     #[test]
     fn elements_dfs_next_sibling() {
         let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
         let el_autosar = model.root_element();
         let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
         let el_ar_package_1 = el_ar_packages
