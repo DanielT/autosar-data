@@ -318,9 +318,7 @@ mod test {
         let data = b"<!-- foo--><element>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         // the comment is skipped, and lexer.next() directly returns the following element
-        assert!(
-            matches!(lexer.next(), Ok((_, ArxmlEvent::BeginElement(_elem, _attrs))))
-        );
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::BeginElement(_elem, _attrs)))));
     }
 
     #[test]

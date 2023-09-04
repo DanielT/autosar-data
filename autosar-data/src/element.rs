@@ -808,7 +808,8 @@ impl Element {
 
     /// Set the character data of this element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
+    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData or Mixed.
+    /// On elements with mixed content this function will replace all current content with the single new CharacterData item.
     ///
     /// # Example
     ///
@@ -830,10 +831,10 @@ impl Element {
     ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: Cannot set character data on an element whoch does not contain character data
+    ///  - [AutosarDataError::IncorrectContentType]: Cannot set character data on an element which does not contain character data
     pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), AutosarDataError> {
         let elemtype = self.elemtype();
-        if elemtype.content_mode() == ContentMode::Characters {
+        if elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed {
             if let Some(cdata_spec) = elemtype.chardata_spec() {
                 let model = self.model()?;
                 let version = self.min_version()?;
@@ -859,11 +860,8 @@ impl Element {
                     // update the character data
                     {
                         let mut element = self.0.lock();
-                        if element.content.is_empty() {
-                            element.content.push(ElementContent::CharacterData(chardata));
-                        } else {
-                            element.content[0] = ElementContent::CharacterData(chardata);
-                        }
+                        element.content.clear();
+                        element.content.push(ElementContent::CharacterData(chardata));
                     }
 
                     // short-name: make sure the hashmap in the top-level AutosarModel is updated so that this element can still be found

@@ -957,7 +957,6 @@ impl std::fmt::Debug for WeakAutosarModel {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1328,7 +1327,7 @@ mod test {
         let mut hashset = HashSet::<AutosarModel>::new();
         hashset.insert(model);
         let inserted = hashset.insert(model_cloned);
-        assert!(!inserted);        
+        assert!(!inserted);
 
         // CharacterData
         let cdata = CharacterData::String("x".to_string());

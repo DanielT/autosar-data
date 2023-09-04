@@ -927,7 +927,9 @@ mod test {
 
     #[test]
     fn test_unexpected_xml_file_header() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::UnexpectedXmlFileHeader { element: ElementName::Autosar });
+        let discriminant = std::mem::discriminant(&ArxmlParserError::UnexpectedXmlFileHeader {
+            element: ElementName::Autosar,
+        });
         test_helper(UNEXPECTED_XML_FILE_HEADER.as_bytes(), discriminant, true);
     }
 
