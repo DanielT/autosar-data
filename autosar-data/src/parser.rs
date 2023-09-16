@@ -194,6 +194,7 @@ impl<'a> ArxmlParser<'a> {
         }
     }
 
+    /// parse an arxml file and return the root element of the parsed hierarchy
     pub(crate) fn parse_arxml(&mut self) -> Result<Element, AutosarDataError> {
         let mut lexer = ArxmlLexer::new(self.buffer, self.filename.clone());
 
@@ -206,93 +207,104 @@ impl<'a> ArxmlParser<'a> {
         if let ArxmlEvent::BeginElement(elemname, attributes_text) = self.next(&mut lexer)? {
             if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
                 let attributes = self.parse_attribute_text(ElementType::ROOT, attributes_text)?;
-                let attr_xmlns = attributes.iter().find(|attr| attr.attrname == AttributeName::xmlns);
-                let attr_xsi = attributes.iter().find(|attr| attr.attrname == AttributeName::xmlnsXsi);
-                let attr_schema = attributes
-                    .iter()
-                    .find(|attr| attr.attrname == AttributeName::xsiSchemalocation);
-                if let (
-                    Some(Attribute {
-                        content: CharacterData::String(xmlns),
-                        ..
-                    }),
-                    Some(Attribute {
-                        content: CharacterData::String(xsi),
-                        ..
-                    }),
-                    Some(Attribute {
-                        content: CharacterData::String(schema),
-                        ..
-                    }),
-                ) = (attr_xmlns, attr_xsi, attr_schema)
-                {
-                    if xmlns != "http://autosar.org/schema/r4.0" || xsi != "http://www.w3.org/2001/XMLSchema-instance" {
-                        return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
-                    }
-                    let mut schema_parts = schema.split(' ');
-                    let schema_base = schema_parts.next().unwrap_or("");
-                    if schema_base != "http://autosar.org/schema/r4.0" {
-                        return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
-                    }
-                    let xsd_file_raw = schema_parts.next().unwrap_or("");
-                    // check if the "AUTOSAR" in the xsd filename is written in lowercase, and correct that silently
-                    // all the examples in the standard use uppercase, but there is no explicit requiement that it must be so
-                    let xsd_file: String = if xsd_file_raw.starts_with("autosar") {
-                        format!("AUTOSAR{}", xsd_file_raw.strip_prefix("autosar").unwrap())
-                    } else {
-                        xsd_file_raw.to_owned()
-                    };
-                    if let Ok(autosar_version) = AutosarVersion::from_str(&xsd_file) {
-                        self.fileversion = autosar_version;
-                    } else if xsd_file == "AUTOSAR_4-3-1.xsd" {
-                        // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
-                        // AUTOSAR_4-3-1.xsd -> AUTOSAR_00044.xsd
-                        self.fileversion = AutosarVersion::Autosar_00044;
-                        self.optional_error(ArxmlParserError::InvalidAutosarVersion {
-                            input_verstring: xsd_file.to_string(),
-                            replacement: self.fileversion,
-                        })?;
-                    } else if xsd_file == "AUTOSAR_4-4-0.xsd" {
-                        // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
-                        // AUTOSAR_4-4-0.xsd -> AUTOSAR_00046.xsd
-                        self.fileversion = AutosarVersion::Autosar_00046;
-                        self.optional_error(ArxmlParserError::InvalidAutosarVersion {
-                            input_verstring: xsd_file.to_string(),
-                            replacement: self.fileversion,
-                        })?;
-                    } else if xsd_file == "AUTOSAR_4-5-0.xsd" {
-                        // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
-                        // AUTOSAR_4-5-0.xsd -> AUTOSAR_00048.xsd
-                        self.fileversion = AutosarVersion::Autosar_00048;
-                        self.optional_error(ArxmlParserError::InvalidAutosarVersion {
-                            input_verstring: xsd_file.to_string(),
-                            replacement: self.fileversion,
-                        })?;
-                    } else {
-                        self.fileversion = AutosarVersion::Autosar_00050;
-                        self.optional_error(ArxmlParserError::UnknownAutosarVersion {
-                            input_verstring: xsd_file.to_string(),
-                        })?;
-                    }
+                self.parse_file_header(&attributes)?;
 
-                    let path = Cow::from("");
-                    let autosar_root_element = self.parse_element(
-                        ElementOrModel::None,
-                        ElementName::Autosar,
-                        attributes,
-                        ElementType::ROOT,
-                        path,
-                        &mut lexer,
-                    )?;
-                    self.verify_end_of_input(&mut lexer)?;
+                let path = Cow::from("");
+                let autosar_root_element = self.parse_element(
+                    ElementOrModel::None,
+                    ElementName::Autosar,
+                    attributes,
+                    ElementType::ROOT,
+                    path,
+                    &mut lexer,
+                )?;
+                self.verify_end_of_input(&mut lexer)?;
 
-                    return Ok(autosar_root_element);
-                } else {
-                    return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
-                }
+                return Ok(autosar_root_element);
             }
         }
         Err(self.error(ArxmlParserError::InvalidArxmlFileHeader))
+    }
+
+    /// parse the arxml file header
+    fn parse_file_header(&mut self, attributes: &SmallVec<[Attribute; 1]>) -> Result<(), AutosarDataError> {
+        let attr_xmlns = attributes.iter().find(|attr| attr.attrname == AttributeName::xmlns);
+        let attr_xsi = attributes.iter().find(|attr| attr.attrname == AttributeName::xmlnsXsi);
+        let attr_schema = attributes
+            .iter()
+            .find(|attr| attr.attrname == AttributeName::xsiSchemalocation);
+        if let (
+            Some(Attribute {
+                content: CharacterData::String(xmlns),
+                ..
+            }),
+            Some(Attribute {
+                content: CharacterData::String(xsi),
+                ..
+            }),
+            Some(Attribute {
+                content: CharacterData::String(schema),
+                ..
+            }),
+        ) = (attr_xmlns, attr_xsi, attr_schema)
+        {
+            if xmlns != "http://autosar.org/schema/r4.0" || xsi != "http://www.w3.org/2001/XMLSchema-instance" {
+                return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
+            }
+            self.fileversion = self.parse_file_version(schema)?;
+
+            Ok(())
+        } else {
+            Err(self.error(ArxmlParserError::InvalidArxmlFileHeader))
+        }
+    }
+
+    /// get the file version from the value of the xsi:schemaLocation attribute
+    fn parse_file_version(&mut self, schema: &str) -> Result<AutosarVersion, AutosarDataError> {
+        let mut schema_parts = schema.split(' ');
+        let schema_base = schema_parts.next().unwrap_or("");
+        if schema_base != "http://autosar.org/schema/r4.0" {
+            return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
+        }
+        let xsd_file_raw = schema_parts.next().unwrap_or("");
+        let xsd_file: String = if xsd_file_raw.starts_with("autosar") {
+            format!("AUTOSAR{}", xsd_file_raw.strip_prefix("autosar").unwrap())
+        } else {
+            xsd_file_raw.to_owned()
+        };
+        let version = if let Ok(autosar_version) = AutosarVersion::from_str(&xsd_file) {
+            autosar_version
+        } else if xsd_file == "AUTOSAR_4-3-1.xsd" {
+            // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
+            // AUTOSAR_4-3-1.xsd -> AUTOSAR_00044.xsd
+            self.optional_error(ArxmlParserError::InvalidAutosarVersion {
+                input_verstring: xsd_file.to_string(),
+                replacement: AutosarVersion::Autosar_00044,
+            })?;
+            AutosarVersion::Autosar_00044
+        } else if xsd_file == "AUTOSAR_4-4-0.xsd" {
+            // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
+            // AUTOSAR_4-4-0.xsd -> AUTOSAR_00046.xsd
+            self.optional_error(ArxmlParserError::InvalidAutosarVersion {
+                input_verstring: xsd_file.to_string(),
+                replacement: AutosarVersion::Autosar_00046,
+            })?;
+            AutosarVersion::Autosar_00046
+        } else if xsd_file == "AUTOSAR_4-5-0.xsd" {
+            // compat helper - a manually edited file might have a plausible but invalid version which can be corrected
+            // AUTOSAR_4-5-0.xsd -> AUTOSAR_00048.xsd
+            self.optional_error(ArxmlParserError::InvalidAutosarVersion {
+                input_verstring: xsd_file.to_string(),
+                replacement: AutosarVersion::Autosar_00048,
+            })?;
+            AutosarVersion::Autosar_00048
+        } else {
+            self.optional_error(ArxmlParserError::UnknownAutosarVersion {
+                input_verstring: xsd_file.to_string(),
+            })?;
+            AutosarVersion::LATEST
+        };
+        Ok(version)
     }
 
     /// return the standalone attribute from the xml header
@@ -300,6 +312,7 @@ impl<'a> ArxmlParser<'a> {
         self.standalone
     }
 
+    /// parse a single element of an arxml file
     fn parse_element(
         &mut self,
         parent: ElementOrModel,
@@ -797,6 +810,26 @@ impl<'a> ArxmlParser<'a> {
             self.optional_error(ArxmlParserError::AdditionalDataError)?;
             Ok(())
         }
+    }
+
+    /// parse an arxml file and return the root element of the parsed hierarchy
+    pub(crate) fn check_arxml_header(&mut self) -> bool {
+        let mut lexer = ArxmlLexer::new(self.buffer, self.filename.clone());
+
+        if let Ok(ArxmlEvent::ArxmlHeader(_)) = self.next(&mut lexer) {
+            if let Ok(ArxmlEvent::BeginElement(elemname, attributes_text)) = self.next(&mut lexer) {
+                if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
+                    if let Ok(attributes) = self.parse_attribute_text(ElementType::ROOT, attributes_text) {
+                        if self.parse_file_header(&attributes).is_ok() {
+                            // no errors after parsing the header - this looks like an arxml file
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -1350,5 +1383,39 @@ mod test {
         );
         let result = parser.parse_arxml();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_arxml_header() {
+        let buffer = "abcde".as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(!parser.check_arxml_header());
+
+        let buffer = r#"<?xml version="1.0" encoding="utf-8"?>abcde"#.as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(!parser.check_arxml_header());
+
+        let buffer = r#"<?xml version="1.0" encoding="utf-8"?><abcde>"#.as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(!parser.check_arxml_header());
+
+        let buffer = r#"<?xml version="1.0" encoding="utf-8"?><AUTOSAR abcde="abcde">"#.as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(!parser.check_arxml_header());
+
+        let buffer = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR>"#.as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(!parser.check_arxml_header());
+
+        let buffer = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 abcdef" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#.as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(!parser.check_arxml_header());
+
+        let buffer = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#.as_bytes();
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
+        assert!(parser.check_arxml_header());
     }
 }

@@ -80,7 +80,7 @@ use parser::*;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::{fs::File, io::Read};
 use thiserror::Error;
@@ -395,11 +395,62 @@ pub struct ValidSubElementInfo {
     pub is_allowed: bool,
 }
 
+const CHECK_FILE_SIZE: usize = 4096; // 4kb
+
+/// check a file to see if it looks like an arxml file
+///
+/// Reads the beginning of the given file and checks if the data starts with a valid arxml header
+/// If a header is found it immediately returns true and does not check any further data
+/// 
+/// The function returns false if the file cannot be read or if the data does not start with an arxml header
+/// 
+/// # Parameters
+/// - filename: name of the file to check
+/// 
+/// # Example
+/// 
+/// ```
+/// # let filename = "";
+/// if autosar_data::check_file(filename) {
+///     // it looks like an arxml file
+/// }
+/// ```
+pub fn check_file<P: AsRef<Path>>(filename: P) -> bool {
+    let mut buffer: [u8; CHECK_FILE_SIZE] = [0; CHECK_FILE_SIZE];
+
+    if File::open(filename).and_then(|mut file| file.read(&mut buffer)).is_ok() {
+        check_buffer(&buffer)
+    } else {
+        false
+    }
+}
+
+/// check a buffer to see if the content looks like arxml data
+///
+/// The function returns true if the buffer starts with a valid arxml header (after skipping whitespace and comments)
+/// This function does not check anything after the header.
+/// 
+/// # Parameters
+/// - buffer: u8 slice containing the data to check
+/// 
+/// # Example
+/// ```
+/// # let buffer = Vec::new();
+/// if autosar_data::check_buffer(&buffer) {
+///     // it looks like arxml data
+/// }
+/// ```
+pub fn check_buffer(buffer: &[u8]) -> bool {
+    let mut parser = ArxmlParser::new(PathBuf::from("none"), buffer, false);
+    parser.check_arxml_header()
+}
+
 #[cfg(test)]
 mod test {
-    use std::{error::Error, path::PathBuf};
+    use std::{error::Error, path::PathBuf, io::Write};
+    use tempfile::tempdir;
 
-    use crate::AutosarDataError;
+    use crate::*;
 
     #[test]
     fn error_traits() {
@@ -412,5 +463,29 @@ mod test {
         let errstr = format!("{err}");
         let errdbg = format!("{err:#?}");
         assert!(errstr != errdbg);
+    }
+
+    #[test]
+    fn test_check_file() {
+        let dir = tempdir().unwrap();
+
+        // called on a directory rather than a file -> false
+        assert!(!check_file(dir.path().to_path_buf()));
+
+        // nonexistent file -> false
+        let nonexistent = dir.path().with_file_name("nonexistent.arxml");
+        assert!(!check_file(nonexistent));
+
+        // arbitrary non-arxml data -> false
+        let not_arxml_file = dir.path().with_file_name("not_arxml.bin");
+        File::create(&not_arxml_file).and_then(|mut file| write!(file, "text")).unwrap();
+        assert!(!check_file(not_arxml_file));
+
+        // file containing a valid arxml header -> true
+        let header = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#;
+        let arxml_file = dir.path().with_file_name("file.arxml");
+        File::create(&arxml_file).and_then(|mut file| file.write(header.as_bytes())).unwrap();
+        assert!(check_file(arxml_file));
     }
 }

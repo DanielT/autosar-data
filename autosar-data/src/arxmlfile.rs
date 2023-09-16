@@ -59,7 +59,7 @@ impl ArxmlFile {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::VersionIncompatible] the existing data is not compatible with the new version
+    ///  - [AutosarDataError::VersionIncompatibleData] the existing data is not compatible with the new version
     ///
     pub fn set_version(&self, new_ver: AutosarVersion) -> Result<(), AutosarDataError> {
         let (compat_errors, _) = self.check_version_compatibility(new_ver);

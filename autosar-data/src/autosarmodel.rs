@@ -10,7 +10,7 @@ use crate::*;
 impl AutosarModel {
     /// Create an AutosarData model
     ///
-    /// Initially it contains no arxml files and only has a default <AUTOSAR> element
+    /// Initially it contains no arxml files and only has a default `<AUTOSAR>` element
     ///
     /// # Example
     ///
