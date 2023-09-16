@@ -1,5 +1,6 @@
 use super::*;
 
+#[doc(hidden)]
 pub struct ArxmlFileIterator {
     data: AutosarModel,
     index: usize,
@@ -25,6 +26,7 @@ impl Iterator for ArxmlFileIterator {
     }
 }
 
+#[doc(hidden)]
 pub struct ElementsIterator {
     element: Element,
     index: usize,
@@ -52,6 +54,7 @@ impl Iterator for ElementsIterator {
     }
 }
 
+#[doc(hidden)]
 pub struct ElementContentIterator {
     element: Element,
     index: usize,
@@ -80,6 +83,7 @@ impl ElementContentIterator {
     }
 }
 
+#[doc(hidden)]
 pub struct ArxmlFileElementsDfsIterator {
     file: WeakArxmlFile,
     dfs_iter: ElementsDfsIterator,
@@ -111,6 +115,7 @@ impl Iterator for ArxmlFileElementsDfsIterator {
     }
 }
 
+#[doc(hidden)]
 pub struct ElementsDfsIterator {
     elements: Vec<Element>,
     position: Vec<usize>,
@@ -167,6 +172,7 @@ impl Iterator for ElementsDfsIterator {
     }
 }
 
+#[doc(hidden)]
 pub struct AttributeIterator {
     pub(crate) element: Element,
     pub(crate) index: usize,

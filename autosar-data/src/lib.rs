@@ -385,11 +385,11 @@ pub enum CompatibilityError {
 
 /// information about a sub element
 ///
-/// This structure is returned by list_valid_sub_elements
+/// This structure is returned by [Element::list_valid_sub_elements()]
 pub struct ValidSubElementInfo {
     /// name of the potential sub element
     pub element_name: ElementName,
-    /// is the sub element named, i.e. does it need to be created with create_named_sub_element
+    /// is the sub element named, i.e. does it need to be created with [Element::create_named_sub_element()]
     pub is_named: bool,
     /// is the sub element currently allowed, given the existing content of the element. Note that some sub elements are mutually exclusive.
     pub is_allowed: bool,
@@ -397,9 +397,9 @@ pub struct ValidSubElementInfo {
 
 const CHECK_FILE_SIZE: usize = 4096; // 4kb
 
-/// check a file to see if it looks like an arxml file
+/// Check a file to see if it looks like an arxml file
 ///
-/// Reads the beginning of the given file and checks if the data starts with a valid arxml header
+/// Reads the beginning of the given file and checks if the data starts with a valid arxml header.
 /// If a header is found it immediately returns true and does not check any further data
 /// 
 /// The function returns false if the file cannot be read or if the data does not start with an arxml header
@@ -425,9 +425,9 @@ pub fn check_file<P: AsRef<Path>>(filename: P) -> bool {
     }
 }
 
-/// check a buffer to see if the content looks like arxml data
+/// Check a buffer to see if the content looks like arxml data
 ///
-/// The function returns true if the buffer starts with a valid arxml header (after skipping whitespace and comments)
+/// The function returns true if the buffer starts with a valid arxml header (after skipping whitespace and comments).
 /// This function does not check anything after the header.
 /// 
 /// # Parameters
