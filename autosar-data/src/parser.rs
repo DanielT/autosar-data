@@ -322,14 +322,15 @@ impl<'a> ArxmlParser<'a> {
         mut path: Cow<str>,
         lexer: &mut ArxmlLexer,
     ) -> Result<Element, AutosarDataError> {
-        let wrapped_element = Element(Arc::new(Mutex::new(ElementRaw {
+        let wrapped_element = ElementRaw {
             parent,
             elemname: element_name,
             attributes,
             content: SmallVec::new(),
             elemtype,
             file_membership: HashSet::with_capacity(0),
-        })));
+        }
+        .wrap();
         let mut element = wrapped_element.0.lock();
 
         let mut elem_idx: Vec<usize> = Vec::new();
@@ -1404,7 +1405,8 @@ mod test {
         assert!(!parser.check_arxml_header());
 
         let buffer = r#"<?xml version="1.0" encoding="utf-8"?>
-<AUTOSAR>"#.as_bytes();
+<AUTOSAR>"#
+            .as_bytes();
         let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
         assert!(!parser.check_arxml_header());
 

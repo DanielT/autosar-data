@@ -287,14 +287,15 @@ impl ElementRaw {
         if elemtype.is_named_in_version(version) {
             Err(AutosarDataError::ItemNameRequired)
         } else {
-            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+            let sub_element = ElementRaw {
                 parent: ElementOrModel::Element(self_weak),
                 elemname: element_name,
                 elemtype,
                 content: smallvec![],
                 attributes: smallvec![],
                 file_membership: HashSet::with_capacity(0),
-            })));
+            }
+            .wrap();
             self.content
                 .insert(position, ElementContent::Element(sub_element.clone()));
             Ok(sub_element)
@@ -378,14 +379,15 @@ impl ElementRaw {
             }
 
             // create the new element
-            let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+            let sub_element = ElementRaw {
                 parent: ElementOrModel::Element(self_weak),
                 elemname: element_name,
                 elemtype,
                 content: smallvec![],
                 attributes: smallvec![],
                 file_membership: HashSet::with_capacity(0),
-            })));
+            }
+            .wrap();
             self.content
                 .insert(position, ElementContent::Element(sub_element.clone()));
             // create a SHORT-NAME for the sub element
@@ -506,14 +508,15 @@ impl ElementRaw {
 
     /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with target_version
     fn deep_copy(&self, target_version: AutosarVersion) -> Result<Element, AutosarDataError> {
-        let copy_wrapped = Element(Arc::new(Mutex::new(ElementRaw {
+        let copy_wrapped = ElementRaw {
             elemname: self.elemname,
             elemtype: self.elemtype,
             content: SmallVec::with_capacity(self.content.len()),
             attributes: SmallVec::with_capacity(self.attributes.len()),
             parent: ElementOrModel::None,
             file_membership: HashSet::with_capacity(0),
-        })));
+        }
+        .wrap();
 
         {
             let mut copy = copy_wrapped.0.lock();
@@ -1265,6 +1268,10 @@ impl ElementRaw {
             }
             ContentMode::Characters | ContentMode::Mixed => {}
         }
+    }
+
+    pub(crate) fn wrap(self) -> Element {
+        Element(Arc::new(Mutex::new(self)))
     }
 }
 

@@ -401,14 +401,14 @@ const CHECK_FILE_SIZE: usize = 4096; // 4kb
 ///
 /// Reads the beginning of the given file and checks if the data starts with a valid arxml header.
 /// If a header is found it immediately returns true and does not check any further data
-/// 
+///
 /// The function returns false if the file cannot be read or if the data does not start with an arxml header
-/// 
+///
 /// # Parameters
 /// - filename: name of the file to check
-/// 
+///
 /// # Example
-/// 
+///
 /// ```
 /// # let filename = "";
 /// if autosar_data::check_file(filename) {
@@ -429,10 +429,10 @@ pub fn check_file<P: AsRef<Path>>(filename: P) -> bool {
 ///
 /// The function returns true if the buffer starts with a valid arxml header (after skipping whitespace and comments).
 /// This function does not check anything after the header.
-/// 
+///
 /// # Parameters
 /// - buffer: u8 slice containing the data to check
-/// 
+///
 /// # Example
 /// ```
 /// # let buffer = Vec::new();
@@ -447,7 +447,7 @@ pub fn check_buffer(buffer: &[u8]) -> bool {
 
 #[cfg(test)]
 mod test {
-    use std::{error::Error, path::PathBuf, io::Write};
+    use std::{error::Error, io::Write, path::PathBuf};
     use tempfile::tempdir;
 
     use crate::*;
@@ -478,14 +478,18 @@ mod test {
 
         // arbitrary non-arxml data -> false
         let not_arxml_file = dir.path().with_file_name("not_arxml.bin");
-        File::create(&not_arxml_file).and_then(|mut file| write!(file, "text")).unwrap();
+        File::create(&not_arxml_file)
+            .and_then(|mut file| write!(file, "text"))
+            .unwrap();
         assert!(!check_file(not_arxml_file));
 
         // file containing a valid arxml header -> true
         let header = r#"<?xml version="1.0" encoding="utf-8"?>
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#;
         let arxml_file = dir.path().with_file_name("file.arxml");
-        File::create(&arxml_file).and_then(|mut file| file.write(header.as_bytes())).unwrap();
+        File::create(&arxml_file)
+            .and_then(|mut file| file.write(header.as_bytes()))
+            .unwrap();
         assert!(check_file(arxml_file));
     }
 }

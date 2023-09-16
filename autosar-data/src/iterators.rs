@@ -198,15 +198,16 @@ mod test {
 
     #[test]
     fn elements_dfs_iterator() {
-        let sub_sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+        let sub_sub_element = ElementRaw {
             parent: ElementOrModel::None,
             elemname: ElementName::ArPackage, // doesn't matter for this test
             elemtype: ElementType::ROOT,      // doesn't matter for this test
             attributes: SmallVec::new(),
             content: SmallVec::new(),
             file_membership: HashSet::with_capacity(0),
-        })));
-        let sub_element = Element(Arc::new(Mutex::new(ElementRaw {
+        }
+        .wrap();
+        let sub_element = ElementRaw {
             parent: ElementOrModel::None,
             elemname: ElementName::ArPackages, // doesn't matter for this test
             elemtype: ElementType::ROOT,       // doesn't matter for this test
@@ -216,8 +217,9 @@ mod test {
                 ElementContent::Element(sub_sub_element.clone())
             ],
             file_membership: HashSet::with_capacity(0),
-        })));
-        let element = Element(Arc::new(Mutex::new(ElementRaw {
+        }
+        .wrap();
+        let element = ElementRaw {
             parent: ElementOrModel::None,
             elemname: ElementName::Autosar, // doesn't matter for this test
             elemtype: ElementType::ROOT,    // doesn't matter for this test
@@ -227,7 +229,8 @@ mod test {
                 ElementContent::Element(sub_element.clone())
             ],
             file_membership: HashSet::with_capacity(0),
-        })));
+        }
+        .wrap();
         let dfs_iter = element.elements_dfs();
         assert_eq!(dfs_iter.count(), 7);
     }

@@ -39,20 +39,22 @@ impl AutosarModel {
                 content: xmlns_xsi
             },
         ];
-        let root_elem = Element(Arc::new(Mutex::new(ElementRaw {
+        let root_elem = ElementRaw {
             parent: ElementOrModel::None,
             elemname: ElementName::Autosar,
             elemtype: ElementType::ROOT,
             content: SmallVec::new(),
             attributes: root_attributes,
             file_membership: HashSet::with_capacity(0),
-        })));
-        let model = AutosarModel(Arc::new(Mutex::new(AutosarModelRaw {
+        }
+        .wrap();
+        let model = AutosarModelRaw {
             files: Vec::new(),
             identifiables: FxHashMap::default(),
             reference_origins: FxHashMap::default(),
             root_element: root_elem.clone(),
-        })));
+        }
+        .wrap();
         root_elem.set_parent(ElementOrModel::Model(model.downgrade()));
         model
     }
@@ -161,13 +163,13 @@ impl AutosarModel {
         let mut parser = ArxmlParser::new(filename.clone(), buffer, strict);
         let root_element = parser.parse_arxml()?;
         let version = parser.get_fileversion();
-        let arxml_file = ArxmlFile(Arc::new(Mutex::new(ArxmlFileRaw {
+        let arxml_file = ArxmlFileRaw {
             version,
             model: self.downgrade(),
-            // version: parser.get_fileversion(),
             filename: filename.clone(),
             xml_standalone: parser.get_standalone(),
-        })));
+        }
+        .wrap();
 
         if self.0.lock().files.is_empty() {
             root_element.set_parent(ElementOrModel::Model(self.downgrade()));
@@ -176,7 +178,6 @@ impl AutosarModel {
         } else {
             let result = self.merge_file_data(&root_element, arxml_file.downgrade());
             if let Err(error) = result {
-                // self.unmerge_file(&arxml_file.downgrade());
                 let _ = self.root_element().remove_from_file(&arxml_file);
                 return Err(error);
             }
@@ -908,6 +909,10 @@ impl AutosarModelRaw {
             attribute_value,
             new_ver,
         );
+    }
+
+    pub(crate) fn wrap(self) -> AutosarModel {
+        AutosarModel(Arc::new(Mutex::new(self)))
     }
 }
 

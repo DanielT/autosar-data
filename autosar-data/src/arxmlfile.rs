@@ -5,12 +5,13 @@ use crate::*;
 
 impl ArxmlFile {
     pub(crate) fn new<P: AsRef<Path>>(filename: P, version: AutosarVersion, model: &AutosarModel) -> Self {
-        Self(Arc::new(Mutex::new(ArxmlFileRaw {
+        ArxmlFileRaw {
             version,
             model: model.downgrade(),
             filename: filename.as_ref().to_path_buf(),
             xml_standalone: None,
-        })))
+        }
+        .wrap()
     }
 
     /// Get the filename of this ArxmlFile
@@ -246,6 +247,12 @@ impl ArxmlFile {
     /// ```
     pub fn downgrade(&self) -> WeakArxmlFile {
         WeakArxmlFile(Arc::downgrade(&self.0))
+    }
+}
+
+impl ArxmlFileRaw {
+    pub(crate) fn wrap(self) -> ArxmlFile {
+        ArxmlFile(Arc::new(Mutex::new(self)))
     }
 }
 
