@@ -1,7 +1,16 @@
+use std::cmp::Ordering;
 use std::hash::Hash;
 use std::str::FromStr;
 
 use super::*;
+
+#[derive(Debug, Default, Eq)]
+pub(crate) struct ElementSortKey {
+    pub(crate) index: Option<u32>,
+    pub(crate) item_name_indexed: Option<(String, u32)>,
+    pub(crate) item_name: Option<String>,
+    pub(crate) definition: Option<String>,
+}
 
 impl Element {
     /// Get the parent element of the current element
@@ -1364,24 +1373,57 @@ impl Element {
     }
 
     /// create a textual sorting key that can be used to determine the ordering of otherwise equal elements
-    pub(crate) fn get_sort_key(&self) -> String {
-        if self.is_identifiable() {
-            self.item_name().unwrap_or("--INVALID--".to_string())
-        } else if let Some(defref_string) = self
+    pub(crate) fn get_sort_key(&self) -> ElementSortKey {
+        let index = if self.get_sub_element(ElementName::DefinitionRef).is_some() {
+            self.get_sub_element(ElementName::Index)
+                .and_then(|indexelem| indexelem.character_data())
+                .and_then(|cdata| cdata.string_value())
+                .and_then(|strval| {
+                    if let Some(hexstring) = strval.strip_prefix("0x") {
+                        u32::from_str_radix(hexstring, 16).ok()
+                    } else if let Some(hexstring) = strval.strip_prefix("0X") {
+                        u32::from_str_radix(hexstring, 16).ok()
+                    } else if let Some(binstring) = strval.strip_prefix("0b") {
+                        u32::from_str_radix(binstring, 2).ok()
+                    } else if let Some(binstring) = strval.strip_prefix("0B") {
+                        u32::from_str_radix(binstring, 2).ok()
+                    } else if let Some(octstring) = strval.strip_prefix('0') {
+                        u32::from_str_radix(octstring, 8).ok()
+                    } else {
+                        strval.parse::<u32>().ok()
+                    }
+                })
+        } else {
+            None
+        };
+
+        let item_name = self.item_name();
+        let item_name_indexed = if let Some(item_name) = &item_name {
+            // the set of characters for item names is restricted, and none of them takes more than one byte in utf-8
+            let bytestr = item_name.as_bytes();
+            let mut pos = bytestr.len();
+            while pos > 0 && bytestr[pos - 1].is_ascii_digit() {
+                pos -= 1;
+            }
+            if let Ok(index) = item_name[pos..].parse() {
+                Some((item_name[0..pos].to_owned(), index))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let definition = self
             .get_sub_element(ElementName::DefinitionRef)
             .and_then(|defref| defref.character_data())
-            .and_then(|cdata| cdata.string_value())
-        {
-            defref_string
-        } else {
-            let mut outstring = String::new();
-            for content_item in self.content() {
-                match content_item {
-                    ElementContent::Element(e) => e.serialize_internal(&mut outstring, 0, true, None),
-                    ElementContent::CharacterData(cdata) => cdata.serialize_internal(&mut outstring),
-                }
-            }
-            outstring
+            .and_then(|cdata| cdata.string_value());
+
+        ElementSortKey {
+            index,
+            item_name_indexed,
+            item_name,
+            definition,
         }
     }
 
@@ -1981,6 +2023,47 @@ impl std::fmt::Debug for WeakElement {
     }
 }
 
+impl WeakElement {
+    /// try to get a strong reference to the [Element]
+    pub fn upgrade(&self) -> Option<Element> {
+        Weak::upgrade(&self.0).map(Element)
+    }
+}
+
+impl PartialEq for WeakElement {
+    fn eq(&self, other: &Self) -> bool {
+        Weak::as_ptr(&self.0) == Weak::as_ptr(&other.0)
+    }
+}
+
+impl Eq for WeakElement {}
+
+impl Hash for WeakElement {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(Weak::as_ptr(&self.0) as usize);
+    }
+}
+
+impl ElementContent {
+    /// returns the element contained inside this ElementContent, or None if the content is CharacterData
+    pub fn unwrap_element(&self) -> Option<Element> {
+        if let ElementContent::Element(element) = self {
+            Some(element.clone())
+        } else {
+            None
+        }
+    }
+
+    /// returns the CharacterData inside this ElementContent, or None if the content is an Element
+    pub fn unwrap_cdata(&self) -> Option<CharacterData> {
+        if let ElementContent::CharacterData(cdata) = self {
+            Some(cdata.clone())
+        } else {
+            None
+        }
+    }
+}
+
 // custom debug implementation: skip printing the name of the wrapper-enum and directly show the content
 impl std::fmt::Debug for ElementOrModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2002,10 +2085,65 @@ impl std::fmt::Debug for ElementContent {
     }
 }
 
+impl PartialEq for ElementSortKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Ord for ElementSortKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // if any item has an <INDEX> element, then all its siblings should too
+        // just in case they don't then the elements with an INDEX will be placed first
+        match (self.index, other.index) {
+            (Some(idx1), Some(idx2)) => match idx1.cmp(&idx2) {
+                Ordering::Less => return Ordering::Less,
+                Ordering::Equal => {}
+                Ordering::Greater => return Ordering::Greater,
+            },
+            (None, Some(_)) => return Ordering::Greater,
+            (Some(_), None) => return Ordering::Less,
+            (None, None) => {}
+        }
+        // if the item name of an element appears to consist of a prefix followed by a numerical index, then the parts will be available in item_name_indexed
+        if let (Some((self_base, self_idx)), Some((other_base, other_idx))) =
+            (&self.item_name_indexed, &other.item_name_indexed)
+        {
+            if self_base == other_base {
+                match self_idx.cmp(other_idx) {
+                    Ordering::Less => return Ordering::Less,
+                    Ordering::Equal => {}
+                    Ordering::Greater => return Ordering::Greater,
+                }
+            }
+        }
+        // compare by item name (if any)
+        if let (Some(self_item_name), Some(other_item_name)) = (&self.item_name, &other.item_name) {
+            // item names are unique among siblings, so this comparison cannot return Equal
+            return self_item_name.cmp(other_item_name);
+        }
+        // compare by definition ref (if any)
+        if let (Some(self_def), Some(other_def)) = (&self.definition, &other.definition) {
+            // multiple siblings with the same definition-ref will have item names, so this will usually not return Equal
+            return self_def.cmp(other_def);
+        }
+        // sort keys are equal
+        Ordering::Equal
+    }
+}
+
+impl PartialOrd for ElementSortKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::*;
-    use std::ffi::OsString;
+    use std::{cmp::Ordering, ffi::OsString};
+
+    use super::ElementSortKey;
 
     const BASIC_AUTOSAR_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -2069,8 +2207,6 @@ mod test {
 
         // SHORT-LABEL should only be allowed before DESC inside COMPU-SCALE
         let (start_pos, end_pos) = el_compu_scale
-            .0
-            .lock()
             .calc_element_insert_range(ElementName::ShortLabel, AutosarVersion::Autosar_00050)
             .unwrap();
         assert_eq!(start_pos, 0);
@@ -2078,8 +2214,6 @@ mod test {
 
         // COMPU-CONST should only be allowed after DESC inside COMPU-SCALE
         let (start_pos, end_pos) = el_compu_scale
-            .0
-            .lock()
             .calc_element_insert_range(ElementName::CompuConst, AutosarVersion::Autosar_00050)
             .unwrap();
         assert_eq!(start_pos, 1);
@@ -2090,16 +2224,11 @@ mod test {
             .create_sub_element(ElementName::CompuRationalCoeffs)
             .unwrap();
         // try to insert COMPU-CONST anyway
-        let result = el_compu_scale
-            .0
-            .lock()
-            .calc_element_insert_range(ElementName::CompuConst, AutosarVersion::Autosar_00050);
+        let result = el_compu_scale.calc_element_insert_range(ElementName::CompuConst, AutosarVersion::Autosar_00050);
         assert!(result.is_err());
         // it is also not possible to create a second COMPU-RATIONAL-COEFFS
-        let result = el_compu_scale
-            .0
-            .lock()
-            .calc_element_insert_range(ElementName::CompuRationalCoeffs, AutosarVersion::Autosar_00050);
+        let result =
+            el_compu_scale.calc_element_insert_range(ElementName::CompuRationalCoeffs, AutosarVersion::Autosar_00050);
         assert!(result.is_err());
 
         // creating a sub element at an invalid position fails
@@ -2321,6 +2450,12 @@ mod test {
 
         let result = el_ar_package.create_copied_sub_element(&el_ar_packages);
         assert!(result.is_err());
+
+        // copying an element into itself should return an error and should not deadlock
+        let result = el_ar_package.create_copied_sub_element(&el_ar_package);
+        assert!(result.is_err());
+        let result = el_ar_package.create_copied_sub_element_at(&el_ar_package, 0);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -2347,11 +2482,19 @@ mod test {
         } else {
             panic!("Removing the SHORT-NAME was not prohibited");
         }
+        let el_ar_package_clone = el_ar_package.clone();
         let el_ar_packages = el_ar_package.parent().unwrap().unwrap();
         let result = el_ar_packages.remove_sub_element(el_ar_package);
         // deleting identifiable elements should also cause the cached references to them to be removed
         assert_eq!(model.0.lock().identifiables.len(), 0);
         assert!(result.is_ok());
+
+        // the removed element may still exist if there were other references to it, but it is no longer usable
+        let result = el_ar_package_clone.parent();
+        assert!(matches!(result, Err(AutosarDataError::ItemDeleted)));
+        let result = el_ar_package_clone.model();
+        assert!(matches!(result, Err(AutosarDataError::ItemDeleted)));
+        assert_eq!(el_ar_package_clone.position(), None);
     }
 
     #[test]
@@ -2790,6 +2933,11 @@ mod test {
             .set_character_data(CharacterData::String("/does/not/exist".to_string()))
             .unwrap();
         assert!(el_fibex_element_ref.get_reference_target().is_err());
+        // invalid reference: refers to the wrong type of element
+        el_fibex_element_ref
+            .set_character_data(CharacterData::String("/Package".to_string()))
+            .unwrap();
+        assert!(el_fibex_element_ref.get_reference_target().is_err());
         // invalid reference: no reference string
         el_fibex_element_ref.remove_character_data().unwrap();
         assert!(el_fibex_element_ref.get_reference_target().is_err());
@@ -3209,6 +3357,78 @@ mod test {
         assert_eq!(item2, el_fibex_element1);
     }
 
+    fn helper_create_bsw_subelem(
+        el_subcontainers: &Element,
+        short_name: &str,
+        defref: &str,
+    ) -> Result<Element, AutosarDataError> {
+        let e = el_subcontainers.create_named_sub_element(ElementName::EcucContainerValue, short_name)?;
+        let defrefelem = e.create_sub_element(ElementName::DefinitionRef)?;
+        defrefelem.set_character_data(CharacterData::String(defref.to_string()))?;
+        Ok(e)
+    }
+
+    fn helper_create_indexed_bsw_subelem(
+        el_subcontainers: &Element,
+        short_name: &str,
+        indexstr: &str,
+        defref: &str,
+    ) -> Result<Element, AutosarDataError> {
+        let e = helper_create_bsw_subelem(el_subcontainers, short_name, defref)?;
+        let indexelem = e.create_sub_element(ElementName::Index)?;
+        indexelem.set_character_data(CharacterData::String(indexstr.to_string()))?;
+        Ok(e)
+    }
+
+    #[test]
+    fn sort_bsw_elements() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let el_subcontainers = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .and_then(|ap| ap.create_named_sub_element(ElementName::ArPackage, "Pkg"))
+            .and_then(|ap| ap.create_sub_element(ElementName::Elements))
+            .and_then(|elems| elems.create_named_sub_element(ElementName::EcucModuleConfigurationValues, "Config"))
+            .and_then(|emcv| emcv.create_sub_element(ElementName::Containers))
+            .and_then(|c| c.create_named_sub_element(ElementName::EcucContainerValue, "ConfigValues"))
+            .and_then(|ecv| ecv.create_sub_element(ElementName::SubContainers))
+            .unwrap();
+        let elem1 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Aaa", "06", "/Defref/Container/Value").unwrap(); // idx 6
+        let elem2 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Bbb", "5", "/Defref/Container/Value").unwrap(); // idx 5
+        let elem3 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Bbb2", "5", "/Defref/Container/Value").unwrap(); // idx 5 duplicate
+        let elem4 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Ccc", "0X4", "/Defref/Container/Value").unwrap(); // idx 4
+        let elem5 = helper_create_bsw_subelem(&el_subcontainers, "Zzz", "/Defref/Container/Value").unwrap();
+        let elem6 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Ddd", "0b1", "/Defref/Container/Value").unwrap(); // idx 1
+        let elem7 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Eee", "0x3", "/Defref/Container/Value").unwrap(); // idx 3
+        let elem8 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Fff", "0B10", "/Defref/Container/Value").unwrap(); // idx 2
+
+        let elem9 = helper_create_bsw_subelem(&el_subcontainers, "Mmm5", "/Defref/Container/Value").unwrap();
+        let elem10 = helper_create_bsw_subelem(&el_subcontainers, "Mmm10", "/Defref/Container/Value").unwrap();
+        let elem11 = helper_create_bsw_subelem(&el_subcontainers, "Mmm9", "/Defref/Container/Value").unwrap();
+
+        el_subcontainers.sort();
+        assert_eq!(elem1.position().unwrap(), 6);
+        assert_eq!(elem2.position().unwrap(), 4);
+        assert_eq!(elem3.position().unwrap(), 5);
+        assert_eq!(elem4.position().unwrap(), 3);
+        assert_eq!(elem6.position().unwrap(), 0);
+        assert_eq!(elem7.position().unwrap(), 2);
+        assert_eq!(elem8.position().unwrap(), 1);
+        // elements without indices are sorted behind the indexed elements
+        assert_eq!(elem9.position().unwrap(), 7);
+        assert_eq!(elem11.position().unwrap(), 8);
+        assert_eq!(elem10.position().unwrap(), 9);
+        assert_eq!(elem5.position().unwrap(), 10);
+    }
+
     #[test]
     fn file_membership() {
         let model = AutosarModel::new();
@@ -3268,5 +3488,100 @@ mod test {
         el_ar_package.remove_from_file(&file2).unwrap();
         assert!(el_ar_package.get_sub_element(ElementName::Elements).is_none());
         assert!(el_ar_package.remove_from_file(&file2).is_err());
+    }
+
+    #[test]
+    fn min_version() {
+        let model = AutosarModel::new();
+        let result = model.root_element().min_version();
+        assert!(result.is_err());
+
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let min_ver = model.root_element().min_version().unwrap();
+        assert_eq!(min_ver, AutosarVersion::LATEST);
+
+        model.create_file("test2", AutosarVersion::Autosar_00042).unwrap();
+        let min_ver = model.root_element().min_version().unwrap();
+        assert_eq!(min_ver, AutosarVersion::Autosar_00042);
+    }
+
+    #[test]
+    fn element_sort_key() {
+        let key_none = ElementSortKey {
+            index: None,
+            item_name_indexed: None,
+            item_name: None,
+            definition: None,
+        };
+        let key_idx_1 = ElementSortKey {
+            index: Some(1),
+            item_name_indexed: None,
+            item_name: None,
+            definition: None,
+        };
+
+        assert_ne!(key_none, key_idx_1);
+        assert!(matches!(key_none.partial_cmp(&key_idx_1), Some(Ordering::Greater)));
+        assert!(matches!(key_idx_1.partial_cmp(&key_idx_1), Some(Ordering::Equal)));
+        assert!(matches!(key_idx_1.partial_cmp(&key_none), Some(Ordering::Less)));
+
+        let key_partialidx_1 = ElementSortKey {
+            index: None,
+            item_name_indexed: Some(("base".to_string(), 1)),
+            item_name: None,
+            definition: None,
+        };
+        let key_partialidx_2 = ElementSortKey {
+            index: None,
+            item_name_indexed: Some(("base".to_string(), 2)),
+            item_name: None,
+            definition: None,
+        };
+
+        assert_ne!(key_partialidx_1, key_partialidx_2);
+        assert!(matches!(key_partialidx_1.cmp(&key_partialidx_2), Ordering::Less));
+        assert!(matches!(key_partialidx_1.cmp(&key_partialidx_1), Ordering::Equal));
+        assert!(matches!(key_partialidx_2.cmp(&key_partialidx_1), Ordering::Greater));
+    }
+
+    #[test]
+    fn traits() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+
+        // traits of elements
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+
+        let el_autosar_second_ref = el_autosar.clone();
+        assert_eq!(el_autosar, el_autosar_second_ref);
+        assert_eq!(format!("{el_autosar:?}"), format!("{el_autosar_second_ref:?}"));
+        assert_ne!(el_autosar, el_ar_packages);
+
+        let weak1 = el_autosar.downgrade();
+        let weak2 = el_autosar_second_ref.downgrade();
+        assert_eq!(weak1, weak2);
+        assert_eq!(format!("{weak1:?}"), format!("{weak2:?}"));
+
+        let mut hs = HashSet::new();
+        hs.insert(el_autosar);
+        hs.insert(el_ar_packages);
+        // can't insert el_autosar_second_ref, it is already in the set
+        assert!(!hs.insert(el_autosar_second_ref));
+        assert_eq!(hs.len(), 2);
+
+        let mut hs2 = HashSet::new();
+        hs2.insert(weak1);
+        assert_eq!(hs2.insert(weak2), false);
+        assert_eq!(hs2.len(), 1);
+
+        // traits of elementcontent
+        let ec_elem = ElementContent::Element(model.root_element());
+        assert_eq!(format!("{:?}", model.root_element()), format!("{ec_elem:?}"));
+        assert_eq!(ec_elem.unwrap_element(), Some(model.root_element()));
+        let cdata = CharacterData::String("test".to_string());
+        let ec_chars = ElementContent::CharacterData(cdata.clone());
+        assert_eq!(format!("{cdata:?}"), format!("{ec_chars:?}"));
+        assert_eq!(ec_chars.unwrap_cdata(), Some(cdata));
     }
 }

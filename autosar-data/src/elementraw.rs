@@ -1,6 +1,7 @@
 use smallvec::smallvec;
-use std::hash::Hash;
 use std::{borrow::Cow, time::Duration};
+
+use crate::element::ElementSortKey;
 
 use super::*;
 
@@ -1210,14 +1211,14 @@ impl ElementRaw {
                 let len = self.content.len();
                 if !self.elemtype.is_ordered() && len > 1 {
                     // remove all child elements from this element and sort them
-                    let mut sorting_vec: Vec<(Vec<usize>, String, Element)> = Vec::with_capacity(len);
+                    let mut sorting_vec: Vec<(Vec<usize>, ElementSortKey, Element)> = Vec::with_capacity(len);
                     for idx in (0..self.content.len()).rev() {
                         if let ElementContent::Element(elem) = self.content.remove(idx) {
                             // descend into the element and sort it before doing anything else with it
                             elem.sort();
                             let (_, elem_indices) =
                                 self.elemtype.find_sub_element(elem.element_name(), u32::MAX).unwrap();
-                            sorting_vec.push((elem_indices, "".to_string(), elem));
+                            sorting_vec.push((elem_indices, ElementSortKey::default(), elem));
                         }
                         // Sequence, Choice and Bag do not have character content
                     }
@@ -1226,7 +1227,7 @@ impl ElementRaw {
                     sorting_vec
                         .sort_by(|(elem_indices_a, _, _), (elem_indices_b, _, _)| elem_indices_a.cmp(elem_indices_b));
                     // try to find out if there are any conflicts during basic sorting, i.e. items that need more info to sort
-                    let mut sort_key_needed: Vec<bool> = (0..len).map(|_| false).collect();
+                    let mut sort_key_needed: Vec<bool> = vec![false; len];
                     for idx in 1..len {
                         let (prev_elem_indices, _, _) = &sorting_vec[idx - 1];
                         let (elem_indices, _, _) = &sorting_vec[idx];
@@ -1272,46 +1273,5 @@ impl ElementRaw {
 
     pub(crate) fn wrap(self) -> Element {
         Element(Arc::new(Mutex::new(self)))
-    }
-}
-
-impl WeakElement {
-    /// try to get a strong reference to the [Element]
-    pub fn upgrade(&self) -> Option<Element> {
-        Weak::upgrade(&self.0).map(Element)
-    }
-}
-
-impl PartialEq for WeakElement {
-    fn eq(&self, other: &Self) -> bool {
-        Weak::as_ptr(&self.0) == Weak::as_ptr(&other.0)
-    }
-}
-
-impl Eq for WeakElement {}
-
-impl Hash for WeakElement {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_usize(Weak::as_ptr(&self.0) as usize);
-    }
-}
-
-impl ElementContent {
-    /// returns the element contained inside this ElementContent, or None if the content is CharacterData
-    pub fn unwrap_element(&self) -> Option<Element> {
-        if let ElementContent::Element(element) = self {
-            Some(element.clone())
-        } else {
-            None
-        }
-    }
-
-    /// returns the CharacterData inside this ElementContent, or None if the content is an Element
-    pub fn unwrap_cdata(&self) -> Option<CharacterData> {
-        if let ElementContent::CharacterData(cdata) = self {
-            Some(cdata.clone())
-        } else {
-            None
-        }
     }
 }

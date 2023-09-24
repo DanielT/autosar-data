@@ -1201,9 +1201,11 @@ mod test {
         assert_ne!(modeltxt_1_2, modeltxt_1_2_3);
         model.get_element_by_path("/Package2/System").unwrap();
         model.remove_file(&file3);
+        // the serialized text of the model after deleting file 3 should be the same as it was before loading file 3
         let modeltxt_1_2_x = model.root_element().serialize();
         assert_eq!(modeltxt_1_2, modeltxt_1_2_x);
         model.remove_file(&file2);
+        // the serialized text of the model after deleting files 2 and 3 should be the same as it was before loading files 2 and 3
         let modeltxt_1_x_x = model.root_element().serialize();
         assert_eq!(modeltxt_1, modeltxt_1_x_x);
         assert_eq!(model.files().count(), 1);
