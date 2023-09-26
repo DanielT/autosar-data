@@ -1387,8 +1387,11 @@ impl Element {
                         u32::from_str_radix(binstring, 2).ok()
                     } else if let Some(binstring) = strval.strip_prefix("0B") {
                         u32::from_str_radix(binstring, 2).ok()
-                    } else if let Some(octstring) = strval.strip_prefix('0') {
-                        u32::from_str_radix(octstring, 8).ok()
+                    } else if let Some(octval) = strval
+                        .strip_prefix('0')
+                        .and_then(|octstring| u32::from_str_radix(octstring, 8).ok())
+                    {
+                        Some(octval)
                     } else {
                         strval.parse::<u32>().ok()
                     }
@@ -3409,24 +3412,29 @@ mod test {
             helper_create_indexed_bsw_subelem(&el_subcontainers, "Eee", "0x3", "/Defref/Container/Value").unwrap(); // idx 3
         let elem8 =
             helper_create_indexed_bsw_subelem(&el_subcontainers, "Fff", "0B10", "/Defref/Container/Value").unwrap(); // idx 2
+        let elem9 =
+            helper_create_indexed_bsw_subelem(&el_subcontainers, "Ggg", "0", "/Defref/Container/Value").unwrap(); // idx 0
 
-        let elem9 = helper_create_bsw_subelem(&el_subcontainers, "Mmm5", "/Defref/Container/Value").unwrap();
-        let elem10 = helper_create_bsw_subelem(&el_subcontainers, "Mmm10", "/Defref/Container/Value").unwrap();
-        let elem11 = helper_create_bsw_subelem(&el_subcontainers, "Mmm9", "/Defref/Container/Value").unwrap();
+        let elem10 = helper_create_bsw_subelem(&el_subcontainers, "Mmm_0", "/Defref/Container/Value").unwrap();
+        let elem11 = helper_create_bsw_subelem(&el_subcontainers, "Mmm_5", "/Defref/Container/Value").unwrap();
+        let elem12 = helper_create_bsw_subelem(&el_subcontainers, "Mmm_10", "/Defref/Container/Value").unwrap();
+        let elem13 = helper_create_bsw_subelem(&el_subcontainers, "Mmm_9", "/Defref/Container/Value").unwrap();
 
         el_subcontainers.sort();
-        assert_eq!(elem1.position().unwrap(), 6);
-        assert_eq!(elem2.position().unwrap(), 4);
-        assert_eq!(elem3.position().unwrap(), 5);
-        assert_eq!(elem4.position().unwrap(), 3);
-        assert_eq!(elem6.position().unwrap(), 0);
-        assert_eq!(elem7.position().unwrap(), 2);
-        assert_eq!(elem8.position().unwrap(), 1);
+        assert_eq!(elem1.position().unwrap(), 7);
+        assert_eq!(elem2.position().unwrap(), 5);
+        assert_eq!(elem3.position().unwrap(), 6);
+        assert_eq!(elem4.position().unwrap(), 4);
+        assert_eq!(elem6.position().unwrap(), 1);
+        assert_eq!(elem7.position().unwrap(), 3);
+        assert_eq!(elem8.position().unwrap(), 2);
+        assert_eq!(elem9.position().unwrap(), 0);
         // elements without indices are sorted behind the indexed elements
-        assert_eq!(elem9.position().unwrap(), 7);
-        assert_eq!(elem11.position().unwrap(), 8);
-        assert_eq!(elem10.position().unwrap(), 9);
-        assert_eq!(elem5.position().unwrap(), 10);
+        assert_eq!(elem10.position().unwrap(), 8);
+        assert_eq!(elem11.position().unwrap(), 9);
+        assert_eq!(elem13.position().unwrap(), 10);
+        assert_eq!(elem12.position().unwrap(), 11);
+        assert_eq!(elem5.position().unwrap(), 12);
     }
 
     #[test]
