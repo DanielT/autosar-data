@@ -1,6 +1,6 @@
 [package]
 name = "autosar-data"
-version = "0.11.0"
+version = "0.11.1"
 authors = ["Daniel Thaler <daniel@dthaler.de>"]
 edition = "2021"
 description = "read, write and modify Autosar arxml data"
