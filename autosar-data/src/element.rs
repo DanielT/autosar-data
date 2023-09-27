@@ -2120,15 +2120,18 @@ impl Ord for ElementSortKey {
                 }
             }
         }
+        // compare by definition ref (if any)
+        if let (Some(self_def), Some(other_def)) = (&self.definition, &other.definition) {
+            match self_def.cmp(other_def) {
+                Ordering::Less => return Ordering::Less,
+                Ordering::Equal => {}
+                Ordering::Greater => return Ordering::Greater,
+            }
+        }
         // compare by item name (if any)
         if let (Some(self_item_name), Some(other_item_name)) = (&self.item_name, &other.item_name) {
             // item names are unique among siblings, so this comparison cannot return Equal
             return self_item_name.cmp(other_item_name);
-        }
-        // compare by definition ref (if any)
-        if let (Some(self_def), Some(other_def)) = (&self.definition, &other.definition) {
-            // multiple siblings with the same definition-ref will have item names, so this will usually not return Equal
-            return self_def.cmp(other_def);
         }
         // sort keys are equal
         Ordering::Equal
@@ -3352,12 +3355,12 @@ mod test {
         assert_eq!(item1, el_value2);
         assert_eq!(item2, el_value1);
 
-        // validate that the misc elements (FIBEX-ELEMENT-REF-CONDITIONAL) have been sorted
+        // validate that the misc elements (FIBEX-ELEMENT-REF-CONDITIONAL) without distinguishing features have not been sorted
         let mut iter = el_fibex_elements.sub_elements();
         let item1 = iter.next().unwrap();
         let item2 = iter.next().unwrap();
-        assert_eq!(item1, el_fibex_element2);
-        assert_eq!(item2, el_fibex_element1);
+        assert_eq!(item1, el_fibex_element1);
+        assert_eq!(item2, el_fibex_element2);
     }
 
     fn helper_create_bsw_subelem(
@@ -3550,6 +3553,24 @@ mod test {
         assert!(matches!(key_partialidx_1.cmp(&key_partialidx_2), Ordering::Less));
         assert!(matches!(key_partialidx_1.cmp(&key_partialidx_1), Ordering::Equal));
         assert!(matches!(key_partialidx_2.cmp(&key_partialidx_1), Ordering::Greater));
+
+        let key_defref_a = ElementSortKey {
+            index: None,
+            item_name_indexed: None,
+            item_name: None,
+            definition: Some("/A".to_string()),
+        };
+        let key_defref_b = ElementSortKey {
+            index: None,
+            item_name_indexed: None,
+            item_name: None,
+            definition: Some("/B".to_string()),
+        };
+
+        assert_ne!(key_defref_a, key_defref_b);
+        assert!(matches!(key_defref_a.cmp(&key_defref_b), Ordering::Less));
+        assert!(matches!(key_defref_a.cmp(&key_defref_a), Ordering::Equal));
+        assert!(matches!(key_defref_b.cmp(&key_defref_a), Ordering::Greater));
     }
 
     #[test]

@@ -1212,15 +1212,15 @@ impl ElementRaw {
                 if !self.elemtype.is_ordered() && len > 1 {
                     // remove all child elements from this element and sort them
                     let mut sorting_vec: Vec<(Vec<usize>, ElementSortKey, Element)> = Vec::with_capacity(len);
-                    for idx in (0..self.content.len()).rev() {
-                        if let ElementContent::Element(elem) = self.content.remove(idx) {
+                    for ec_elem in &self.content {
+                        if let ElementContent::Element(elem) = ec_elem {
                             // descend into the element and sort it before doing anything else with it
                             elem.sort();
                             let (_, elem_indices) =
                                 self.elemtype.find_sub_element(elem.element_name(), u32::MAX).unwrap();
-                            sorting_vec.push((elem_indices, ElementSortKey::default(), elem));
+                            sorting_vec.push((elem_indices, ElementSortKey::default(), elem.clone()));
                         }
-                        // Sequence, Choice and Bag do not have character content
+                        // Sequence, Choice and Bag do not have character content, so else {} is not needed
                     }
 
                     // basic sort, typically a no-op
@@ -1253,6 +1253,7 @@ impl ElementRaw {
                         });
                     }
 
+                    self.content.clear();
                     // put the sorted elements back
                     for (_, _, elem) in sorting_vec {
                         self.content.push(ElementContent::Element(elem));
