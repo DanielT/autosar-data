@@ -32,13 +32,13 @@
 //!
 //! ## Using the crate
 //!
-//! The main datatype is the [ElementType]. The type of the &lt;AUTOSAR&gt; element at the root of every arxml file is
-//! available as ElementType::ROOT.
+//! The main datatype is the [`ElementType`]. The type of the &lt;AUTOSAR&gt; element at the root of every arxml file is
+//! available as `ElementType::ROOT`.
 //!
 //! ## Note
 //!
-//! It is not possible to directly convert between [ElementName]s and [ElementType]s, since this is an n:m mapping.
-//! If the content of two differently named elements is structurally identical, then they have the same [ElementType];
+//! It is not possible to directly convert between [`ElementName`]s and [`ElementType`]s, since this is an n:m mapping.
+//! If the content of two differently named elements is structurally identical, then they have the same [`ElementType`];
 //! on the other side there are several elements that have different content depending in the context in which they appear.
 //!
 //! ## Example
@@ -81,9 +81,11 @@ pub use attributename::AttributeName;
 pub use autosarversion::AutosarVersion;
 pub use elementname::ElementName;
 pub use enumitem::EnumItem;
-use specification::*;
+use specification::{
+    ATTRIBUTES, CHARACTER_DATA, DATATYPES, REFERENCE_TYPE_IDX, ROOT_DATATYPE, SUBELEMENTS, VERSION_INFO,
+};
 
-/// ElementMultiplicity specifies how often a single child element may occur within its parent
+/// `ElementMultiplicity` specifies how often a single child element may occur within its parent
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ElementMultiplicity {
     ZeroOrOne,
@@ -91,7 +93,7 @@ pub enum ElementMultiplicity {
     Any,
 }
 
-/// The ContentMode specifies what content may occur inside an element
+/// The `ContentMode` specifies what content may occur inside an element
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ContentMode {
     /// Sequence: an ordered sequence of elements
@@ -141,7 +143,7 @@ pub struct AttributeSpec {
     pub version: u32,
 }
 
-/// ElementType is an abstraction over element types in the specification.
+/// `ElementType` is an abstraction over element types in the specification.
 ///
 /// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
@@ -171,64 +173,66 @@ struct ElementSpec {
 }
 
 impl AutosarVersion {
+    #[must_use]
     pub fn compatible(&self, version_mask: u32) -> bool {
         version_mask & *self as u32 != 0
     }
 }
 
 impl ElementType {
-    fn get_sub_elements(&self) -> &'static [SubElement] {
+    fn get_sub_elements(self) -> &'static [SubElement] {
         let (idx_start, idx_end) = self.get_sub_element_idx();
         &SUBELEMENTS[idx_start..idx_end]
     }
 
-    fn get_sub_element_idx(&self) -> (usize, usize) {
+    fn get_sub_element_idx(self) -> (usize, usize) {
         let (start, end) = DATATYPES[self.0].sub_elements;
         (start as usize, end as usize)
     }
 
-    fn get_sub_element_ver(&self) -> usize {
+    fn get_sub_element_ver(self) -> usize {
         DATATYPES[self.0].sub_element_ver as usize
     }
 
-    fn get_attributes_idx(&self) -> (usize, usize) {
+    fn get_attributes_idx(self) -> (usize, usize) {
         let (start, end) = DATATYPES[self.0].attributes;
         (start as usize, end as usize)
     }
 
-    fn get_attributes_ver(&self) -> usize {
+    fn get_attributes_ver(self) -> usize {
         DATATYPES[self.0].attributes_ver as usize
     }
 
     /// get the spec of a sub element from the index list
-    fn get_sub_element_spec<'a>(&self, element_indices: &[usize]) -> Option<(&'a SubElement, u32)> {
+    fn get_sub_element_spec<'a>(self, element_indices: &[usize]) -> Option<(&'a SubElement, u32)> {
+        if element_indices.is_empty() {
+            return None;
+        }
+
         let spec = self.get_sub_elements();
         let ver_list_start = self.get_sub_element_ver();
-        if !element_indices.is_empty() {
-            let mut current_spec = spec;
-            let mut current_ver_list_start = ver_list_start;
-            // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
-            for idx in 0..(element_indices.len() - 1) {
-                match &current_spec[element_indices[idx]] {
-                    SubElement::Element { .. } => {
-                        // elements are not allowed here
-                        return None;
-                    }
-                    SubElement::Group { groupid } => {
-                        current_spec = ElementType(*groupid).get_sub_elements();
-                        current_ver_list_start = ElementType(*groupid).get_sub_element_ver();
-                    }
+        let mut current_spec = spec;
+        let mut current_ver_list_start = ver_list_start;
+        // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
+        for idx in 0..(element_indices.len() - 1) {
+            match &current_spec[element_indices[idx]] {
+                SubElement::Element { .. } => {
+                    // elements are not allowed here
+                    return None;
+                }
+                SubElement::Group { groupid } => {
+                    current_spec = ElementType(*groupid).get_sub_elements();
+                    current_ver_list_start = ElementType(*groupid).get_sub_element_ver();
                 }
             }
-
-            let last_idx = *element_indices.last().unwrap();
-            Some((&current_spec[last_idx], VERSION_INFO[current_ver_list_start + last_idx]))
-        } else {
-            None
         }
+
+        let last_idx = *element_indices.last().unwrap();
+        Some((&current_spec[last_idx], VERSION_INFO[current_ver_list_start + last_idx]))
     }
 
     /// get the version mask of a sub element
+    #[must_use]
     pub fn get_sub_element_version_mask(&self, element_indices: &[usize]) -> Option<u32> {
         match self.get_sub_element_spec(element_indices) {
             Some((_, version_mask)) => Some(version_mask),
@@ -236,9 +240,10 @@ impl ElementType {
         }
     }
 
-    /// get the multiplicity of a sub element within the current ElementType
+    /// get the multiplicity of a sub element within the current `ElementType`
     ///
     /// The sub element is identified by an indx list, as returned by `find_sub_element()`
+    #[must_use]
     pub fn get_sub_element_multiplicity(&self, element_indices: &[usize]) -> Option<ElementMultiplicity> {
         match self.get_sub_element_spec(element_indices) {
             Some((SubElement::Element { multiplicity, .. }, _)) => Some(*multiplicity),
@@ -246,9 +251,10 @@ impl ElementType {
         }
     }
 
-    /// get the ContentMode of the container of a sub element of the current ElementType
+    /// get the `ContentMode` of the container of a sub element of the current `ElementType`
     ///
     /// The sub element is identified by an index list, as returned by `find_sub_element()`
+    #[must_use]
     pub fn get_sub_element_container_mode(&self, element_indices: &[usize]) -> ContentMode {
         if element_indices.len() < 2 {
             // length == 1: this element is a direct sub element, without any groups;
@@ -258,19 +264,19 @@ impl ElementType {
             if let Some((SubElement::Group { groupid }, _)) = self.get_sub_element_spec(&element_indices[..len]) {
                 DATATYPES[*groupid].mode
             } else {
-                panic!("impossible: element container is not a group");
+                unreachable!("impossible: element container is not a group");
             }
         }
     }
 
-    /// find a sub element in the specification of the current ElementType
+    /// find a sub element in the specification of the current `ElementType`
     ///
-    /// Note: Version here is NOT an AutosarVersion, it is a u32. it is a bitmask which can contain multiple AutosarVersions, or any version by using u32::MAX
+    /// Note: Version here is NOT an `AutosarVersion`, it is a u32. it is a bitmask which can contain multiple `AutosarVersions`, or any version by using `u32::MAX`
     ///
-    /// In almost all cases this is simple: there is a flat list of sub elements that either contains the target_name or not.
+    /// In almost all cases this is simple: there is a flat list of sub elements that either contains the `target_name` or not.
     /// The result in those simple cases is a vec with one entry which is the index of the element in the list.
     /// There are a handfull of complicated situations though, where the list of sub elements contains groups of
-    /// elements that have a different ContentMode than the other elements.
+    /// elements that have a different `ContentMode` than the other elements.
     ///
     /// For example:
     /// ```text
@@ -291,6 +297,7 @@ impl ElementType {
     ///      -> Element: REMARK
     /// ```
     /// When searching for TOL in PRM-CHAR, the result should be Some(vec![1, 0, 0, 0, 1])!
+    #[must_use]
     pub fn find_sub_element(&self, target_name: ElementName, version: u32) -> Option<(ElementType, Vec<usize>)> {
         let spec = self.get_sub_elements();
         for (cur_pos, sub_element) in spec.iter().enumerate() {
@@ -314,11 +321,12 @@ impl ElementType {
         None
     }
 
-    /// find the commmon group of two subelements of the current ElementType
+    /// find the commmon group of two subelements of the current `ElementType`
     ///
-    /// The subelements are identified by their index lists, returned by find_sub_element().
+    /// The subelements are identified by their index lists, returned by `find_sub_element`().
     ///
-    /// In simple cases without sub-groups of elements, the "common group" is simply the current ElementType.
+    /// In simple cases without sub-groups of elements, the "common group" is simply the current `ElementType`.
+    #[must_use]
     pub fn find_common_group(&self, element_indices: &[usize], element_indices2: &[usize]) -> ElementType {
         let mut result = self.0;
         let mut prefix_len = 0;
@@ -339,12 +347,13 @@ impl ElementType {
         ElementType(result)
     }
 
-    /// are elements of this ElementType named in any Autosar version
+    /// are elements of this `ElementType` named in any Autosar version
+    #[must_use]
     pub fn is_named(&self) -> bool {
         self.short_name_version_mask().is_some()
     }
 
-    pub(crate) fn short_name_version_mask(&self) -> Option<u32> {
+    pub(crate) fn short_name_version_mask(self) -> Option<u32> {
         let (start_idx, end_idx) = DATATYPES[self.0].sub_elements;
         if start_idx != end_idx {
             if let SubElement::Element {
@@ -352,13 +361,10 @@ impl ElementType {
                 ..
             } = SUBELEMENTS[start_idx as usize]
             {
-                Some(VERSION_INFO[DATATYPES[self.0].sub_element_ver as usize])
-            } else {
-                None
+                return Some(VERSION_INFO[DATATYPES[self.0].sub_element_ver as usize]);
             }
-        } else {
-            None
         }
+        None
     }
 
     /// are elements of this elementType named in the given Autosar version
@@ -367,13 +373,15 @@ impl ElementType {
     /// depends on the Autosar version.
     ///
     /// One example of this is END-2-END-METHOD-PROTECTION-PROPS, which was first
-    /// defined in Autosar_00048, but only has a name in Autosar_00050.
+    /// defined in `Autosar_00048`, but only has a name in `Autosar_00050`.
+    #[must_use]
     pub fn is_named_in_version(&self, version: AutosarVersion) -> bool {
         self.short_name_version_mask()
             .map_or(false, |ver_mask| version.compatible(ver_mask))
     }
 
-    /// is the ElementType a reference
+    /// is the `ElementType` a reference
+    #[must_use]
     pub fn is_ref(&self) -> bool {
         if let Some(idx) = DATATYPES[self.0].character_data {
             idx == REFERENCE_TYPE_IDX
@@ -382,12 +390,14 @@ impl ElementType {
         }
     }
 
-    /// get the content mode for this ElementType
+    /// get the content mode for this `ElementType`
+    #[must_use]
     pub fn content_mode(&self) -> ContentMode {
         DATATYPES[self.0].mode
     }
 
-    /// get the character data spec for this ElementType
+    /// get the character data spec for this `ElementType`
+    #[must_use]
     pub fn chardata_spec(&self) -> Option<&'static CharacterDataSpec> {
         if let Some(chardata_id) = DATATYPES[self.0].character_data {
             Some(&CHARACTER_DATA[chardata_id as usize])
@@ -397,6 +407,7 @@ impl ElementType {
     }
 
     /// find the spec for a single attribute by name
+    #[must_use]
     pub fn find_attribute_spec(&self, attrname: AttributeName) -> Option<AttributeSpec> {
         let (idx_start, idx_end) = self.get_attributes_idx();
         let attributes = &ATTRIBUTES[idx_start..idx_end];
@@ -415,7 +426,8 @@ impl ElementType {
         }
     }
 
-    /// create an iterator over all attribute definitions in the current ElementType
+    /// create an iterator over all attribute definitions in the current `ElementType`
+    #[must_use]
     pub fn attribute_spec_iter(&self) -> AttrDefinitionsIter {
         AttrDefinitionsIter {
             type_id: self.0,
@@ -423,7 +435,8 @@ impl ElementType {
         }
     }
 
-    /// create an iterator over all sub elements of the current ElementType
+    /// create an iterator over all sub elements of the current `ElementType`
+    #[must_use]
     pub fn sub_element_spec_iter(&self) -> SubelemDefinitionsIter {
         SubelemDefinitionsIter {
             type_id_stack: vec![self.0],
@@ -431,40 +444,44 @@ impl ElementType {
         }
     }
 
-    /// Is the current ElementType ordered
+    /// Is the current `ElementType` ordered
     ///
     /// It his is true, then the position of the sub elements of this element is semantically meaningful
     /// and they may not be sorted / re-ordered without changing the meaning of the file.
     ///
     /// An example of this is ARGUMENTS in BSW-MODULE-ENTRY. ARGUMENTS is ordered, because each of its
     /// SW-SERVICE-ARG sub elements represents a function argument
+    #[must_use]
     pub fn is_ordered(&self) -> bool {
         DATATYPES[self.0].ordered
     }
 
-    /// Is the current ElementType splittable
+    /// Is the current `ElementType` splittable
     ///
-    /// This function returns a bitfield that indicates in which versions (if any) the ElementType is marked as splittable.
+    /// This function returns a bitfield that indicates in which versions (if any) the `ElementType` is marked as splittable.
     /// A splittable element may be split across multiple arxml files
+    #[must_use]
     pub fn splittable(&self) -> u32 {
         DATATYPES[self.0].splittable
     }
 
-    /// Is the current ElementType splittable in the given version
+    /// Is the current `ElementType` splittable in the given version
     ///
     /// A splittable element may be split across multiple arxml files
+    #[must_use]
     pub fn splittable_in(&self, version: AutosarVersion) -> bool {
         (DATATYPES[self.0].splittable & (version as u32)) != 0
     }
 
-    /// find the correct EnumItem to use in the DEST attribute when referring from this element to the other element
+    /// find the correct `EnumItem` to use in the DEST attribute when referring from this element to the other element
     ///
-    /// Returns Some(enum_item) it the reference is possible, and None otherwise.
+    /// Returns `Some(enum_item`) it the reference is possible, and None otherwise.
     ///
     /// Example:
     ///
     /// When referring to a `<CAN-TP-CONNECTION><IDENT><SHORT-NAME>foo...`
     /// the referrring `<PHYSICAL-REQUEST-REF [...]>` must set DEST="TP-CONNECTION-IDENT"
+    #[must_use]
     pub fn reference_dest_value(&self, other: &ElementType) -> Option<EnumItem> {
         // this element must be a reference, and the other element must be identifiable, otherwise it is not a valid target
         if self.is_ref() && other.is_named() {
@@ -482,7 +499,7 @@ impl ElementType {
         None
     }
 
-    /// ElementType::ROOT is the root ElementType of the Autosar arxml document: this is the ElementType of the AUTOSAR element
+    /// `ElementType::ROOT` is the root `ElementType` of the Autosar arxml document: this is the `ElementType` of the AUTOSAR element
     pub const ROOT: Self = ElementType(ROOT_DATATYPE);
 }
 
@@ -510,7 +527,7 @@ impl Iterator for AttrDefinitionsIter {
 
 /// Iterator over sub element definitions
 ///
-/// returns the tuple (name: ElementName, etype: ElementType, version_mask: u32, name_version_mask: u32)
+/// returns the tuple (name: `ElementName`, etype: `ElementType`, `version_mask`: u32, `name_version_mask`: u32)
 pub struct SubelemDefinitionsIter {
     type_id_stack: Vec<usize>,
     indices: Vec<usize>,
@@ -521,7 +538,9 @@ impl Iterator for SubelemDefinitionsIter {
     type Item = (ElementName, ElementType, u32, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.type_id_stack.is_empty() {
+        if self.type_id_stack.is_empty() {
+            None
+        } else {
             debug_assert_eq!(self.type_id_stack.len(), self.indices.len());
 
             let depth = self.indices.len() - 1;
@@ -555,8 +574,6 @@ impl Iterator for SubelemDefinitionsIter {
                 }
                 self.next()
             }
-        } else {
-            None
         }
     }
 }
@@ -587,6 +604,7 @@ impl std::fmt::Debug for CharacterDataSpec {
 }
 
 /// expand a version mask (u32) to a list of versions in the mask
+#[must_use]
 pub fn expand_version_mask(version_mask: u32) -> Vec<AutosarVersion> {
     let mut versions = vec![];
     for i in 0..u32::BITS {
@@ -602,11 +620,11 @@ pub fn expand_version_mask(version_mask: u32) -> Vec<AutosarVersion> {
 }
 
 pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
-    const HASHCONST1: u32 = 0x541C69B2; // these 4 constant values are not special, just random values
-    const HASHCONST2: u32 = 0x3B17161B;
+    const HASHCONST1: u32 = 0x541C_69B2; // these 4 constant values are not special, just random values
+    const HASHCONST2: u32 = 0x3B17_161B;
 
-    let mut f1 = 0x33143C63u32;
-    let mut f2 = 0x88B0B21Eu32;
+    let mut f1 = 0x3314_3C63_u32;
+    let mut f2 = 0x88B0_B21E_u32;
     while data.len() >= 4 {
         let val = u32::from_ne_bytes(data[..4].try_into().unwrap());
         f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
@@ -614,14 +632,14 @@ pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
         data = &data[4..];
     }
     if data.len() >= 2 {
-        let val = u16::from_ne_bytes(data[..2].try_into().unwrap()) as u32;
+        let val = u32::from(u16::from_ne_bytes(data[..2].try_into().unwrap()));
         f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
         f2 = f2.rotate_left(6).bitxor(val).wrapping_mul(HASHCONST2);
         data = &data[2..];
     }
     if !data.is_empty() {
-        f1 = f1.rotate_left(5).bitxor(data[0] as u32).wrapping_mul(HASHCONST1);
-        f2 = f2.rotate_left(6).bitxor(data[0] as u32).wrapping_mul(HASHCONST2);
+        f1 = f1.rotate_left(5).bitxor(u32::from(data[0])).wrapping_mul(HASHCONST1);
+        f2 = f2.rotate_left(6).bitxor(u32::from(data[0])).wrapping_mul(HASHCONST2);
     }
     let g = f1.bitxor(f2);
     (g, f1, f2)
@@ -1097,17 +1115,17 @@ mod test {
         // but there is no way to exclude them from coverage
         // ElementMultiplicity: Debug & Clone
         let mult = ElementMultiplicity::Any;
-        let m2 = mult.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        let m2 = mult; // must be .clone(), otherwise the copy impl is tested instead
         assert_eq!(format!("{:#?}", mult), format!("{:#?}", m2));
 
         // ContentMode: Debug, Clone
         let cm = ContentMode::Sequence;
-        let cm2 = cm.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        let cm2 = cm; // must be .clone(), otherwise the copy impl is tested instead
         assert_eq!(format!("{:#?}", cm), format!("{:#?}", cm2));
 
         // ElementType: Debug, Clone, Eq & Hash
         let et = ElementType::ROOT;
-        let et2 = et.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        let et2 = et; // must be .clone(), otherwise the copy impl is tested instead
         assert_eq!(format!("{:#?}", et), format!("{:#?}", et2));
         let mut hashset = HashSet::<ElementType>::new();
         hashset.insert(et);
@@ -1116,7 +1134,7 @@ mod test {
 
         // AutosarVersion: Debug, Clone, Hash
         let ver = AutosarVersion::LATEST;
-        let ver2 = ver.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        let ver2 = ver; // must be .clone(), otherwise the copy impl is tested instead
         assert_eq!(format!("{ver:#?}"), format!("{ver2:#?}"));
         let mut hashset = HashSet::<AutosarVersion>::new();
         hashset.insert(ver);
@@ -1125,7 +1143,7 @@ mod test {
 
         // ElementName: Debug, Clone, Hash
         let en = ElementName::Autosar;
-        let en2 = en.clone(); // must be .clone(), otherwise the copy impl is tested instead
+        let en2 = en; // must be .clone(), otherwise the copy impl is tested instead
         assert_eq!(format!("{en:#?}"), format!("{en2:#?}"));
         let mut hashset = HashSet::<ElementName>::new();
         hashset.insert(en);

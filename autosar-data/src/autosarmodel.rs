@@ -8,7 +8,7 @@ use std::{
 use crate::*;
 
 impl AutosarModel {
-    /// Create an AutosarData model
+    /// Create an `AutosarData` model
     ///
     /// Initially it contains no arxml files and only has a default `<AUTOSAR>` element
     ///
@@ -19,6 +19,7 @@ impl AutosarModel {
     /// let model = AutosarModel::new();
     /// ```
     ///
+    #[must_use]
     pub fn new() -> AutosarModel {
         let version = AutosarVersion::LATEST;
         let xsi_schemalocation =
@@ -59,17 +60,17 @@ impl AutosarModel {
         model
     }
 
-    /// Create a new [ArxmlFile] inside this AutosarData structure
+    /// Create a new [`ArxmlFile`] inside this `AutosarData` structure
     ///
-    /// You must provide a filename for the [ArxmlFile], even if you do not plan to write the data to disk.
-    /// You must also specify an [AutosarVersion]. All methods manipulation the data insdie the file will ensure conformity with the version specified here.
-    /// The newly created ArxmlFile will be created with a root AUTOSAR element.
+    /// You must provide a filename for the [`ArxmlFile`], even if you do not plan to write the data to disk.
+    /// You must also specify an [`AutosarVersion`]. All methods manipulation the data insdie the file will ensure conformity with the version specified here.
+    /// The newly created `ArxmlFile` will be created with a root AUTOSAR element.
     ///
     /// # Parameters
     ///
     ///  - `filename`: A filename for the data from the buffer. It must be unique within the model.
     ///    It will be used by write(), and is also used to identify this data in error messages.
-    ///  - `version`: The [AutosarVersion] that will be used by the data created inside this file
+    ///  - `version`: The [`AutosarVersion`] that will be used by the data created inside this file
     ///
     /// # Example
     ///
@@ -84,8 +85,8 @@ impl AutosarModel {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::DuplicateFilenameError]: The model already contains a file with this filename
-    ///  - [AutosarDataError::VersionMismatch]: The new file cannot be creatd with a version that differs from the version of existing data
+    ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
+    ///  - [`AutosarDataError::VersionMismatch`]: The new file cannot be creatd with a version that differs from the version of existing data
     ///
     pub fn create_file<P: AsRef<Path>>(
         &self,
@@ -118,7 +119,7 @@ impl AutosarModel {
     /// # Parameters:
     ///
     ///  - `buffer`: The data inside the buffer must be valid utf-8. Optionally it may begin with a UTF-8-BOM, which will be silently ignored.
-    ///  - `filename`: the original filename of the data, or a newly generated name that is unique within the AutosarData instance.
+    ///  - `filename`: the original filename of the data, or a newly generated name that is unique within the `AutosarData` instance.
     ///  - `strict`: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
     ///
     /// This method may be called concurrently on multiple threads to load different buffers
@@ -137,9 +138,9 @@ impl AutosarModel {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::DuplicateFilenameError]: The model already contains a file with this filename
-    ///  - [AutosarDataError::OverlappingDataError]: The new data contains Autosar paths that are already defined by the existing data
-    ///  - [AutosarDataError::ParserError]: The parser detected an error; the source field gives further details
+    ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
+    ///  - [`AutosarDataError::OverlappingDataError`]: The new data contains Autosar paths that are already defined by the existing data
+    ///  - [`AutosarDataError::ParserError`]: The parser detected an error; the source field gives further details
     ///
     pub fn load_buffer<P: AsRef<Path>>(
         &self,
@@ -188,7 +189,7 @@ impl AutosarModel {
         for (key, value) in parser.identifiables {
             // the same identifiables can be present in multiple files
             // in this case we only keep the first one
-            if let Some(existing_element) = data.identifiables.get(&key).and_then(|weak_el| weak_el.upgrade()) {
+            if let Some(existing_element) = data.identifiables.get(&key).and_then(WeakElement::upgrade) {
                 // present in both
                 if let Some(new_element) = value.upgrade() {
                     if existing_element.element_name() != new_element.element_name() {
@@ -252,10 +253,7 @@ impl AutosarModel {
             .filter_map(|weak| weak.upgrade().map(|f| f.version()))
             .min()
             .unwrap_or(AutosarVersion::LATEST);
-        let min_ver_b = new_file
-            .upgrade()
-            .map(|f| f.version())
-            .unwrap_or(AutosarVersion::LATEST);
+        let min_ver_b = new_file.upgrade().map_or(AutosarVersion::LATEST, |f| f.version());
         let version = std::cmp::min(min_ver_a, min_ver_b);
         let splitable = parent_a.element_type().splittable_in(version);
 
@@ -386,7 +384,7 @@ impl AutosarModel {
         for element in elements_a_only {
             // files contains the permisions of the parent
             if element.0.lock().file_membership.is_empty() {
-                element.0.lock().file_membership = files.to_owned()
+                element.0.lock().file_membership = files.to_owned();
             }
         }
         // elements in elements_b_only are not present in the model. They need to be moved over and inserted at a reasonable position
@@ -430,11 +428,11 @@ impl AutosarModel {
 
     /// Load an arxml file
     ///
-    /// This function is a wrapper around load_buffer to make the common case of loading a file from disk more convenient
+    /// This function is a wrapper around `load_buffer` to make the common case of loading a file from disk more convenient
     ///
     /// # Parameters:
     ///
-    ///  - `filename`: the original filename of the data, or a newly generated name that is unique within the AutosarData instance.
+    ///  - `filename`: the original filename of the data, or a newly generated name that is unique within the `AutosarData` instance.
     ///  - `strict`: toggle strict parsing. Some parsing errors are recoverable and can be issued as warnings.
     ///
     /// # Example
@@ -450,11 +448,11 @@ impl AutosarModel {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::IoErrorOpen]: The file could not be opened
-    ///  - [AutosarDataError::IoErrorRead]: There was an error while reading the file
-    ///  - [AutosarDataError::DuplicateFilenameError]: The model already contains a file with this filename
-    ///  - [AutosarDataError::OverlappingDataError]: The new data contains Autosar paths that are already defined by the existing data
-    ///  - [AutosarDataError::ParserError]: The parser detected an error; the source field gives further details
+    ///  - [`AutosarDataError::IoErrorOpen`]: The file could not be opened
+    ///  - [`AutosarDataError::IoErrorRead`]: There was an error while reading the file
+    ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
+    ///  - [`AutosarDataError::OverlappingDataError`]: The new data contains Autosar paths that are already defined by the existing data
+    ///  - [`AutosarDataError::ParserError`]: The parser detected an error; the source field gives further details
     ///
     pub fn load_file<P: AsRef<Path>>(
         &self,
@@ -528,7 +526,7 @@ impl AutosarModel {
 
     /// serialize each of the files in the model
     ///
-    /// returns the result in a HashMap of <file_name, file_content>
+    /// returns the result in a `HashMap` of <`file_name`, `file_content`>
     ///
     /// # Example
     ///
@@ -543,6 +541,7 @@ impl AutosarModel {
     /// # }
     /// ```
     ///
+    #[must_use]
     pub fn serialize_files(&self) -> HashMap<PathBuf, String> {
         let mut result = HashMap::new();
         for file in self.files() {
@@ -555,7 +554,7 @@ impl AutosarModel {
 
     /// write all files in the model
     ///
-    /// This is a wrapper around serialize_files. The current filename of each file will be used to write the serialized data.
+    /// This is a wrapper around `serialize_files`. The current filename of each file will be used to write the serialized data.
     ///
     /// If any of the individual files cannot be written, then write() will abort and return the error.
     /// This may result in a situation where some files have been written and others have not.
@@ -574,7 +573,7 @@ impl AutosarModel {
     ///
     /// # Possible errors
     ///
-    ///  - [AutosarDataError::IoErrorWrite]: There was an error while writing a file
+    ///  - [`AutosarDataError::IoErrorWrite`]: There was an error while writing a file
     ///
     pub fn write(&self) -> Result<(), AutosarDataError> {
         for (pathbuf, filedata) in self.serialize_files() {
@@ -586,7 +585,7 @@ impl AutosarModel {
         Ok(())
     }
 
-    /// create an iterator over all [ArxmlFile]s in this AutosarData object
+    /// create an iterator over all [`ArxmlFile`]s in this `AutosarData` object
     ///
     /// # Example
     ///
@@ -601,6 +600,7 @@ impl AutosarModel {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn files(&self) -> ArxmlFileIterator {
         ArxmlFileIterator::new(self.clone())
     }
@@ -615,6 +615,7 @@ impl AutosarModel {
     /// # let _file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let autosar_element = model.root_element();
     /// ```
+    #[must_use]
     pub fn root_element(&self) -> Element {
         let locked_proj = self.0.lock();
         locked_proj.root_element.clone()
@@ -641,9 +642,10 @@ impl AutosarModel {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn get_element_by_path(&self, path: &str) -> Option<Element> {
         let model = self.0.lock();
-        model.identifiables.get(path).and_then(|element| element.upgrade())
+        model.identifiables.get(path).and_then(WeakElement::upgrade)
     }
 
     /// create a depth-first iterator over all [Element]s in the model
@@ -673,6 +675,7 @@ impl AutosarModel {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn elements_dfs(&self) -> ElementsDfsIterator {
         self.root_element().elements_dfs()
     }
@@ -694,7 +697,7 @@ impl AutosarModel {
     /// model.sort();
     /// ```
     pub fn sort(&self) {
-        self.root_element().sort()
+        self.root_element().sort();
     }
 
     /// Create a list of the Autosar paths of all identifiable elements
@@ -714,16 +717,18 @@ impl AutosarModel {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn identifiable_elements(&self) -> Vec<String> {
         let model = self.0.lock();
-        let mut identifiables_list: Vec<String> = model.identifiables.keys().map(|path| path.to_owned()).collect();
+        let mut identifiables_list: Vec<String> =
+            model.identifiables.keys().map(std::borrow::ToOwned::to_owned).collect();
         identifiables_list.sort();
         identifiables_list
     }
 
     /// return all elements referring to the given target path
     ///
-    /// It returns [WeakElement]s which must be upgraded to get usable [Element]s.
+    /// It returns [`WeakElement`]s which must be upgraded to get usable [Element]s.
     ///
     /// This is effectively the reverse operation of `get_element_by_path()`
     ///
@@ -743,6 +748,7 @@ impl AutosarModel {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn get_references_to(&self, target_path: &str) -> Vec<WeakElement> {
         if let Some(origins) = self.0.lock().reference_origins.get(target_path) {
             origins.clone()
@@ -770,6 +776,7 @@ impl AutosarModel {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn check_references(&self) -> Vec<WeakElement> {
         let mut broken_refs = Vec::new();
 

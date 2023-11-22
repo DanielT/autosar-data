@@ -34,16 +34,16 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     pub fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
         self.0.lock().parent()
     }
 
     pub(crate) fn set_parent(&self, new_parent: ElementOrModel) {
-        self.0.lock().set_parent(new_parent)
+        self.0.lock().set_parent(new_parent);
     }
 
-    /// Get the [ElementName] of the element
+    /// Get the [`ElementName`] of the element
     ///
     /// # Example
     ///
@@ -55,13 +55,14 @@ impl Element {
     /// let element_name = element.element_name();
     /// assert_eq!(element_name, ElementName::Autosar);
     /// ```
+    #[must_use]
     pub fn element_name(&self) -> ElementName {
         self.0.lock().elemname
     }
 
-    /// Get the [ElementType] of the element
+    /// Get the [`ElementType`] of the element
     ///
-    /// The ElementType is needed in order to call methods from the autosar-data-specification crate
+    /// The `ElementType` is needed in order to call methods from the autosar-data-specification crate
     ///
     /// # Example
     ///
@@ -72,6 +73,7 @@ impl Element {
     /// # let element = model.root_element();
     /// let element_type = element.element_type();
     /// ```
+    #[must_use]
     pub fn element_type(&self) -> ElementType {
         self.0.lock().elemtype
     }
@@ -93,6 +95,7 @@ impl Element {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn item_name(&self) -> Option<String> {
         self.0.lock().item_name()
     }
@@ -126,10 +129,10 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::ItemNameRequired] this function was called for an element which is not identifiable
+    ///  - [`AutosarDataError::ItemNameRequired`] this function was called for an element which is not identifiable
     ///
     pub fn set_item_name(&self, new_name: &str) -> Result<(), AutosarDataError> {
         // a new name is required
@@ -156,6 +159,7 @@ impl Element {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn is_identifiable(&self) -> bool {
         self.0.lock().is_identifiable()
     }
@@ -175,6 +179,7 @@ impl Element {
     ///     // ex: element.set_reference_target(...)
     /// }
     /// ```
+    #[must_use]
     pub fn is_reference(&self) -> bool {
         self.elemtype().is_ref()
     }
@@ -196,16 +201,16 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: Th ecurrent element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: Th ecurrent element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::ElementNotIdentifiable]: The current element is not identifiable, so it has no Autosar path
+    ///  - [`AutosarDataError::ElementNotIdentifiable`]: The current element is not identifiable, so it has no Autosar path
     ///
     pub fn path(&self) -> Result<String, AutosarDataError> {
         self.0.lock().path()
     }
 
-    /// Get a reference to the [AutosarModel] containing the current element
+    /// Get a reference to the [`AutosarModel`] containing the current element
     ///
     /// # Example
     ///
@@ -222,8 +227,8 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn model(&self) -> Result<AutosarModel, AutosarDataError> {
@@ -248,7 +253,7 @@ impl Element {
         }
     }
 
-    /// Get the [ContentType] of the current element
+    /// Get the [`ContentType`] of the current element
     ///
     /// # Example
     ///
@@ -261,6 +266,7 @@ impl Element {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn content_type(&self) -> ContentType {
         match self.elemtype().content_mode() {
             ContentMode::Sequence => ContentType::Elements,
@@ -273,8 +279,8 @@ impl Element {
 
     /// Create a sub element at a suitable insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
-    /// It is not possible to create named sub elements with this function; use create_named_sub_element() for that instead.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use `create_named_sub_element`() for that instead.
     ///
     /// # Example
     ///
@@ -290,14 +296,14 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::ItemNameRequired]: The sub element requires an item name, so you must use create_named_sub_element().
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::ItemNameRequired`]: The sub element requires an item name, so you must use `create_named_sub_element`().
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, AutosarDataError> {
         let version = self.min_version()?;
         self.0
@@ -308,8 +314,8 @@ impl Element {
 
     /// Create a sub element at the specified insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
-    /// It is not possible to create named sub elements with this function; use create_named_sub_element_at() for that instead.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use `create_named_sub_element_at`() for that instead.
     ///
     /// The specified insertion position will be compared to the range of valid insertion positions; if it falls outside that range then the function fails.
     ///
@@ -327,15 +333,15 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::ItemNameRequired]: The sub element requires an item name, so you must use create_named_sub_element_at().
-    ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::ItemNameRequired`]: The sub element requires an item name, so you must use `create_named_sub_element_at`().
+    ///  - [`AutosarDataError::InvalidPosition`]: This sub element cannot be created at the requested position
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn create_sub_element_at(
         &self,
         element_name: ElementName,
@@ -349,7 +355,7 @@ impl Element {
 
     /// Create a named/identifiable sub element at a suitable insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     ///
     /// This method can only be used to create identifiable sub elements.
     ///
@@ -368,14 +374,14 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::ElementNotIdentifiable]: The sub element does not have an item name, so you must use create_sub_element() instead.
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::ElementNotIdentifiable`]: The sub element does not have an item name, so you must use `create_sub_element`() instead.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn create_named_sub_element(
         &self,
         element_name: ElementName,
@@ -390,7 +396,7 @@ impl Element {
 
     /// Create a named/identifiable sub element at the specified insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// The specified insertion position will be compared to the range of valid insertion positions; if it falls outside that range then the function fails.
     ///
     /// This method can only be used to create identifiable sub elements.
@@ -410,15 +416,15 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::ElementNotIdentifiable]: The sub element does not have an item name, so you must use create_sub_element() instead.
-    ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::ElementNotIdentifiable`]: The sub element does not have an item name, so you must use `create_sub_element`() instead.
+    ///  - [`AutosarDataError::InvalidPosition`]: This sub element cannot be created at the requested position.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn create_named_sub_element_at(
         &self,
         element_name: ElementName,
@@ -435,13 +441,13 @@ impl Element {
     /// Create a deep copy of the given element and insert it as a sub-element
     ///
     /// The other element must be a permissible sub-element in this element and not conflict with any existing sub element.
-    /// The other element can originate from any loaded [AutosarModel], it does not have to originate from the same model or file as the current element.
+    /// The other element can originate from any loaded [`AutosarModel`], it does not have to originate from the same model or file as the current element.
     ///
-    /// The [AutosarVersion] of the other element might differ from the version of the current file;
+    /// The [`AutosarVersion`] of the other element might differ from the version of the current file;
     /// in this case a partial copy will be performed that omits all incompatible elements.
     ///
     /// If the copied element is identifiable, then the item name might be extended with a numerical suffix, if one is required in order to make the name unique.
-    /// For example: An identifiable element "Foo" already exists at the same path; the copied identifiable element will be renamed to "Foo_1".
+    /// For example: An identifiable element "Foo" already exists at the same path; the copied identifiable element will be renamed to "`Foo_1`".
     ///
     /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
     ///
@@ -464,13 +470,13 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
@@ -486,13 +492,13 @@ impl Element {
     /// Create a deep copy of the given element and insert it as a sub-element at the given position
     ///
     /// The other element must be a permissible sub-element in this element and not conflict with any existing sub element.
-    /// The other element can originate from any loaded [AutosarModel], it does not have to originate from the same model or file as the current element.
+    /// The other element can originate from any loaded [`AutosarModel`], it does not have to originate from the same model or file as the current element.
     ///
-    /// The [AutosarVersion] of the other element might differ from the version of the current file;
+    /// The [`AutosarVersion`] of the other element might differ from the version of the current file;
     /// in this case a partial copy will be performed that omits all incompatible elements.
     ///
     /// If the copied element is identifiable, then the item name might be extended with a numerical suffix, if one is required in order to make the name unique.
-    /// For example: An identifiable element "Foo" already exists at the same path; the copied identifiable element will be renamed to "Foo_1".
+    /// For example: An identifiable element "Foo" already exists at the same path; the copied identifiable element will be renamed to "`Foo_1`".
     ///
     /// If the copied element or the hierarchy of elements under it contain any references, then these will need to be adjusted manually after copying.
     ///
@@ -515,14 +521,14 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::InvalidPosition`]: This sub element cannot be created at the requested position.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
@@ -537,11 +543,11 @@ impl Element {
 
     /// Take an `element` from it's current location and place it in this element as a sub element
     ///
-    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarModel
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same `AutosarModel`
     ///
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
-    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    /// 2) The origin document of the element must have exactly the same `AutosarVersion` as the destination.
     ///
     /// # Example
     ///
@@ -562,15 +568,15 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::VersionMismatch]: The Autosar versions of the source and destination are different
-    ///  - [AutosarDataError::ForbiddenMoveToSubElement]: The destination is a sub element of the source. Moving here is not possible
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::VersionMismatch`]: The Autosar versions of the source and destination are different
+    ///  - [`AutosarDataError::ForbiddenMoveToSubElement`]: The destination is a sub element of the source. Moving here is not possible
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn move_element_here(&self, move_element: &Element) -> Result<Element, AutosarDataError> {
         let model_src = move_element.model()?;
         let model = self.model()?;
@@ -589,11 +595,11 @@ impl Element {
 
     /// Take an `element` from it's current location and place it at the given position in this element as a sub element
     ///
-    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarModel
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same `AutosarModel`
     ///
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
-    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    /// 2) The origin document of the element must have exactly the same `AutosarVersion` as the destination.
     ///
     /// # Example
     ///
@@ -614,16 +620,16 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: A sub element may not be created in an element with content type CharacterData.
-    ///  - [AutosarDataError::ElementInsertionConflict]: The requested sub element cannot be created because it conflicts with an existing sub element.
-    ///  - [AutosarDataError::InvalidSubElement]: The ElementName is not a valid sub element according to the specification.
-    ///  - [AutosarDataError::VersionMismatch]: The Autosar versions of the source and destination are different
-    ///  - [AutosarDataError::ForbiddenMoveToSubElement]: The destination is a sub element of the source. Moving here is not possible
-    ///  - [AutosarDataError::InvalidPosition]: This sub element cannot be created at the requested position.
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::VersionMismatch`]: The Autosar versions of the source and destination are different
+    ///  - [`AutosarDataError::ForbiddenMoveToSubElement`]: The destination is a sub element of the source. Moving here is not possible
+    ///  - [`AutosarDataError::InvalidPosition`]: This sub element cannot be created at the requested position.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn move_element_here_at(&self, move_element: &Element, position: usize) -> Result<Element, AutosarDataError> {
         let model_src = move_element.model()?;
         let model = self.model()?;
@@ -640,9 +646,9 @@ impl Element {
             .move_element_here_at(self.downgrade(), move_element, position, &model, &model_src, version)
     }
 
-    /// Remove the sub element sub_element
+    /// Remove the sub element `sub_element`
     ///
-    /// The sub_element will be unlinked from the hierarchy of elements.
+    /// The `sub_element` will be unlinked from the hierarchy of elements.
     /// All of the sub-sub-elements nested under the removed element will also be recusively removed.
     ///
     /// Since all elements are reference counted, they might not be deallocated immediately, however they do become invalid and unusable immediately.
@@ -662,11 +668,11 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::ElementNotFound]: The sub element was not found in this element
-    ///  - [AutosarDataError::ShortNameRemovalForbidden]: It is not permitted to remove the SHORT-NAME of identifiable elements since this would result in invalid data
+    ///  - [`AutosarDataError::ElementNotFound`]: The sub element was not found in this element
+    ///  - [`AutosarDataError::ShortNameRemovalForbidden`]: It is not permitted to remove the SHORT-NAME of identifiable elements since this would result in invalid data
     pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), AutosarDataError> {
         let model = self.model()?;
         self.0.lock().remove_sub_element(sub_element, &model)
@@ -699,13 +705,13 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::NotReferenceElement]: The current element is not a reference, so it is not possible to set a reference target
-    ///  - [AutosarDataError::InvalidReference]: The target element is not a valid reference target for this reference
-    ///  - [AutosarDataError::ElementNotIdentifiable]: The target element is not identifiable, so it cannot be referenced by an Autosar path
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::NotReferenceElement`]: The current element is not a reference, so it is not possible to set a reference target
+    ///  - [`AutosarDataError::InvalidReference`]: The target element is not a valid reference target for this reference
+    ///  - [`AutosarDataError::ElementNotIdentifiable`]: The target element is not identifiable, so it cannot be referenced by an Autosar path
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_reference_target(&self, target: &Element) -> Result<(), AutosarDataError> {
         // the current element must be a reference
         if self.is_reference() {
@@ -777,11 +783,11 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::NotReferenceElement]: The current element is not a reference, so it is not possible to get the reference target
-    ///  - [AutosarDataError::InvalidReference]: The reference is invalid; there is no element with the referenced Autosar path
+    ///  - [`AutosarDataError::NotReferenceElement`]: The current element is not a reference, so it is not possible to get the reference target
+    ///  - [`AutosarDataError::InvalidReference`]: The reference is invalid; there is no element with the referenced Autosar path
     pub fn get_reference_target(&self) -> Result<Element, AutosarDataError> {
         if self.is_reference() {
             if let Some(CharacterData::String(reference)) = self.character_data() {
@@ -817,8 +823,8 @@ impl Element {
 
     /// Set the character data of this element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData or Mixed.
-    /// On elements with mixed content this function will replace all current content with the single new CharacterData item.
+    /// This method only applies to elements which contain character data, i.e. `element.content_type` == `CharacterData` or Mixed.
+    /// On elements with mixed content this function will replace all current content with the single new `CharacterData` item.
     ///
     /// # Example
     ///
@@ -837,10 +843,10 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::IncorrectContentType]: Cannot set character data on an element which does not contain character data
+    ///  - [`AutosarDataError::IncorrectContentType`]: Cannot set character data on an element which does not contain character data
     pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), AutosarDataError> {
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed {
@@ -887,7 +893,7 @@ impl Element {
                             if let Some(old_refval) = old_refval {
                                 model.fix_reference_origins(&old_refval, &refval, self.downgrade());
                             } else {
-                                model.add_reference_origin(&refval, self.downgrade())
+                                model.add_reference_origin(&refval, self.downgrade());
                             }
                         }
                     }
@@ -901,7 +907,7 @@ impl Element {
 
     /// Remove the character data of this element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData
+    /// This method only applies to elements which contain character data, i.e. `element.content_type` == `CharacterData`
     ///
     /// # Example
     ///
@@ -923,11 +929,11 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried. Only relevant when removing references.
-    ///  - [AutosarDataError::ShortNameRemovalForbidden]: Removing the character content of a SHORT-NAME is forbidden
-    ///  - [AutosarDataError::IncorrectContentType]: Cannot set character data on an element whoch does not contain character data
+    ///  - [`AutosarDataError::ShortNameRemovalForbidden`]: Removing the character content of a SHORT-NAME is forbidden
+    ///  - [`AutosarDataError::IncorrectContentType`]: Cannot set character data on an element whoch does not contain character data
     pub fn remove_character_data(&self) -> Result<(), AutosarDataError> {
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters {
@@ -938,7 +944,7 @@ impl Element {
                     if self.is_reference() {
                         let model = self.model()?;
                         if let Some(CharacterData::String(reference)) = self.character_data() {
-                            model.remove_reference_origin(&reference, self.downgrade())
+                            model.remove_reference_origin(&reference, self.downgrade());
                         }
                     }
                     self.0.lock().content.clear();
@@ -952,8 +958,8 @@ impl Element {
 
     /// Insert a character data item into the content of this element
     ///
-    /// This method only applies to elements which contain mixed data, i.e. element.content_type() == Mixed.
-    /// Use create_sub_element_at to add an element instead of a character data item
+    /// This method only applies to elements which contain mixed data, i.e. `element.content_type`() == Mixed.
+    /// Use `create_sub_element_at` to add an element instead of a character data item
     ///
     /// # Example
     ///
@@ -974,8 +980,8 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::IncorrectContentType] the element content_type is not Mixed
-    ///  - [AutosarDataError::InvalidPosition] the position is not valid
+    ///  - [`AutosarDataError::IncorrectContentType`] the element `content_type` is not Mixed
+    ///  - [`AutosarDataError::InvalidPosition`] the position is not valid
     pub fn insert_character_content_item(&self, chardata: &str, position: usize) -> Result<(), AutosarDataError> {
         let mut element = self.0.lock();
         if let ContentMode::Mixed = element.elemtype.content_mode() {
@@ -995,7 +1001,7 @@ impl Element {
 
     /// Remove a character data item from the content of this element
     ///
-    /// This method only applies to elements which contain mixed data, i.e. element.content_type == Mixed
+    /// This method only applies to elements which contain mixed data, i.e. `element.content_type` == Mixed
     ///
     /// # Example
     ///
@@ -1016,8 +1022,8 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::IncorrectContentType] the element content_type is not Mixed
-    ///  - [AutosarDataError::InvalidPosition] the position is not valid
+    ///  - [`AutosarDataError::IncorrectContentType`] the element `content_type` is not Mixed
+    ///  - [`AutosarDataError::InvalidPosition`] the position is not valid
     pub fn remove_character_content_item(&self, position: usize) -> Result<(), AutosarDataError> {
         let mut element = self.0.lock();
         if let ContentMode::Mixed = element.elemtype.content_mode() {
@@ -1045,13 +1051,14 @@ impl Element {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn content_item_count(&self) -> usize {
         self.0.lock().content.len()
     }
 
     /// Get the character content of the element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type() == CharacterData
+    /// This method only applies to elements which contain character data, i.e. `element.content_type`() == `CharacterData`
     ///
     /// # Example
     ///
@@ -1073,13 +1080,14 @@ impl Element {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn character_data(&self) -> Option<CharacterData> {
         self.0.lock().character_data()
     }
 
     /// Create an iterator over all of the content of this element
     ///
-    /// The iterator can return both sub elements and character data, wrapped as ElementContent::Element and ElementContent::CharacterData
+    /// The iterator can return both sub elements and character data, wrapped as `ElementContent::Element` and `ElementContent::CharacterData`
     ///
     /// This method is intended to be used with elements that contain mixed content.
     ///
@@ -1097,6 +1105,7 @@ impl Element {
     ///     }
     /// }
     /// ```
+    #[must_use]
     pub fn content(&self) -> ElementContentIterator {
         ElementContentIterator::new(self)
     }
@@ -1117,6 +1126,7 @@ impl Element {
     /// # let element = model.root_element();
     /// let weak_element = element.downgrade();
     /// ```
+    #[must_use]
     pub fn downgrade(&self) -> WeakElement {
         WeakElement(Arc::downgrade(&self.0))
     }
@@ -1140,6 +1150,7 @@ impl Element {
     /// assert_eq!(position, 1);
     /// assert_eq!(el_pkg2, el_ar_packages.get_sub_element_at(position).unwrap());
     /// ```
+    #[must_use]
     pub fn position(&self) -> Option<usize> {
         if let Ok(Some(parent)) = self.parent() {
             parent
@@ -1166,6 +1177,7 @@ impl Element {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn sub_elements(&self) -> ElementsIterator {
         ElementsIterator::new(self.clone())
     }
@@ -1188,6 +1200,7 @@ impl Element {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn get_sub_element(&self, name: ElementName) -> Option<Element> {
         let locked_elem = self.0.lock();
         for item in &locked_elem.content {
@@ -1218,6 +1231,7 @@ impl Element {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn get_sub_element_at(&self, position: usize) -> Option<Element> {
         let locked_elem = self.0.lock();
         if let Some(ElementContent::Element(subelem)) = locked_elem.content.get(position) {
@@ -1244,6 +1258,7 @@ impl Element {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn elements_dfs(&self) -> ElementsDfsIterator {
         ElementsDfsIterator::new(self)
     }
@@ -1261,6 +1276,7 @@ impl Element {
     ///     println!("{} = {}", attribute.attrname, attribute.content);
     /// }
     /// ```
+    #[must_use]
     pub fn attributes(&self) -> AttributeIterator {
         AttributeIterator {
             element: self.clone(),
@@ -1278,6 +1294,7 @@ impl Element {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let value = model.root_element().attribute_value(AttributeName::xsiSchemalocation);
     /// ```
+    #[must_use]
     pub fn attribute_value(&self, attrname: AttributeName) -> Option<CharacterData> {
         self.0.lock().attribute_value(attrname)
     }
@@ -1299,10 +1316,10 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
-    ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::InvalidAttribute`]: The `AttributeName` is not valid for this element
+    ///  - [`AutosarDataError::InvalidAttributeValue`]: The value is not valid for this attribute in this element
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
         self.0.lock().set_attribute_internal(attrname, value, version)
@@ -1325,10 +1342,10 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::InvalidAttribute]: The AttributeName is not valid for this element
-    ///  - [AutosarDataError::InvalidAttributeValue]: The value is not valid for this attribute in this element
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::InvalidAttribute`]: The `AttributeName` is not valid for this element
+    ///  - [`AutosarDataError::InvalidAttributeValue`]: The value is not valid for this attribute in this element
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
         self.0.lock().set_attribute_string(attrname, stringvalue, version)
@@ -1348,6 +1365,7 @@ impl Element {
     /// // xsiSchemalocation exists in the AUTOSAR element, but it is mandatory and cannot be removed
     /// assert_eq!(result, false);
     /// ```
+    #[must_use]
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
         self.0.lock().remove_attribute(attrname)
     }
@@ -1369,7 +1387,7 @@ impl Element {
     /// element.sort();
     /// ```
     pub fn sort(&self) {
-        self.0.lock().sort()
+        self.0.lock().sort();
     }
 
     /// create a textual sorting key that can be used to determine the ordering of otherwise equal elements
@@ -1443,6 +1461,7 @@ impl Element {
     /// # let element = model.root_element();
     /// let text = element.serialize();
     /// ```
+    #[must_use]
     pub fn serialize(&self) -> String {
         let mut outstring = String::new();
 
@@ -1491,7 +1510,7 @@ impl Element {
                 ContentType::CharacterData => {
                     // write the character data on the same line as the opening tag
                     let element = self.0.lock();
-                    if let Some(ElementContent::CharacterData(chardata)) = element.content.get(0) {
+                    if let Some(ElementContent::CharacterData(chardata)) = element.content.first() {
                         chardata.serialize_internal(outstring);
                     }
 
@@ -1570,7 +1589,7 @@ impl Element {
         self.element_type()
     }
 
-    /// check if the sub elements and attributes of this element are compatible with some target_version
+    /// check if the sub elements and attributes of this element are compatible with some `target_version`
     pub(crate) fn check_version_compatibility(
         &self,
         file: &WeakArxmlFile,
@@ -1646,14 +1665,14 @@ impl Element {
         (compat_errors, overall_version_mask)
     }
 
-    /// List all sub_elements that are valid in the current element
+    /// List all `sub_elements` that are valid in the current element
     ///
     /// The target use case is direct interaction with a user, e.g. through a selection dialog
     ///
     /// # Return Value
     ///
     /// A list of tuples consisting of
-    ///     ElementName of the potential sub element
+    ///     `ElementName` of the potential sub element
     ///     bool: is the sub element named
     ///     bool: can this sub element be inserted considering the current content of the element
     ///
@@ -1668,6 +1687,7 @@ impl Element {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn list_valid_sub_elements(&self) -> Vec<ValidSubElementInfo> {
         let etype = self.0.lock().elemtype;
         let mut valid_sub_elements = Vec::new();
@@ -1693,7 +1713,7 @@ impl Element {
     ///
     /// # Return Value
     ///
-    /// A tuple (bool, HashSet); if the bool value is true, then the file set is stored in this element, otherwise it is inherited from a parent element.
+    /// A tuple (bool, `HashSet`); if the bool value is true, then the file set is stored in this element, otherwise it is inherited from a parent element.
     ///
     /// # Example
     ///
@@ -1709,10 +1729,10 @@ impl Element {
     /// ```
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
-    ///  - [AutosarDataError::NoFilesInModel]: The operation cannot be completed because the model does not contain any files
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn file_membership(&self) -> Result<(bool, HashSet<WeakArxmlFile>), AutosarDataError> {
         let mut cur_elem_opt = Some(self.clone());
         while let Some(cur_elem) = &cur_elem_opt {
@@ -1751,8 +1771,7 @@ impl Element {
             .parent()
             .ok()
             .flatten()
-            .map(|p| p.element_type().splittable())
-            .unwrap_or(u32::MAX);
+            .map_or(u32::MAX, |p| p.element_type().splittable());
         // can always reset the membership to empty = inherited; otherwise the parent must be splittable
         if file_membership.is_empty() || parent_splittable != 0 {
             self.0.lock().file_membership = file_membership;
@@ -1778,15 +1797,12 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn add_to_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
-        let parent_splittable = self
-            .parent()?
-            .map(|p| p.element_type().splittable() != 0)
-            .unwrap_or(true);
+        let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
         if parent_splittable {
             if file.model()? == self.model()? {
                 let weak_file = file.downgrade();
@@ -1835,10 +1851,7 @@ impl Element {
             let mut extended_fileset = current_fileset;
             extended_fileset.insert(weak_file);
             // if the parent is splittable, or if the current element already has a fileset, then that fileset should be updated
-            let parent_splittable = self
-                .parent()?
-                .map(|p| p.element_type().splittable() != 0)
-                .unwrap_or(true);
+            let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
             if parent_splittable || local {
                 self.0.lock().file_membership = extended_fileset;
             }
@@ -1875,15 +1888,12 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::ItemDeleted]: The current element is in the deleted state and will be freed once the last reference is dropped
-    ///  - [AutosarDataError::ParentElementLocked]: a parent element was locked and did not become available after waiting briefly.
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn remove_from_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
-        let parent_splittable = self
-            .parent()?
-            .map(|p| p.element_type().splittable() != 0)
-            .unwrap_or(true);
+        let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
         if parent_splittable {
             if file.model()? == self.model()? {
                 let weak_file = file.downgrade();
@@ -1934,6 +1944,7 @@ impl Element {
     ///
     /// This function cannot fail completely, it will always collect as much information as possible.
     /// It is intended for display in error messages.
+    #[must_use]
     pub fn xml_path(&self) -> String {
         self.0.lock().xml_path()
     }
@@ -1963,8 +1974,8 @@ impl Element {
     ///
     /// # Possible Errors
     ///
-    /// - [AutosarDataError::ElementInsertionConflict]: The sub element conflicts with an existing sub element
-    /// - [AutosarDataError::InvalidSubElement]: The sub element is not valid inside this element
+    /// - [`AutosarDataError::ElementInsertionConflict`]: The sub element conflicts with an existing sub element
+    /// - [`AutosarDataError::InvalidSubElement`]: The sub element is not valid inside this element
     pub fn calc_element_insert_range(
         &self,
         element_name: ElementName,
@@ -1982,7 +1993,7 @@ impl Element {
             return Err(AutosarDataError::NoFilesInModel);
         }
         let mut ver = AutosarVersion::LATEST;
-        for f in files.iter().filter_map(|file| file.upgrade()) {
+        for f in files.iter().filter_map(WeakArxmlFile::upgrade) {
             if f.version() < ver {
                 ver = f.version();
             }
@@ -2048,7 +2059,8 @@ impl Hash for WeakElement {
 }
 
 impl ElementContent {
-    /// returns the element contained inside this ElementContent, or None if the content is CharacterData
+    /// returns the element contained inside this `ElementContent`, or None if the content is `CharacterData`
+    #[must_use]
     pub fn unwrap_element(&self) -> Option<Element> {
         if let ElementContent::Element(element) = self {
             Some(element.clone())
@@ -2057,7 +2069,8 @@ impl ElementContent {
         }
     }
 
-    /// returns the CharacterData inside this ElementContent, or None if the content is an Element
+    /// returns the `CharacterData` inside this `ElementContent`, or None if the content is an Element
+    #[must_use]
     pub fn unwrap_cdata(&self) -> Option<CharacterData> {
         if let ElementContent::CharacterData(cdata) = self {
             Some(cdata.clone())

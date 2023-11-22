@@ -2,7 +2,7 @@ use num_derive::FromPrimitive;
 use num_traits::cast::FromPrimitive;
 
 #[derive(Debug)]
-/// Error type returned when from_str / parse for AutosarVersion fails
+/// Error type returned when `from_str` / parse for `AutosarVersion` fails
 pub struct ParseAutosarVersionError;
 
 #[allow(non_camel_case_types)]
@@ -52,7 +52,7 @@ pub enum AutosarVersion {
 
 impl AutosarVersion {
     /// get the name of the xds file matching the Autosar version
-    pub fn filename(&self) -> &'static str {
+    #[must_use] pub fn filename(&self) -> &'static str {
         match self {
             Self::Autosar_4_0_1 => "AUTOSAR_4-0-1.xsd",
             Self::Autosar_4_0_2 => "AUTOSAR_4-0-2.xsd",
@@ -80,8 +80,8 @@ impl AutosarVersion {
     /// Human readable description of the Autosar version
     ///
     /// This is particularly useful for the later versions, where the xsd files are just sequentially numbered.
-    /// For example Autosar_00050 -> "AUTOSAR R21-11"
-    pub fn describe(&self) -> &'static str {
+    /// For example `Autosar_00050` -> "AUTOSAR R21-11"
+    #[must_use] pub fn describe(&self) -> &'static str {
         match self {
             Self::Autosar_4_0_1 => "AUTOSAR 4.0.1",
             Self::Autosar_4_0_2 => "AUTOSAR 4.0.2",
@@ -106,17 +106,17 @@ impl AutosarVersion {
         }
     }
 
-    /// make an AutosarVersion from a u32 value
+    /// make an `AutosarVersion` from a u32 value
     /// 
-    /// All `AutosarVersion`s are associated with a power of two u32 value, for example Autosar_4_3_0 == 0x100
-    /// If the given value is a valid constant of AutosarVersion, the enum value will be returnd
+    /// All `AutosarVersion`s are associated with a power of two u32 value, for example `Autosar_4_3_0` == 0x100
+    /// If the given value is a valid constant of `AutosarVersion`, the enum value will be returnd
     /// 
     /// This is useful in order to decode version masks
-    pub fn from_val(n: u32) -> Option<Self> {
+    #[must_use] pub fn from_val(n: u32) -> Option<Self> {
         Self::from_u32(n)
     }
 
-    /// AutosarVersion::LATEST is an alias of whichever is the latest version, currently Autosar_00051
+    /// `AutosarVersion::LATEST` is an alias of whichever is the latest version, currently `Autosar_00051`
     pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00051;
 }
 

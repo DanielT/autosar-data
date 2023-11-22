@@ -87,7 +87,7 @@ impl<'a> ArxmlLexer<'a> {
             (&self.buffer[self.bufpos + 1..endpos], false)
         };
 
-        let (elemname, attributes) = if let Some(splitpos) = text.iter().position(|c| c.is_ascii_whitespace()) {
+        let (elemname, attributes) = if let Some(splitpos) = text.iter().position(u8::is_ascii_whitespace) {
             (&text[..splitpos], &text[splitpos + 1..])
         } else {
             (text, &text[0..0])
@@ -127,7 +127,7 @@ impl<'a> ArxmlLexer<'a> {
         let text = &self.buffer[self.bufpos + 2..endpos - 1];
         self.bufpos = endpos + 1;
 
-        let mut splitter = text.split(|c| c.is_ascii_whitespace());
+        let mut splitter = text.split(u8::is_ascii_whitespace);
         let elemname = splitter.next().unwrap();
 
         let result = if elemname == b"xml" {

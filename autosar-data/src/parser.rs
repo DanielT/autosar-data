@@ -1,10 +1,19 @@
+use autosar_data_specification::{
+    AttributeName, AttributeSpec, AutosarVersion, CharacterDataSpec, ContentMode, ElementMultiplicity, ElementName,
+    ElementType, EnumItem,
+};
+use smallvec::SmallVec;
 use std::borrow::Cow;
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::str::Utf8Error;
 use thiserror::Error;
 
-use crate::lexer::*;
-use crate::*;
+use crate::lexer::{ArxmlEvent, ArxmlLexer};
+use crate::{
+    Attribute, AutosarDataError, CharacterData, Element, ElementContent, ElementOrModel, ElementRaw, WeakElement,
+};
 
 #[derive(Debug, Error)]
 pub enum ArxmlParserError {
@@ -369,7 +378,7 @@ impl<'a> ArxmlParser<'a> {
                             short_name_found = true;
                             let sub_element_inner = sub_element.0.lock();
                             if let Some(ElementContent::CharacterData(CharacterData::String(name_string))) =
-                                sub_element_inner.content.get(0)
+                                sub_element_inner.content.first()
                             {
                                 let mut new_path = String::with_capacity(path.len() + name_string.len() + 1);
                                 new_path.push_str(&path);
@@ -535,8 +544,7 @@ impl<'a> ArxmlParser<'a> {
                     // there is a conflict if there is already a subelement with the same ElementName
                     if element.content.iter().any(|ec| {
                         ec.unwrap_element()
-                            .map(|subelem| subelem.element_name() == name)
-                            .unwrap_or(false)
+                            .is_some_and(|subelem| subelem.element_name() == name)
                     }) {
                         self.optional_error(ArxmlParserError::TooManySubElements {
                             element: self.current_element,
@@ -655,7 +663,7 @@ impl<'a> ArxmlParser<'a> {
                 if !check_fn(trimmed_input) {
                     self.optional_error(ArxmlParserError::RegexMatchError {
                         value: String::from_utf8_lossy(trimmed_input).to_string(),
-                        regex: regex.to_string(),
+                        regex: (*regex).to_string(),
                     })?;
                 }
                 // text with regex pattern validation doesn't need unescaping - none of the regexes will allow any of the the escaped chars

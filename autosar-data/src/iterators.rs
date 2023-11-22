@@ -156,7 +156,7 @@ impl Iterator for ElementsDfsIterator {
                 if element.content_item_count() > self.position[depth] {
                     // more items to show
                     if let Some(e) = element.get_sub_element_at(self.position[depth]) {
-                        self.elements.push(e)
+                        self.elements.push(e);
                     }
                     // show the next item in the next call
                     self.position[depth] += 1;

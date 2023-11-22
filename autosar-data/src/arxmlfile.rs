@@ -14,7 +14,7 @@ impl ArxmlFile {
         .wrap()
     }
 
-    /// Get the filename of this ArxmlFile
+    /// Get the filename of this `ArxmlFile`
     ///
     /// # Example
     ///
@@ -24,11 +24,12 @@ impl ArxmlFile {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// println!("filename is : {}", file.filename().display());
     /// ```
+    #[must_use]
     pub fn filename(&self) -> PathBuf {
         self.0.lock().filename.clone()
     }
 
-    /// Get the [AutosarVersion] of the file
+    /// Get the [`AutosarVersion`] of the file
     ///
     /// # Example
     ///
@@ -38,11 +39,12 @@ impl ArxmlFile {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let version = file.version();
     /// ```
+    #[must_use]
     pub fn version(&self) -> AutosarVersion {
         self.0.lock().version
     }
 
-    /// Set the [AutosarVersion] of the file
+    /// Set the [`AutosarVersion`] of the file
     ///
     /// The compatibility of the data in the file with the new version will be checked before setting the version.
     /// The compatibility check can also be performed manually using the function `check_version_compatibility()`.
@@ -60,7 +62,7 @@ impl ArxmlFile {
     ///
     /// # Possible Errors
     ///
-    ///  - [AutosarDataError::VersionIncompatibleData] the existing data is not compatible with the new version
+    ///  - [`AutosarDataError::VersionIncompatibleData`] the existing data is not compatible with the new version
     ///
     pub fn set_version(&self, new_ver: AutosarVersion) -> Result<(), AutosarDataError> {
         let (compat_errors, _) = self.check_version_compatibility(new_ver);
@@ -73,7 +75,7 @@ impl ArxmlFile {
         }
     }
 
-    /// Check if the elements and attributes in this file are compatible with some target_version
+    /// Check if the elements and attributes in this file are compatible with some `target_version`
     ///
     /// All elements and their attributes will be evaluated against the target version according to the specification.
     /// The output is a list of incompatible elements
@@ -86,6 +88,7 @@ impl ArxmlFile {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let (error_list, compat_mask) = file.check_version_compatibility(AutosarVersion::Autosar_00050);
     /// ```
+    #[must_use]
     pub fn check_version_compatibility(&self, target_version: AutosarVersion) -> (Vec<CompatibilityError>, u32) {
         if let Ok(model) = self.model() {
             model
@@ -129,7 +132,7 @@ impl ArxmlFile {
         }
     }
 
-    /// Get a reference to the [AutosarModel] object that contains this file
+    /// Get a reference to the [`AutosarModel`] object that contains this file
     ///
     /// # Example
     ///
@@ -146,7 +149,7 @@ impl ArxmlFile {
     ///
     /// # Possible Errors
     ///
-    /// [AutosarDataError::ItemDeleted]: The model is no longer valid
+    /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
     ///
     pub fn model(&self) -> Result<AutosarModel, AutosarDataError> {
         let locked_file = self.0.lock();
@@ -168,6 +171,7 @@ impl ArxmlFile {
     ///     // ...
     /// }
     /// ```
+    #[must_use]
     pub fn elements_dfs(&self) -> ArxmlFileElementsDfsIterator {
         ArxmlFileElementsDfsIterator::new(self.downgrade(), &self.model().unwrap().root_element())
     }
@@ -176,8 +180,8 @@ impl ArxmlFile {
     ///
     /// # Possible errors
     ///
-    /// [AutosarDataError::ItemDeleted]: The model is no longer valid
-    /// [AutosarDataError::EmptyFile]: The file is empty and cannot be serialized
+    /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
+    /// [`AutosarDataError::EmptyFile`]: The file is empty and cannot be serialized
     ///
     /// # Example
     ///
@@ -226,11 +230,12 @@ impl ArxmlFile {
     /// let (file, _warnings) = model.load_buffer(file_text, "filename.arxml", true).unwrap();
     /// assert_eq!(file.xml_standalone(), Some(false));
     /// ```
+    #[must_use]
     pub fn xml_standalone(&self) -> Option<bool> {
         self.0.lock().xml_standalone
     }
 
-    /// Create a weak reference to this ArxmlFile
+    /// Create a weak reference to this `ArxmlFile`
     ///
     /// A weak reference can be stored without preventing the file from being deallocated.
     /// The weak reference has to be upgraded in order to be used, which can fail if the file no longer exists.
@@ -245,6 +250,7 @@ impl ArxmlFile {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let weak_file = file.downgrade();
     /// ```
+    #[must_use]
     pub fn downgrade(&self) -> WeakArxmlFile {
         WeakArxmlFile(Arc::downgrade(&self.0))
     }
@@ -283,9 +289,9 @@ impl std::fmt::Debug for ArxmlFile {
 }
 
 impl WeakArxmlFile {
-    /// try to get a strong reference to the [ArxmlFile]
+    /// try to get a strong reference to the [`ArxmlFile`]
     ///
-    /// This succeeds if the ArxmlFile still has any other strong reference to it, otherwise None is returned
+    /// This succeeds if the `ArxmlFile` still has any other strong reference to it, otherwise None is returned
     pub fn upgrade(&self) -> Option<ArxmlFile> {
         Weak::upgrade(&self.0).map(ArxmlFile)
     }

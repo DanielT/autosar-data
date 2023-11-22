@@ -40,7 +40,7 @@ fn main() {
             }
             Err(err) => println!("parsing failed: {err}"),
         }
-        println!("loaded arxml file: {}", arg);
+        println!("loaded arxml file: {arg}");
     }
 
     for (_, elem) in model.elements_dfs() {

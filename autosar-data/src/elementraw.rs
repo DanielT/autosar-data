@@ -2,24 +2,35 @@ use smallvec::smallvec;
 use std::{borrow::Cow, time::Duration};
 
 use crate::element::ElementSortKey;
+use autosar_data_specification::{
+    AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementMultiplicity, ElementName,
+};
+use parking_lot::Mutex;
+use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use super::*;
+use crate::{
+    Attribute, AutosarDataError, AutosarModel, CharacterData, Element, ElementContent, ElementOrModel, ElementRaw,
+    WeakElement,
+};
 
-/// ElementRaw provides the internal implementation of (almost) all Element operations
+/// `ElementRaw` provides the internal implementation of (almost) all Element operations
 ///
-/// To get an ElementRaw the Element operation must lock the element, so all of these operations run with at least one lock held.
+/// To get an `ElementRaw` the Element operation must lock the element, so all of these operations run with at least one lock held.
 ///
 /// Note regarding deadlock avoidance:
 /// Consider the case where two element operations are started in parallel on different threads.
 /// One calls file() or path() and traverses the hierarchy of elements upward
 /// root <- element <- element <- current element (locked)
 ///
-/// The other calls e.g. create_copied_sub_element() or remove_sub_element() and wants to lock all of its sub elements
+/// The other calls e.g. `create_copied_sub_element`() or `remove_sub_element`() and wants to lock all of its sub elements
 /// root -> current element (locked) -> element -> element
 ///
 /// These two operations could deadlock if they operate on the same tree of elements.
-/// To avoid this, parent element locks can only be acquired with try_lock(). If the lock is not acquired within a
-/// reasonable time (10ms is used here), then the operation aborts with a ParentElementLocked error.
+/// To avoid this, parent element locks can only be acquired with `try_lock`(). If the lock is not acquired within a
+/// reasonable time (10ms is used here), then the operation aborts with a `ParentElementLocked` error.
 impl ElementRaw {
     /// get the parent element of the current element
     pub(crate) fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
@@ -38,7 +49,7 @@ impl ElementRaw {
         self.parent = new_parent;
     }
 
-    /// get the [ElementName] of the element
+    /// get the [`ElementName`] of the element
     pub(crate) fn element_name(&self) -> ElementName {
         self.elemname
     }
@@ -48,7 +59,7 @@ impl ElementRaw {
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
         if self.elemtype.is_named() {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = self.content.get(0) {
+            if let Some(ElementContent::Element(subelem)) = self.content.first() {
                 // why use try_lock? It is possible that we're calling path() while already holding the lock on subelem.
                 // In this case path() descends to the parent, then calls item_name() and would deadlock.
                 // This case happens when subelem is *not* a ShortName but elemtype.is_named() returns true because there
@@ -85,7 +96,7 @@ impl ElementRaw {
             }
 
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem_wrapped)) = self.content.get(0) {
+            if let Some(ElementContent::Element(subelem_wrapped)) = self.content.first() {
                 let mut subelem = subelem_wrapped.0.lock();
                 if subelem.element_name() == ElementName::ShortName {
                     subelem.set_character_data(CharacterData::String(new_name.to_owned()), version)?;
@@ -133,7 +144,7 @@ impl ElementRaw {
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
         if self.elemtype.is_named() {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = self.content.get(0) {
+            if let Some(ElementContent::Element(subelem)) = self.content.first() {
                 if subelem.element_name() == ElementName::ShortName {
                     return true;
                 }
@@ -241,8 +252,8 @@ impl ElementRaw {
 
     /// Create a sub element at a suitable insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
-    /// It is not possible to create named sub elements with this function; use create_named_sub_element() for that instead.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use `create_named_sub_element`() for that instead.
     pub(crate) fn create_sub_element(
         &mut self,
         self_weak: WeakElement,
@@ -255,8 +266,8 @@ impl ElementRaw {
 
     /// Create a sub element at the specified insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
-    /// It is not possible to create named sub elements with this function; use create_named_sub_element_at() for that instead.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// It is not possible to create named sub elements with this function; use `create_named_sub_element_at`() for that instead.
     /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
     pub(crate) fn create_sub_element_at(
         &mut self,
@@ -273,7 +284,7 @@ impl ElementRaw {
         }
     }
 
-    /// helper function for create_sub_element and create_sub_element_at
+    /// helper function for `create_sub_element` and `create_sub_element_at`
     fn create_sub_element_inner(
         &mut self,
         self_weak: WeakElement,
@@ -305,7 +316,7 @@ impl ElementRaw {
 
     /// create a named/identifiable sub element at a suitable insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// This method can only be used to create identifiable sub elements.
     pub(crate) fn create_named_sub_element(
         &mut self,
@@ -321,7 +332,7 @@ impl ElementRaw {
 
     /// create a named/identifiable sub element at the specified insertion position
     ///
-    /// The given ElementName must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
+    /// The given `ElementName` must be allowed on a sub element in this element, taking into account any sub elements that may already exist.
     /// The specified insertion position will be compared to the range of valid insertion positions; if it falls ooutside that range then the function fails.
     /// This method can only be used to create identifiable sub elements.
     pub(crate) fn create_named_sub_element_at(
@@ -341,7 +352,7 @@ impl ElementRaw {
         }
     }
 
-    /// helper function for create_named_sub_element and create_named_sub_element_at
+    /// helper function for `create_named_sub_element` and `create_named_sub_element_at`
     fn create_named_sub_element_inner(
         &mut self,
         self_weak: WeakElement,
@@ -366,8 +377,7 @@ impl ElementRaw {
             if !elemtype
                 .find_sub_element(ElementName::ShortName, version as u32)
                 .and_then(|(se_type, _)| se_type.chardata_spec())
-                .map(|cdata_spec| CharacterData::check_value(&item_name_cdata, cdata_spec, version))
-                .unwrap_or(false)
+                .is_some_and(|cdata_spec| CharacterData::check_value(&item_name_cdata, cdata_spec, version))
             {
                 return Err(AutosarDataError::IncorrectContentType);
             }
@@ -487,7 +497,7 @@ impl ElementRaw {
                 path_parts.push(sub_elem.item_name());
                 let sub_elem_path = path_parts
                     .iter()
-                    .filter_map(|x| x.clone())
+                    .filter_map(std::clone::Clone::clone)
                     .collect::<Vec<String>>()
                     .join("/");
                 model.add_identifiable(sub_elem_path, sub_elem.downgrade());
@@ -497,7 +507,7 @@ impl ElementRaw {
             // add all references to the reference_origins hashmap
             if sub_elem.is_reference() {
                 if let Some(CharacterData::String(reference)) = sub_elem.character_data() {
-                    model.add_reference_origin(&reference, sub_elem.downgrade())
+                    model.add_reference_origin(&reference, sub_elem.downgrade());
                 }
             }
         }
@@ -507,7 +517,7 @@ impl ElementRaw {
         Ok(newelem)
     }
 
-    /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with target_version
+    /// perform a deep copy of an element, but keep only those sub elements etc, which are compatible with `target_version`
     fn deep_copy(&self, target_version: AutosarVersion) -> Result<Element, AutosarDataError> {
         let copy_wrapped = ElementRaw {
             elemname: self.elemname,
@@ -577,7 +587,7 @@ impl ElementRaw {
         Ok(copy_wrapped)
     }
 
-    /// make_unique_item_name ensures that a copied element has a unique name
+    /// `make_unique_item_name` ensures that a copied element has a unique name
     fn make_unique_item_name(&self, model: &AutosarModel, parent_path: &str) -> Result<String, AutosarDataError> {
         let orig_name = self.item_name().ok_or(AutosarDataError::ElementNotIdentifiable {
             xmlpath: self.xml_path(),
@@ -595,7 +605,7 @@ impl ElementRaw {
         if counter > 1 {
             // set the name directly by modifying the character content of the short name element
             // note: the method set_character_data is not suitable here, because it updates the identifiables hashmap
-            if let Some(ElementContent::Element(short_name_elem)) = self.content.get(0) {
+            if let Some(ElementContent::Element(short_name_elem)) = self.content.first() {
                 // the SHORT-NAME at index 0 is guaranteed to exist, because the earlier is_identifiable check succeeded
                 let mut sn_element = short_name_elem.0.lock();
                 sn_element.content.clear();
@@ -610,11 +620,11 @@ impl ElementRaw {
 
     /// take an `element` from it's current location and place it in this element as a sub element
     ///
-    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarModel
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same `AutosarModel`
     ///
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
-    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    /// 2) The origin document of the element must have exactly the same `AutosarVersion` as the destination.
     pub(crate) fn move_element_here(
         &mut self,
         self_weak: WeakElement,
@@ -642,11 +652,11 @@ impl ElementRaw {
 
     /// take an `element` from it's current location and place it at the given position in this element as a sub element
     ///
-    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same AutosarModel
+    /// The moved element can be taken from anywhere - even from a different arxml document that is not part of the same `AutosarModel`
     ///
     /// Restrictions:
     /// 1) The element must have a compatible element type. If it could not have been created here, then it can't be moved either.
-    /// 2) The origin document of the element must have exactly the same AutosarVersion as the destination.
+    /// 2) The origin document of the element must have exactly the same `AutosarVersion` as the destination.
     pub(crate) fn move_element_here_at(
         &mut self,
         self_weak: WeakElement,
@@ -1014,9 +1024,9 @@ impl ElementRaw {
         }
     }
 
-    /// remove the sub element sub_element
+    /// remove the sub element `sub_element`
     ///
-    /// The sub_element will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
+    /// The `sub_element` will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recusively removed.
     /// Since all elements are reference counted, they might not be deallocated immediately, however they do become invalid and unusable immediately.
     pub(crate) fn remove_sub_element(
         &mut self,
@@ -1079,8 +1089,8 @@ impl ElementRaw {
 
     /// set the character data of this element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData,
-    /// or elements with element.content_type == Mixed, but which only contain a single CharacterData item
+    /// This method only applies to elements which contain character data, i.e. `element.content_type` == `CharacterData`,
+    /// or elements with `element.content_type` == Mixed, but which only contain a single `CharacterData` item
     pub(crate) fn set_character_data(
         &mut self,
         chardata: CharacterData,
@@ -1106,14 +1116,14 @@ impl ElementRaw {
 
     /// get the character content of the element
     ///
-    /// This method only applies to elements which contain character data, i.e. element.content_type == CharacterData,
-    /// or elements with element.content_type == Mixed, but which only contain a single CharacterData item
+    /// This method only applies to elements which contain character data, i.e. `element.content_type` == `CharacterData`,
+    /// or elements with `element.content_type` == Mixed, but which only contain a single `CharacterData` item
     pub(crate) fn character_data(&self) -> Option<CharacterData> {
         if self.content.len() == 1
             && (self.elemtype.content_mode() == ContentMode::Characters
                 || self.elemtype.content_mode() == ContentMode::Mixed)
         {
-            if let Some(ElementContent::CharacterData(cdata)) = self.content.get(0) {
+            if let Some(ElementContent::CharacterData(cdata)) = self.content.first() {
                 return Some(cdata.clone());
             }
         }

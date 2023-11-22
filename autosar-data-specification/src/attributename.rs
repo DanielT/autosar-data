@@ -1,7 +1,7 @@
 use crate::hashfunc;
 
 #[derive(Debug)]
-/// The error type ParseAttributeNameError is returned when from_str() / parse() fails for AttributeName
+/// The error type `ParseAttributeNameError` is returned when `from_str`() / parse() fails for `AttributeName`
 pub struct ParseAttributeNameError;
 
 #[allow(dead_code, non_camel_case_types)]
@@ -221,7 +221,7 @@ impl AttributeName {
         static DISPLACEMENTS: [(u16, u16); 21] = [(0, 0), (0, 1), (0, 21), (0, 55), (0, 52), (0, 46), (0, 29), (0, 6), (0, 4), (1, 42), (0, 57), (0, 82), (0, 64), (0, 21), (12, 82), (1, 87), (22, 29), (7, 30), (0, 0), (44, 96), (64, 36)];
         let (g, f1, f2) = hashfunc(input);
         let (d1, d2) = DISPLACEMENTS[(g % 21) as usize];
-        let item_idx = (d2 as u32).wrapping_add(f1.wrapping_mul(d1 as u32)).wrapping_add(f2) as usize % 101;
+        let item_idx = u32::from(d2).wrapping_add(f1.wrapping_mul(u32::from(d1))).wrapping_add(f2) as usize % 101;
         if AttributeName::STRING_TABLE[item_idx].as_bytes() != input {
             return Err(ParseAttributeNameError);
         }
@@ -233,7 +233,7 @@ impl AttributeName {
     /// get the str corresponding to an item
     ///
     /// The returned &str has static lifetime, becasue it is a reference to an entry in a list of constants
-    pub fn to_str(&self) -> &'static str {
+    #[must_use] pub fn to_str(&self) -> &'static str {
         AttributeName::STRING_TABLE[*self as usize]
     }
 }

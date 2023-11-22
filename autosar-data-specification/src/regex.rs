@@ -1,6 +1,6 @@
 /// validate ^(0x[0-9a-z]*)$
 pub(crate) fn validate_regex_1(s: &[u8]) -> bool {
-    s.len() >= 2 && s.starts_with(b"0x") && s[2..].iter().all(|c| c.is_ascii_alphanumeric())
+    s.len() >= 2 && s.starts_with(b"0x") && s[2..].iter().all(u8::is_ascii_alphanumeric)
 }
 
 static REGEX_2_TABLE: [[u8; 256]; 33usize] = [
@@ -678,12 +678,12 @@ pub(crate) fn validate_regex_3(s: &[u8]) -> bool {
 
 /// validate ^([0-9]+|ANY)$
 pub(crate) fn validate_regex_4(s: &[u8]) -> bool {
-    (!s.is_empty() && s.iter().all(|c| c.is_ascii_digit())) || s == b"ANY"
+    (!s.is_empty() && s.iter().all(u8::is_ascii_digit)) || s == b"ANY"
 }
 
 /// validate ^([0-9]+|STRING|ARRAY)$
 pub(crate) fn validate_regex_5(s: &[u8]) -> bool {
-    (!s.is_empty() && s.iter().all(|c| c.is_ascii_digit())) || s == b"STRING" || s == b"ARRAY"
+    (!s.is_empty() && s.iter().all(u8::is_ascii_digit)) || s == b"STRING" || s == b"ARRAY"
 }
 
 /// validate ^(0|1|true|false)$
@@ -1984,7 +1984,7 @@ pub(crate) fn validate_regex_15(s: &[u8]) -> bool {
         parts.len() == 8
             && parts
                 .iter()
-                .all(|part| !part.is_empty() && part.len() <= 4 && part.iter().all(|c| c.is_ascii_hexdigit()))
+                .all(|part| !part.is_empty() && part.len() <= 4 && part.iter().all(u8::is_ascii_hexdigit))
     }
 }
 
@@ -2531,7 +2531,7 @@ pub(crate) fn validate_regex_19(s: &[u8]) -> bool {
 
 /// validate ^([1-9][0-9]*)$
 pub(crate) fn validate_regex_20(s: &[u8]) -> bool {
-    !s.is_empty() && s[0] != b'0' && s.iter().all(|c| c.is_ascii_digit())
+    !s.is_empty() && s[0] != b'0' && s.iter().all(u8::is_ascii_digit)
 }
 
 static REGEX_21_TABLE: [[u8; 256]; 9usize] = [
@@ -2735,20 +2735,19 @@ pub(crate) fn validate_regex_23(s: &[u8]) -> bool {
     if !txt.is_empty() && txt[0] == b'-' {
         txt = &txt[1..];
     }
-    !txt.is_empty() && { txt.iter().all(|c| c.is_ascii_digit()) || txt == b"MAX-TEXT-SIZE" || txt == b"ARRAY-SIZE" }
+    !txt.is_empty() && { txt.iter().all(u8::is_ascii_digit) || txt == b"MAX-TEXT-SIZE" || txt == b"ARRAY-SIZE" }
 }
 
 /// validate ^(/?[a-zA-Z][a-zA-Z0-9_]{0,127}(/[a-zA-Z][a-zA-Z0-9_]{0,127})*)$
 pub(crate) fn validate_regex_24(s: &[u8]) -> bool {
-    let mut path = s;
-    if !path.is_empty() {
-        if path[0] == b'/' {
-            path = &path[1..];
-        }
-        path.split(|c| *c == b'/').all(validate_regex_8)
-    } else {
-        false
+    if s.is_empty() {
+        return false;
     }
+    let mut path = s;
+    if path[0] == b'/' {
+        path = &path[1..];
+    }
+    path.split(|c| *c == b'/').all(validate_regex_8)
 }
 
 static REGEX_25_TABLE: [[u8; 256]; 7usize] = [

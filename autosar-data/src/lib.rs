@@ -69,14 +69,14 @@
 //! Two complete example programs can be found in the examples directory of the source repostitory. They are:
 //!
 //!  - businfo, which extracts information about bus settings, frames, pdus and signals from an autosar ECU extract
-//!  - generate_files, which for each Autosar version generates an arxml file containing a least one instance of every specified element
+//!  - `generate_files`, which for each Autosar version generates an arxml file containing a least one instance of every specified element
 //!
 
-use autosar_data_specification::*;
+use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
 pub use iterators::*;
-use lexer::*;
+use lexer::ArxmlLexerError;
 use parking_lot::Mutex;
-use parser::*;
+use parser::{ArxmlParser, ArxmlParserError};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::HashSet;
@@ -100,9 +100,9 @@ pub use autosar_data_specification::AutosarVersion;
 pub use autosar_data_specification::ElementName;
 pub use autosar_data_specification::EnumItem;
 
-/// AutosarModel is the top level data type in the autosar-data crate.
+/// `AutosarModel` is the top level data type in the autosar-data crate.
 ///
-/// An instance of AutosarModel is required for all other operations.
+/// An instance of `AutosarModel` is required for all other operations.
 ///
 /// The model contains the hierarchy of Autosar elements. It can be created manually or loaded from one or more arxml files.
 /// It stores the association between elements and files.
@@ -128,7 +128,7 @@ pub(crate) struct AutosarModelRaw {
     reference_origins: FxHashMap<String, Vec<WeakElement>>,
 }
 
-/// The error type AutosarDataError wraps all errors that can be generated anywhere in the crate
+/// The error type `AutosarDataError` wraps all errors that can be generated anywhere in the crate
 #[derive(Error, Debug)]
 pub enum AutosarDataError {
     /// IoErrorRead: An IoError that occurred while reading a file
@@ -273,7 +273,7 @@ pub struct ArxmlFile(Arc<Mutex<ArxmlFileRaw>>);
 
 /// Weak reference to an arxml file
 ///
-/// (see the documentation of [std::sync::Arc] for an explanation of weak references)
+/// (see the documentation of [`std::sync::Arc`] for an explanation of weak references)
 #[derive(Clone)]
 pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
 
@@ -294,9 +294,9 @@ pub struct Element(Arc<Mutex<ElementRaw>>);
 
 /// Weak reference to an Element
 ///
-/// (see the documentation of [std::sync::Arc] for an explanation of weak references)
+/// (see the documentation of [`std::sync::Arc`] for an explanation of weak references)
 ///
-/// This WeakElement can be held indefinitely without forcing the referenced data to remain valid.
+/// This `WeakElement` can be held indefinitely without forcing the referenced data to remain valid.
 /// When access is needed, the method upgrade() will attempt to get a strong reference and return an [Element]
 #[derive(Clone)]
 pub struct WeakElement(Weak<Mutex<ElementRaw>>);
@@ -327,13 +327,13 @@ pub enum ElementContent {
     CharacterData(CharacterData),
 }
 
-/// The enum CharacterData provides typed access to the content of elements and attributes
+/// The enum `CharacterData` provides typed access to the content of elements and attributes
 ///
 /// Example:
 ///
 /// In the xml string ```<SHORT-NAME>SomeName</SHORT-NAME>``` the character data
-/// "SomeName" will be loaded as CharacterData::String("SomeName"), while the content of the
-/// attribute <... DEST="UNIT"> will be loaded as CharacterData::Enum(EnumItem::Unit)
+/// "`SomeName`" will be loaded as `CharacterData::String("SomeName`"), while the content of the
+/// attribute <... DEST="UNIT"> will be loaded as `CharacterData::Enum(EnumItem::Unit`)
 #[derive(Debug, PartialEq, Clone)]
 pub enum CharacterData {
     Enum(EnumItem),
@@ -356,7 +356,7 @@ pub enum ContentType {
 /// Holds a weak reference to either an element or an arxml file
 ///
 /// This enum is used for references to the parent of each element. For all elements other than the
-/// root element, the parent is an element. The root element itself has a referenct to the ArxmlFile structure.
+/// root element, the parent is an element. The root element itself has a referenct to the `ArxmlFile` structure.
 #[derive(Clone)]
 pub(crate) enum ElementOrModel {
     Element(WeakElement),
@@ -385,7 +385,7 @@ pub enum CompatibilityError {
 
 /// information about a sub element
 ///
-/// This structure is returned by [Element::list_valid_sub_elements()]
+/// This structure is returned by [`Element::list_valid_sub_elements`()]
 pub struct ValidSubElementInfo {
     /// name of the potential sub element
     pub element_name: ElementName,
@@ -440,6 +440,7 @@ pub fn check_file<P: AsRef<Path>>(filename: P) -> bool {
 ///     // it looks like arxml data
 /// }
 /// ```
+#[must_use]
 pub fn check_buffer(buffer: &[u8]) -> bool {
     let mut parser = ArxmlParser::new(PathBuf::from("none"), buffer, false);
     parser.check_arxml_header()

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fmt::Display;
 use std::str::FromStr;
 
-use super::*;
+use super::{AutosarVersion, CharacterData, CharacterDataSpec, EnumItem};
 
 impl CharacterData {
     pub(crate) fn check_value(value: &CharacterData, spec: &CharacterDataSpec, file_version: AutosarVersion) -> bool {
@@ -124,6 +124,7 @@ impl CharacterData {
     /// Get the contained enum value
     ///
     /// Returns the enum value if the content is an enum, or None otherwise
+    #[must_use]
     pub fn enum_value(&self) -> Option<EnumItem> {
         if let CharacterData::Enum(item) = self {
             Some(*item)
@@ -135,6 +136,7 @@ impl CharacterData {
     /// Get the contained string
     ///
     /// Returns the string if the content is a string, or None otherwise
+    #[must_use]
     pub fn string_value(&self) -> Option<String> {
         if let CharacterData::String(value) = self {
             Some(value.to_owned())
@@ -146,6 +148,7 @@ impl CharacterData {
     /// Get the contained unsigned integer
     ///
     /// Returns the string if the content is a string, or None otherwise
+    #[must_use]
     pub fn unsigned_integer_value(&self) -> Option<u64> {
         if let CharacterData::UnsignedInteger(uintval) = self {
             Some(*uintval)
@@ -157,6 +160,7 @@ impl CharacterData {
     /// Get the contained double
     ///
     /// Returns the value content is a double, or None otherwise
+    #[must_use]
     pub fn double_value(&self) -> Option<f64> {
         if let CharacterData::Double(value) = self {
             Some(*value)
