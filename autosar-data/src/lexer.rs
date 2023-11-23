@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error, Eq, PartialEq, Clone, Copy)]
+#[non_exhaustive]
+/// `ArxmlLexerError` contains all errors that can occur while reading data
 pub enum ArxmlLexerError {
     #[error("Incomplete data, closing '>' was not found")]
     IncompleteData,

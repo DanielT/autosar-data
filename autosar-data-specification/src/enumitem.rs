@@ -7,6 +7,7 @@ pub struct ParseEnumItemError;
 #[allow(dead_code, non_camel_case_types)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u16)]
+#[non_exhaustive]
 /// Enum of all possible enum values in Autosar
 pub enum EnumItem {
     /// -500-MILES

@@ -7,6 +7,7 @@ pub struct ParseAttributeNameError;
 #[allow(dead_code, non_camel_case_types)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(u16)]
+#[non_exhaustive]
 /// Enum of all attribute names in Autosar
 pub enum AttributeName {
     /// ACCESSKEY

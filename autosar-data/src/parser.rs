@@ -16,6 +16,8 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
+/// `ArxmlParserError` contains all the errors that can occur while parsing a file
 pub enum ArxmlParserError {
     #[error("Invalid arxml file: bad file header")]
     InvalidArxmlFileHeader,

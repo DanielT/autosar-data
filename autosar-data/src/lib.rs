@@ -130,6 +130,7 @@ pub(crate) struct AutosarModelRaw {
 
 /// The error type `AutosarDataError` wraps all errors that can be generated anywhere in the crate
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum AutosarDataError {
     /// IoErrorRead: An IoError that occurred while reading a file
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
