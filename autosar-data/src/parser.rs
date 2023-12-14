@@ -215,20 +215,29 @@ impl<'a> ArxmlParser<'a> {
             return Err(self.error(ArxmlParserError::InvalidArxmlFileHeader));
         }
 
-        if let ArxmlEvent::BeginElement(elemname, attributes_text) = self.next(&mut lexer)? {
+        let mut stored_comment = None;
+        let mut token = self.next(&mut lexer)?;
+        while let ArxmlEvent::Comment(comment_bytes) = token {
+            stored_comment = Some(String::from_utf8_lossy(comment_bytes).into());
+            token = self.next(&mut lexer)?;
+        }
+
+        if let ArxmlEvent::BeginElement(elemname, attributes_text) = token {
             if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
                 let attributes = self.parse_attribute_text(ElementType::ROOT, attributes_text)?;
                 self.parse_file_header(&attributes)?;
 
-                let path = Cow::from("");
-                let autosar_root_element = self.parse_element(
-                    ElementOrModel::None,
-                    ElementName::Autosar,
+                let new_element = ElementRaw {
+                    parent: ElementOrModel::None,
+                    elemname: ElementName::Autosar,
+                    elemtype: ElementType::ROOT,
+                    content: SmallVec::new(),
                     attributes,
-                    ElementType::ROOT,
-                    path,
-                    &mut lexer,
-                )?;
+                    file_membership: HashSet::with_capacity(0),
+                    comment: stored_comment,
+                };
+                let path = Cow::from("");
+                let autosar_root_element = self.parse_element(new_element, path, &mut lexer)?;
                 self.verify_end_of_input(&mut lexer)?;
 
                 return Ok(autosar_root_element);
@@ -326,55 +335,45 @@ impl<'a> ArxmlParser<'a> {
     /// parse a single element of an arxml file
     fn parse_element(
         &mut self,
-        parent: ElementOrModel,
-        element_name: ElementName,
-        attributes: SmallVec<[Attribute; 1]>,
-        elemtype: ElementType,
+        raw_element: ElementRaw,
         mut path: Cow<str>,
         lexer: &mut ArxmlLexer,
     ) -> Result<Element, AutosarDataError> {
-        let wrapped_element = ElementRaw {
-            parent,
-            elemname: element_name,
-            attributes,
-            content: SmallVec::new(),
-            elemtype,
-            file_membership: HashSet::with_capacity(0),
-        }
-        .wrap();
+        let wrapped_element = raw_element.wrap();
         let mut element = wrapped_element.0.lock();
 
         let mut elem_idx: Vec<usize> = Vec::new();
         let mut short_name_found = false;
-        // let mut element_count = FxHashMap::<u16, usize>::default();
 
+        let mut stored_comment = None;
         loop {
             // track the current element name in the parser for error messages - set this in every loop iteration, since it gets overwritten during the recursive calls
-            self.current_element = element_name;
+            self.current_element = element.elemname;
             let arxmlevent = self.next(lexer)?;
             match arxmlevent {
                 ArxmlEvent::BeginElement(elem_text, attr_text) => {
                     if let Ok(name) = ElementName::from_bytes(elem_text) {
-                        let (sub_elemtype, idx) = self.find_element_in_spec_checked(name, elemtype)?;
-                        self.check_element_conflict(name, elemtype, &elem_idx, &idx)?;
+                        let (sub_elemtype, idx) = self.find_element_in_spec_checked(name, element.elemtype)?;
+                        self.check_element_conflict(name, element.elemtype, &elem_idx, &idx)?;
                         elem_idx = idx;
 
                         // make sure there aren't too many of this kind of element
                         if !element.content.is_empty() {
-                            self.check_multiplicity(name, elemtype, &elem_idx, &element)?;
+                            self.check_multiplicity(name, element.elemtype, &elem_idx, &element)?;
                         }
 
-                        // attributes for the sub-element must be parsed before calling parse_element, or else the borrow checker hates us
-                        let attributes = self.parse_attribute_text(sub_elemtype, attr_text)?;
                         // recursively parse the sub element and its sub sub elements
-                        let sub_element = self.parse_element(
-                            ElementOrModel::Element(wrapped_element.downgrade()),
-                            name,
-                            attributes,
-                            sub_elemtype,
-                            Cow::from(path.as_ref()),
-                            lexer,
-                        )?;
+                        let new_element = ElementRaw {
+                            parent: ElementOrModel::Element(wrapped_element.downgrade()),
+                            elemname: name,
+                            elemtype: sub_elemtype,
+                            content: SmallVec::new(),
+                            attributes: self.parse_attribute_text(sub_elemtype, attr_text)?,
+                            file_membership: HashSet::with_capacity(0),
+                            comment: stored_comment,
+                        };
+                        let sub_element = self.parse_element(new_element, Cow::from(path.as_ref()), lexer)?;
+                        stored_comment = None;
                         // if this sub element was a short name, then Autosar path handling is needed
                         if name == ElementName::ShortName {
                             short_name_found = true;
@@ -416,9 +415,9 @@ impl<'a> ArxmlParser<'a> {
                     }
                 }
                 ArxmlEvent::Characters(text_content) => {
-                    if let Some(character_data_spec) = elemtype.chardata_spec() {
+                    if let Some(character_data_spec) = element.elemtype.chardata_spec() {
                         let value = self.parse_character_data(text_content, character_data_spec)?;
-                        if elemtype.is_ref() {
+                        if element.elemtype.is_ref() {
                             if let CharacterData::String(refpath) = &value {
                                 self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
                             }
@@ -438,13 +437,16 @@ impl<'a> ArxmlParser<'a> {
                         element: element.elemname,
                     }));
                 }
+                ArxmlEvent::Comment(comment_bytes) => {
+                    stored_comment = Some(String::from_utf8_lossy(comment_bytes).into());
+                }
             }
         }
 
         if short_name_found {
-        } else if elemtype.is_named_in_version(self.fileversion) {
+        } else if element.elemtype.is_named_in_version(self.fileversion) {
             self.optional_error(ArxmlParserError::RequiredSubelementMissing {
-                element: element_name,
+                element: element.elemname,
                 sub_element: ElementName::ShortName,
             })?;
         }

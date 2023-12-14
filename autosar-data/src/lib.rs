@@ -310,6 +310,7 @@ pub(crate) struct ElementRaw {
     pub(crate) content: SmallVec<[ElementContent; 4]>,
     pub(crate) attributes: SmallVec<[Attribute; 1]>,
     pub(crate) file_membership: HashSet<WeakArxmlFile>,
+    pub(crate) comment: Option<String>,
 }
 
 /// A single attribute of an arxml element

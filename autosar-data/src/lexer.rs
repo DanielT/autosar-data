@@ -28,6 +28,7 @@ pub(crate) enum ArxmlEvent<'a> {
     BeginElement(&'a [u8], &'a [u8]),
     EndElement(&'a [u8]),
     Characters(&'a [u8]),
+    Comment(&'a [u8]),
     EndOfFile,
 }
 
@@ -166,14 +167,15 @@ impl<'a> ArxmlLexer<'a> {
         result
     }
 
-    fn read_comment(&mut self, endpos: usize) -> Result<(), AutosarDataError> {
+    fn read_comment(&mut self, endpos: usize) -> Result<ArxmlEvent<'a>, AutosarDataError> {
         debug_assert!(self.bufpos < self.buffer.len());
         debug_assert!(endpos > self.bufpos + 1);
 
-        let text = &self.buffer[self.bufpos..endpos];
+        let startpos = self.bufpos;
+        let text = &self.buffer[startpos..endpos];
         self.bufpos = endpos + 1;
 
-        if !text.starts_with(b"<!--") || !text.ends_with(b"--") {
+        if text.len() < 6 || !text.starts_with(b"<!--") || !text.ends_with(b"--") {
             return Err(AutosarDataError::LexerError {
                 filename: self.sourcefile.clone(),
                 line: self.line,
@@ -181,7 +183,8 @@ impl<'a> ArxmlLexer<'a> {
             });
         }
         self.line += count_lines(text);
-        Ok(())
+        let comment = &self.buffer[startpos + 4..endpos - 2];
+        Ok(ArxmlEvent::Comment(comment))
     }
 }
 
@@ -224,8 +227,8 @@ impl<'a> ArxmlLexer<'a> {
                             }
                         }
                         b'!' => {
-                            // second char is '!' -> parse and ignore a comment
-                            self.read_comment(endpos)?;
+                            // second char is '!' -> parse a comment
+                            return self.read_comment(endpos).map(|res| (self.line, res));
                         }
                         _ => {
                             // any other second char -> BeginElement
@@ -240,7 +243,6 @@ impl<'a> ArxmlLexer<'a> {
                     }
                 }
                 // loop if:
-                // - a comment was ignored
                 // - a processing instruction was ignored
                 // - empty character data found (whitespace only)
             }
@@ -319,7 +321,7 @@ mod test {
     fn test_comment() {
         let data = b"<!-- foo--><element>";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
-        // the comment is skipped, and lexer.next() directly returns the following element
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::Comment(_)))));
         assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::BeginElement(_elem, _attrs)))));
     }
 

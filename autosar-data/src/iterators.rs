@@ -205,6 +205,7 @@ mod test {
             attributes: SmallVec::new(),
             content: SmallVec::new(),
             file_membership: HashSet::with_capacity(0),
+            comment: None,
         }
         .wrap();
         let sub_element = ElementRaw {
@@ -217,6 +218,7 @@ mod test {
                 ElementContent::Element(sub_sub_element.clone())
             ],
             file_membership: HashSet::with_capacity(0),
+            comment: None,
         }
         .wrap();
         let element = ElementRaw {
@@ -229,6 +231,7 @@ mod test {
                 ElementContent::Element(sub_element.clone())
             ],
             file_membership: HashSet::with_capacity(0),
+            comment: None,
         }
         .wrap();
         let dfs_iter = element.elements_dfs();

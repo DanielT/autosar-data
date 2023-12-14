@@ -306,6 +306,7 @@ impl ElementRaw {
                 content: smallvec![],
                 attributes: smallvec![],
                 file_membership: HashSet::with_capacity(0),
+                comment: None,
             }
             .wrap();
             self.content
@@ -397,6 +398,7 @@ impl ElementRaw {
                 content: smallvec![],
                 attributes: smallvec![],
                 file_membership: HashSet::with_capacity(0),
+                comment: None,
             }
             .wrap();
             self.content
@@ -526,6 +528,7 @@ impl ElementRaw {
             attributes: SmallVec::with_capacity(self.attributes.len()),
             parent: ElementOrModel::None,
             file_membership: HashSet::with_capacity(0),
+            comment: self.comment.clone(),
         }
         .wrap();
 

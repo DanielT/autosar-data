@@ -1479,6 +1479,16 @@ impl Element {
     ) {
         let element_name = self.element_name().to_str();
 
+        if let Some(comment) = &self.0.lock().comment {
+            // put the comment on a separate line
+            if !inline {
+                self.serialize_newline_indent(outstring, indent);
+            }
+            outstring.push_str("<!--");
+            outstring.push_str(comment);
+            outstring.push_str("-->");
+        }
+
         // write the opening tag on a new line and indent it
         if !inline {
             self.serialize_newline_indent(outstring, indent);
@@ -1982,6 +1992,37 @@ impl Element {
         version: AutosarVersion,
     ) -> Result<(usize, usize), AutosarDataError> {
         self.0.lock().calc_element_insert_range(element_name, version)
+    }
+
+    /// Return the comment attachd to the element (if any)
+    ///
+    /// A comment directly preceding the opening tag is considered to be atached and is returned here.
+    ///
+    /// In the arxml text:
+    /// ```xml
+    ///     <!--element comment-->
+    ///     <ELEMENT> ...
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use std::collections::HashSet;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::LATEST).unwrap();
+    /// # let element = model.root_element();
+    /// let opt_comment = element.comment();
+    /// ```
+    pub fn comment(&self) -> Option<String> {
+        self.0.lock().comment.clone()
+    }
+
+    /// Set or delete the comment attached to the element
+    ///
+    /// Set None to remove the comment.
+    pub fn set_comment(&self, opt_comment: Option<String>) {
+        self.0.lock().comment = opt_comment;
     }
 
     /// find the minumum version of all arxml files which contain this element

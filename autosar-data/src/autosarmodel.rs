@@ -47,6 +47,7 @@ impl AutosarModel {
             content: SmallVec::new(),
             attributes: root_attributes,
             file_membership: HashSet::with_capacity(0),
+            comment: None,
         }
         .wrap();
         let model = AutosarModelRaw {
