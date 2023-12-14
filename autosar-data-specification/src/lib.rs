@@ -35,6 +35,11 @@
 //! The main datatype is the [`ElementType`]. The type of the &lt;AUTOSAR&gt; element at the root of every arxml file is
 //! available as `ElementType::ROOT`.
 //!
+//! ## Crate features
+//!
+//! * **docstrings** - Enables the function `ElementType::docstring`, which allows you to retrieve element documentation.
+//! This feature increases the size of the compiled code, because all docstrings are compiled in. It is disabled by default.
+//!
 //! ## Note
 //!
 //! It is not possible to directly convert between [`ElementName`]s and [`ElementType`]s, since this is an n:m mapping.
@@ -82,7 +87,8 @@ pub use autosarversion::AutosarVersion;
 pub use elementname::ElementName;
 pub use enumitem::EnumItem;
 use specification::{
-    ATTRIBUTES, CHARACTER_DATA, DATATYPES, REFERENCE_TYPE_IDX, ROOT_DATATYPE, SUBELEMENTS, VERSION_INFO,
+    ATTRIBUTES, AUTOSAR_ELEMENT, CHARACTER_DATA, DATATYPES, ELEMENTS, REFERENCE_TYPE_IDX, REF_ITEMS, SUBELEMENTS,
+    VERSION_INFO,
 };
 
 /// `ElementMultiplicity` specifies how often a single child element may occur within its parent
@@ -91,6 +97,14 @@ pub enum ElementMultiplicity {
     ZeroOrOne,
     One,
     Any,
+}
+
+/// `StdRestrict` is used to indicate if an element is restricted to either Classic or Adaptive
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum StdRestrict {
+    NotRestricted,
+    ClassicPlatform,
+    AdaptivePlatform,
 }
 
 /// The `ContentMode` specifies what content may occur inside an element
@@ -147,17 +161,32 @@ pub struct AttributeSpec {
 ///
 /// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
-pub struct ElementType(usize);
+pub struct ElementType {
+    def: u16,
+    typ: u16,
+}
 
+/// `GroupType` is an abstraction over groups of elements in the specification.
+///
+/// It provides no public fields.
+#[derive(Debug, Clone, Copy)]
+pub struct GroupType(u16);
+
+#[derive(Debug)]
 enum SubElement {
-    Element {
-        name: ElementName,
-        elemtype: usize,
-        multiplicity: ElementMultiplicity,
-    },
-    Group {
-        groupid: usize,
-    },
+    Element(u16),
+    Group(u16),
+}
+
+struct ElementDefinition {
+    name: ElementName,
+    elemtype: u16,
+    multiplicity: ElementMultiplicity,
+    ordered: bool,
+    splittable: u32,
+    restrict_std: StdRestrict,
+    #[cfg(feature = "docstrings")]
+    docstring: Option<u16>,
 }
 
 struct ElementSpec {
@@ -167,9 +196,7 @@ struct ElementSpec {
     attributes_ver: u16,
     character_data: Option<u16>,
     mode: ContentMode,
-    ordered: bool,
-    splittable: u32,
-    ref_by: &'static [EnumItem],
+    ref_info: (u16, u16),
 }
 
 impl AutosarVersion {
@@ -180,27 +207,33 @@ impl AutosarVersion {
 }
 
 impl ElementType {
-    fn get_sub_elements(self) -> &'static [SubElement] {
-        let (idx_start, idx_end) = self.get_sub_element_idx();
+    #[must_use]
+    const fn new(def: u16) -> Self {
+        let typ = ELEMENTS[def as usize].elemtype;
+        Self { def, typ }
+    }
+
+    fn get_sub_elements(etype: u16) -> &'static [SubElement] {
+        let (idx_start, idx_end) = ElementType::get_sub_element_idx(etype);
         &SUBELEMENTS[idx_start..idx_end]
     }
 
-    fn get_sub_element_idx(self) -> (usize, usize) {
-        let (start, end) = DATATYPES[self.0].sub_elements;
+    const fn get_sub_element_idx(etype: u16) -> (usize, usize) {
+        let (start, end) = DATATYPES[etype as usize].sub_elements;
         (start as usize, end as usize)
     }
 
-    fn get_sub_element_ver(self) -> usize {
-        DATATYPES[self.0].sub_element_ver as usize
+    const fn get_sub_element_ver(etype: u16) -> usize {
+        DATATYPES[etype as usize].sub_element_ver as usize
     }
 
-    fn get_attributes_idx(self) -> (usize, usize) {
-        let (start, end) = DATATYPES[self.0].attributes;
+    const fn get_attributes_idx(etype: u16) -> (usize, usize) {
+        let (start, end) = DATATYPES[etype as usize].attributes;
         (start as usize, end as usize)
     }
 
-    fn get_attributes_ver(self) -> usize {
-        DATATYPES[self.0].attributes_ver as usize
+    const fn get_attributes_ver(etype: u16) -> usize {
+        DATATYPES[etype as usize].attributes_ver as usize
     }
 
     /// get the spec of a sub element from the index list
@@ -209,8 +242,8 @@ impl ElementType {
             return None;
         }
 
-        let spec = self.get_sub_elements();
-        let ver_list_start = self.get_sub_element_ver();
+        let spec = ElementType::get_sub_elements(self.typ);
+        let ver_list_start = ElementType::get_sub_element_ver(self.typ);
         let mut current_spec = spec;
         let mut current_ver_list_start = ver_list_start;
         // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
@@ -220,9 +253,9 @@ impl ElementType {
                     // elements are not allowed here
                     return None;
                 }
-                SubElement::Group { groupid } => {
-                    current_spec = ElementType(*groupid).get_sub_elements();
-                    current_ver_list_start = ElementType(*groupid).get_sub_element_ver();
+                SubElement::Group(groupid) => {
+                    current_spec = ElementType::get_sub_elements(*groupid);
+                    current_ver_list_start = ElementType::get_sub_element_ver(*groupid);
                 }
             }
         }
@@ -246,7 +279,7 @@ impl ElementType {
     #[must_use]
     pub fn get_sub_element_multiplicity(&self, element_indices: &[usize]) -> Option<ElementMultiplicity> {
         match self.get_sub_element_spec(element_indices) {
-            Some((SubElement::Element { multiplicity, .. }, _)) => Some(*multiplicity),
+            Some((SubElement::Element(definiton_id), _)) => Some(ELEMENTS[*definiton_id as usize].multiplicity),
             _ => None,
         }
     }
@@ -258,11 +291,11 @@ impl ElementType {
     pub fn get_sub_element_container_mode(&self, element_indices: &[usize]) -> ContentMode {
         if element_indices.len() < 2 {
             // length == 1: this element is a direct sub element, without any groups;
-            DATATYPES[self.0].mode
+            DATATYPES[self.typ as usize].mode
         } else {
             let len = element_indices.len() - 1;
-            if let Some((SubElement::Group { groupid }, _)) = self.get_sub_element_spec(&element_indices[..len]) {
-                DATATYPES[*groupid].mode
+            if let Some((SubElement::Group(groupid), _)) = self.get_sub_element_spec(&element_indices[..len]) {
+                DATATYPES[*groupid as usize].mode
             } else {
                 unreachable!("impossible: element container is not a group");
             }
@@ -299,19 +332,29 @@ impl ElementType {
     /// When searching for TOL in PRM-CHAR, the result should be Some(vec![1, 0, 0, 0, 1])!
     #[must_use]
     pub fn find_sub_element(&self, target_name: ElementName, version: u32) -> Option<(ElementType, Vec<usize>)> {
-        let spec = self.get_sub_elements();
+        ElementType::find_sub_element_internal(self.typ, target_name, version)
+    }
+
+    fn find_sub_element_internal(
+        etype: u16,
+        target_name: ElementName,
+        version: u32,
+    ) -> Option<(ElementType, Vec<usize>)> {
+        let spec = ElementType::get_sub_elements(etype);
         for (cur_pos, sub_element) in spec.iter().enumerate() {
             match sub_element {
-                SubElement::Element { name, elemtype, .. } => {
-                    let ver_info_start = self.get_sub_element_ver();
+                SubElement::Element(definiton_id) => {
+                    let name = ELEMENTS[*definiton_id as usize].name;
+                    let ver_info_start = ElementType::get_sub_element_ver(etype);
                     let version_mask = VERSION_INFO[ver_info_start + cur_pos];
-                    if (*name == target_name) && (version & version_mask != 0) {
-                        return Some((ElementType(*elemtype), vec![cur_pos]));
+                    if (name == target_name) && (version & version_mask != 0) {
+                        return Some((ElementType::new(*definiton_id), vec![cur_pos]));
                     }
                 }
-                SubElement::Group { groupid } => {
-                    let group = ElementType(*groupid);
-                    if let Some((elemtype, mut indices)) = group.find_sub_element(target_name, version) {
+                SubElement::Group(groupid) => {
+                    if let Some((elemtype, mut indices)) =
+                        ElementType::find_sub_element_internal(*groupid, target_name, version)
+                    {
                         indices.insert(0, cur_pos);
                         return Some((elemtype, indices));
                     }
@@ -325,26 +368,26 @@ impl ElementType {
     ///
     /// The subelements are identified by their index lists, returned by `find_sub_element`().
     ///
-    /// In simple cases without sub-groups of elements, the "common group" is simply the current `ElementType`.
+    /// In simple cases without sub-groups of elements, the "common group" is simply the element group of the current `ElementType`.
     #[must_use]
-    pub fn find_common_group(&self, element_indices: &[usize], element_indices2: &[usize]) -> ElementType {
-        let mut result = self.0;
+    pub fn find_common_group(&self, element_indices: &[usize], element_indices2: &[usize]) -> GroupType {
+        let mut result = self.typ;
         let mut prefix_len = 0;
         while element_indices.len() > prefix_len
             && element_indices2.len() > prefix_len
             && element_indices[prefix_len] == element_indices2[prefix_len]
         {
-            let sub_elem = &ElementType(result).get_sub_elements()[element_indices[prefix_len]];
+            let sub_elem = &ElementType::get_sub_elements(result)[element_indices[prefix_len]];
             match sub_elem {
-                SubElement::Element { .. } => return ElementType(result),
-                SubElement::Group { groupid } => {
+                SubElement::Element(_) => return GroupType(result),
+                SubElement::Group(groupid) => {
                     result = *groupid;
                 }
             }
             prefix_len += 1;
         }
 
-        ElementType(result)
+        GroupType(result)
     }
 
     /// are elements of this `ElementType` named in any Autosar version
@@ -354,14 +397,13 @@ impl ElementType {
     }
 
     pub(crate) fn short_name_version_mask(self) -> Option<u32> {
-        let (start_idx, end_idx) = DATATYPES[self.0].sub_elements;
-        if start_idx != end_idx {
-            if let SubElement::Element {
-                name: ElementName::ShortName,
-                ..
-            } = SUBELEMENTS[start_idx as usize]
-            {
-                return Some(VERSION_INFO[DATATYPES[self.0].sub_element_ver as usize]);
+        let sub_elements = ElementType::get_sub_elements(self.typ);
+        if !sub_elements.is_empty() {
+            if let SubElement::Element(idx) = sub_elements[0] {
+                if ELEMENTS[idx as usize].name == ElementName::ShortName {
+                    let ver_idx = ElementType::get_sub_element_ver(self.typ);
+                    return Some(VERSION_INFO[ver_idx]);
+                }
             }
         }
         None
@@ -383,7 +425,7 @@ impl ElementType {
     /// is the `ElementType` a reference
     #[must_use]
     pub fn is_ref(&self) -> bool {
-        if let Some(idx) = DATATYPES[self.0].character_data {
+        if let Some(idx) = DATATYPES[self.typ as usize].character_data {
             idx == REFERENCE_TYPE_IDX
         } else {
             false
@@ -392,14 +434,14 @@ impl ElementType {
 
     /// get the content mode for this `ElementType`
     #[must_use]
-    pub fn content_mode(&self) -> ContentMode {
-        DATATYPES[self.0].mode
+    pub const fn content_mode(&self) -> ContentMode {
+        DATATYPES[self.typ as usize].mode
     }
 
     /// get the character data spec for this `ElementType`
     #[must_use]
-    pub fn chardata_spec(&self) -> Option<&'static CharacterDataSpec> {
-        if let Some(chardata_id) = DATATYPES[self.0].character_data {
+    pub const fn chardata_spec(&self) -> Option<&'static CharacterDataSpec> {
+        if let Some(chardata_id) = DATATYPES[self.typ as usize].character_data {
             Some(&CHARACTER_DATA[chardata_id as usize])
         } else {
             None
@@ -409,12 +451,12 @@ impl ElementType {
     /// find the spec for a single attribute by name
     #[must_use]
     pub fn find_attribute_spec(&self, attrname: AttributeName) -> Option<AttributeSpec> {
-        let (idx_start, idx_end) = self.get_attributes_idx();
+        let (idx_start, idx_end) = ElementType::get_attributes_idx(self.typ);
         let attributes = &ATTRIBUTES[idx_start..idx_end];
         if let Some((find_pos, (_, chardata_id, required))) =
             attributes.iter().enumerate().find(|(_, (name, ..))| *name == attrname)
         {
-            let idx_ver_start = self.get_attributes_ver();
+            let idx_ver_start = ElementType::get_attributes_ver(self.typ);
             let version = VERSION_INFO[idx_ver_start + find_pos];
             Some(AttributeSpec {
                 spec: &CHARACTER_DATA[*chardata_id as usize],
@@ -428,9 +470,9 @@ impl ElementType {
 
     /// create an iterator over all attribute definitions in the current `ElementType`
     #[must_use]
-    pub fn attribute_spec_iter(&self) -> AttrDefinitionsIter {
+    pub const fn attribute_spec_iter(&self) -> AttrDefinitionsIter {
         AttrDefinitionsIter {
-            type_id: self.0,
+            type_id: self.typ,
             pos: 0,
         }
     }
@@ -439,38 +481,46 @@ impl ElementType {
     #[must_use]
     pub fn sub_element_spec_iter(&self) -> SubelemDefinitionsIter {
         SubelemDefinitionsIter {
-            type_id_stack: vec![self.0],
+            type_id_stack: vec![self.typ],
             indices: vec![0],
         }
     }
 
-    /// Is the current `ElementType` ordered
+    /// Is this `ElementType` ordered
     ///
-    /// It his is true, then the position of the sub elements of this element is semantically meaningful
+    /// It this is true, then the position of the sub elements of this element is semantically meaningful
     /// and they may not be sorted / re-ordered without changing the meaning of the file.
     ///
     /// An example of this is ARGUMENTS in BSW-MODULE-ENTRY. ARGUMENTS is ordered, because each of its
     /// SW-SERVICE-ARG sub elements represents a function argument
     #[must_use]
-    pub fn is_ordered(&self) -> bool {
-        DATATYPES[self.0].ordered
+    pub const fn is_ordered(&self) -> bool {
+        ELEMENTS[self.def as usize].ordered
     }
 
-    /// Is the current `ElementType` splittable
+    /// Is this `ElementType` splittable
     ///
     /// This function returns a bitfield that indicates in which versions (if any) the `ElementType` is marked as splittable.
     /// A splittable element may be split across multiple arxml files
     #[must_use]
-    pub fn splittable(&self) -> u32 {
-        DATATYPES[self.0].splittable
+    pub const fn splittable(&self) -> u32 {
+        ELEMENTS[self.def as usize].splittable
     }
 
     /// Is the current `ElementType` splittable in the given version
     ///
     /// A splittable element may be split across multiple arxml files
     #[must_use]
-    pub fn splittable_in(&self, version: AutosarVersion) -> bool {
-        (DATATYPES[self.0].splittable & (version as u32)) != 0
+    pub const fn splittable_in(&self, version: AutosarVersion) -> bool {
+        (ELEMENTS[self.def as usize].splittable & (version as u32)) != 0
+    }
+
+    /// Is this `ElementType` restricted to a particular edition of the Autosar standard
+    ///
+    /// Returns an [`StdRestrict`] enum, whose values are `ClassicPlatform`, `AdaptivePlatform`, `NotRestricted`
+    #[must_use]
+    pub const fn std_restriction(&self) -> StdRestrict {
+        ELEMENTS[self.def as usize].restrict_std
     }
 
     /// find the correct `EnumItem` to use in the DEST attribute when referring from this element to the other element
@@ -487,7 +537,9 @@ impl ElementType {
         if self.is_ref() && other.is_named() {
             let dest_spec = self.find_attribute_spec(AttributeName::Dest)?.spec;
             if let CharacterDataSpec::Enum { items } = dest_spec {
-                for ref_target_value in DATATYPES[other.0].ref_by {
+                let (start, end) = DATATYPES[other.typ as usize].ref_info;
+                let ref_by = &REF_ITEMS[start as usize..end as usize];
+                for ref_target_value in ref_by {
                     for (enumitem, _) in *items {
                         if ref_target_value == enumitem {
                             return Some(*ref_target_value);
@@ -499,13 +551,31 @@ impl ElementType {
         None
     }
 
+    #[cfg(feature = "docstrings")]
+    #[must_use]
+    pub const fn docstring(&self) -> &'static str {
+        if let Some(docstring_id) = ELEMENTS[self.def as usize].docstring {
+            &specification::ELEMENT_DOCSTRINGS[docstring_id as usize]
+        } else {
+            ""
+        }
+    }
+
     /// `ElementType::ROOT` is the root `ElementType` of the Autosar arxml document: this is the `ElementType` of the AUTOSAR element
-    pub const ROOT: Self = ElementType(ROOT_DATATYPE);
+    pub const ROOT: Self = ElementType::new(AUTOSAR_ELEMENT);
+}
+
+impl GroupType {
+    /// get the content mode for this `GroupType`
+    #[must_use]
+    pub const fn content_mode(&self) -> ContentMode {
+        DATATYPES[self.0 as usize].mode
+    }
 }
 
 /// Iterator for attribute definitions
 pub struct AttrDefinitionsIter {
-    type_id: usize,
+    type_id: u16,
     pos: usize,
 }
 
@@ -513,7 +583,7 @@ impl Iterator for AttrDefinitionsIter {
     type Item = (AttributeName, &'static CharacterDataSpec, bool);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (idx_start, idx_end) = ElementType(self.type_id).get_attributes_idx();
+        let (idx_start, idx_end) = ElementType::get_attributes_idx(self.type_id);
         let cur_pos = self.pos;
         self.pos += 1;
         if idx_start + cur_pos < idx_end {
@@ -529,7 +599,7 @@ impl Iterator for AttrDefinitionsIter {
 ///
 /// returns the tuple (name: `ElementName`, etype: `ElementType`, `version_mask`: u32, `name_version_mask`: u32)
 pub struct SubelemDefinitionsIter {
-    type_id_stack: Vec<usize>,
+    type_id_stack: Vec<u16>,
     indices: Vec<usize>,
 }
 
@@ -546,19 +616,20 @@ impl Iterator for SubelemDefinitionsIter {
             let depth = self.indices.len() - 1;
             let current_type = self.type_id_stack[depth];
             let cur_pos = self.indices[depth];
-            let (start_idx, end_idx) = ElementType(current_type).get_sub_element_idx();
+            let (start_idx, end_idx) = ElementType::get_sub_element_idx(current_type);
 
             if start_idx + cur_pos < end_idx {
                 match &SUBELEMENTS[start_idx + cur_pos] {
-                    SubElement::Element { name, elemtype, .. } => {
+                    SubElement::Element(idx) => {
                         // found an element, return it and advance
+                        let name = ELEMENTS[*idx as usize].name;
                         self.indices[depth] += 1;
-                        let ver_idx = ElementType(current_type).get_sub_element_ver();
+                        let ver_idx = ElementType::get_sub_element_ver(current_type);
                         let version_mask = VERSION_INFO[ver_idx + cur_pos];
-                        let is_named = ElementType(*elemtype).short_name_version_mask().unwrap_or(0);
-                        Some((*name, ElementType(*elemtype), version_mask, is_named))
+                        let is_named = ElementType::new(*idx).short_name_version_mask().unwrap_or(0);
+                        Some((name, ElementType::new(*idx), version_mask, is_named))
                     }
-                    SubElement::Group { groupid } => {
+                    SubElement::Group(groupid) => {
                         // found a group, descend into it
                         self.type_id_stack.push(*groupid);
                         self.indices.push(0);
@@ -714,9 +785,10 @@ mod test {
         let (abs_type, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
         let (sub_element, _) = sub_elem_spec.unwrap();
-        if let SubElement::Element { name, elemtype, .. } = sub_element {
-            assert_eq!(*name, ElementName::Abs);
-            assert_eq!(ElementType(*elemtype), abs_type);
+        if let SubElement::Element(idx) = sub_element {
+            let name = ELEMENTS[*idx as usize].name;
+            assert_eq!(name, ElementName::Abs);
+            assert_eq!(ElementType::new(*idx), abs_type);
         }
 
         // the element_indices passed to get_sub_element_spec may not be empty
@@ -746,8 +818,9 @@ mod test {
         let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices).unwrap().0;
         let multiplicity2 = prm_char_type.get_sub_element_multiplicity(&indices).unwrap();
-        if let SubElement::Element { multiplicity, .. } = sub_elem_spec {
-            assert_eq!(*multiplicity, multiplicity2);
+        if let SubElement::Element(idx) = sub_elem_spec {
+            let multiplicity = ELEMENTS[*idx as usize].multiplicity;
+            assert_eq!(multiplicity, multiplicity2);
         }
 
         let no_result = prm_char_type.get_sub_element_multiplicity(&[]);
@@ -1208,5 +1281,15 @@ mod test {
             ],
             &*expand_version_mask(version_mask)
         );
+    }
+
+    #[cfg(feature = "docstrings")]
+    #[test]
+    fn test_docstring() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let docstring = ar_packages_type.docstring();
+        assert_eq!(docstring, "This is the top level package in an AUTOSAR model.");
     }
 }

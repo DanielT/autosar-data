@@ -9,6 +9,9 @@ keywords = ["arxml", "automotive", "file-format", "Autosar"]
 categories = ["parser-implementations"]
 repository = "https://github.com/DanielT/autosar-data"
 
+[features]
+docstrings = []
+
 [dependencies]
 num-derive = "0.4.0"
 num-traits = "0.2.16"

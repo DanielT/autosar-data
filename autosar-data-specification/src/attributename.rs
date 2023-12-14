@@ -1,7 +1,7 @@
 use crate::hashfunc;
 
 #[derive(Debug)]
-/// The error type `ParseAttributeNameError` is returned when `from_str`() / parse() fails for `AttributeName`
+/// The error type `ParseAttributeNameError` is returned when `from_str()` / `parse()` fails for `AttributeName`
 pub struct ParseAttributeNameError;
 
 #[allow(dead_code, non_camel_case_types)]
@@ -234,7 +234,8 @@ impl AttributeName {
     /// get the str corresponding to an item
     ///
     /// The returned &str has static lifetime, becasue it is a reference to an entry in a list of constants
-    #[must_use] pub fn to_str(&self) -> &'static str {
+    #[must_use]
+    pub fn to_str(&self) -> &'static str {
         AttributeName::STRING_TABLE[*self as usize]
     }
 }

@@ -1,7 +1,7 @@
 use crate::hashfunc;
 
 #[derive(Debug)]
-/// The error type `ParseEnumItemError` is returned when `from_str`() / parse() fails for `EnumItem`
+/// The error type `ParseEnumItemError` is returned when `from_str()` / `parse()` fails for `EnumItem`
 pub struct ParseEnumItemError;
 
 #[allow(dead_code, non_camel_case_types)]
@@ -5020,7 +5020,8 @@ impl EnumItem {
     /// get the str corresponding to an item
     ///
     /// The returned &str has static lifetime, becasue it is a reference to an entry in a list of constants
-    #[must_use] pub fn to_str(&self) -> &'static str {
+    #[must_use]
+    pub fn to_str(&self) -> &'static str {
         EnumItem::STRING_TABLE[*self as usize]
     }
 }

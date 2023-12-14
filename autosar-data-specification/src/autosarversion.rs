@@ -2,7 +2,7 @@ use num_derive::FromPrimitive;
 use num_traits::cast::FromPrimitive;
 
 #[derive(Debug)]
-/// Error type returned when `from_str` / parse for `AutosarVersion` fails
+/// Error type returned when `from_str()` / `parse()` for `AutosarVersion` fails
 pub struct ParseAutosarVersionError;
 
 #[allow(non_camel_case_types)]
@@ -75,6 +75,7 @@ impl AutosarVersion {
             Self::Autosar_00049 => "AUTOSAR_00049.xsd",
             Self::Autosar_00050 => "AUTOSAR_00050.xsd",
             Self::Autosar_00051 => "AUTOSAR_00051.xsd",
+
         }
     }
 
@@ -104,6 +105,7 @@ impl AutosarVersion {
             Self::Autosar_00049 => "AUTOSAR R20-11",
             Self::Autosar_00050 => "AUTOSAR R21-11",
             Self::Autosar_00051 => "AUTOSAR R22-11",
+
         }
     }
 
@@ -118,7 +120,7 @@ impl AutosarVersion {
         Self::from_u32(n)
     }
 
-    /// `AutosarVersion::LATEST` is an alias of whichever is the latest version, currently `Autosar_00051`
+    /// `AutosarVersion::LATEST` is an alias of which ever is the latest version
     pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00051;
 }
 
@@ -156,3 +158,4 @@ impl std::fmt::Display for AutosarVersion {
         f.write_str(self.describe())
     }
 }
+
