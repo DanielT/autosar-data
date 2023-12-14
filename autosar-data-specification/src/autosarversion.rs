@@ -49,6 +49,8 @@ pub enum AutosarVersion {
     Autosar_00050 = 0x20000,
     /// AUTOSAR R22-11 - xsd file name: AUTOSAR_00051.xsd
     Autosar_00051 = 0x40000,
+    /// AUTOSAR R23-11 - xsd file name: AUTOSAR_00052.xsd
+    Autosar_00052 = 0x80000,
 }
 
 impl AutosarVersion {
@@ -75,6 +77,7 @@ impl AutosarVersion {
             Self::Autosar_00049 => "AUTOSAR_00049.xsd",
             Self::Autosar_00050 => "AUTOSAR_00050.xsd",
             Self::Autosar_00051 => "AUTOSAR_00051.xsd",
+            Self::Autosar_00052 => "AUTOSAR_00052.xsd",
 
         }
     }
@@ -105,6 +108,7 @@ impl AutosarVersion {
             Self::Autosar_00049 => "AUTOSAR R20-11",
             Self::Autosar_00050 => "AUTOSAR R21-11",
             Self::Autosar_00051 => "AUTOSAR R22-11",
+            Self::Autosar_00052 => "AUTOSAR R23-11",
 
         }
     }
@@ -121,7 +125,7 @@ impl AutosarVersion {
     }
 
     /// `AutosarVersion::LATEST` is an alias of which ever is the latest version
-    pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00051;
+    pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00052;
 }
 
 impl std::str::FromStr for AutosarVersion {
@@ -147,6 +151,7 @@ impl std::str::FromStr for AutosarVersion {
             "AUTOSAR_00049.xsd" => Ok(Self::Autosar_00049),
             "AUTOSAR_00050.xsd" => Ok(Self::Autosar_00050),
             "AUTOSAR_00051.xsd" => Ok(Self::Autosar_00051),
+            "AUTOSAR_00052.xsd" => Ok(Self::Autosar_00052),
 
             _ => Err(ParseAutosarVersionError),
         }

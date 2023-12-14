@@ -1,6 +1,6 @@
-/// validate ^(0x[0-9a-z]*)$
+/// validate ^(0[xX][0-9a-fA-F]+)$
 pub(crate) fn validate_regex_1(s: &[u8]) -> bool {
-    s.len() >= 2 && s.starts_with(b"0x") && s[2..].iter().all(u8::is_ascii_alphanumeric)
+    s.len() >= 2 && (s.starts_with(b"0x") || s.starts_with(b"0X")) && s[2..].iter().all(u8::is_ascii_hexdigit)
 }
 
 static REGEX_2_TABLE: [[u8; 256]; 33usize] = [

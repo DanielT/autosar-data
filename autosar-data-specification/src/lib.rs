@@ -879,7 +879,7 @@ mod test {
             .unwrap();
 
         let se_iter = elements_type.sub_element_spec_iter();
-        assert_eq!(se_iter.count(), 586); // this test breaks when support for new versions is added
+        assert_eq!(se_iter.count(), 629); // this test breaks when support for new versions is added
 
         let prm_char_type = get_prm_char_element_type();
         let pc_iter = prm_char_type.sub_element_spec_iter();
@@ -1278,6 +1278,7 @@ mod test {
                 AutosarVersion::Autosar_00049,
                 AutosarVersion::Autosar_00050,
                 AutosarVersion::Autosar_00051,
+                AutosarVersion::Autosar_00052,
             ],
             &*expand_version_mask(version_mask)
         );
