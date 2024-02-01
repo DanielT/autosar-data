@@ -488,11 +488,14 @@ mod test {
 
         // file containing a valid arxml header -> true
         let header = r#"<?xml version="1.0" encoding="utf-8"?>
+        <!-- comment --><!-- comment 2 -->
         <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#;
         let arxml_file = dir.path().with_file_name("file.arxml");
         File::create(&arxml_file)
             .and_then(|mut file| file.write(header.as_bytes()))
             .unwrap();
         assert!(check_file(arxml_file));
+
+        assert!(check_buffer(header.as_bytes()));
     }
 }

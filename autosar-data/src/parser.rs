@@ -830,7 +830,12 @@ impl<'a> ArxmlParser<'a> {
         let mut lexer = ArxmlLexer::new(self.buffer, self.filename.clone());
 
         if let Ok(ArxmlEvent::ArxmlHeader(_)) = self.next(&mut lexer) {
-            if let Ok(ArxmlEvent::BeginElement(elemname, attributes_text)) = self.next(&mut lexer) {
+            // skip any comments
+            let mut arxmlevent = self.next(&mut lexer);
+            while let Ok(ArxmlEvent::Comment(..)) = arxmlevent {
+                arxmlevent = self.next(&mut lexer);
+            }
+            if let Ok(ArxmlEvent::BeginElement(elemname, attributes_text)) = arxmlevent {
                 if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
                     if let Ok(attributes) = self.parse_attribute_text(ElementType::ROOT, attributes_text) {
                         if self.parse_file_header(&attributes).is_ok() {
