@@ -74,9 +74,8 @@
 
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
 pub use iterators::*;
-use lexer::ArxmlLexerError;
 use parking_lot::Mutex;
-use parser::{ArxmlParser, ArxmlParserError};
+use parser::ArxmlParser;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::HashSet;
@@ -93,6 +92,10 @@ mod elementraw;
 mod iterators;
 mod lexer;
 mod parser;
+
+// allow public access to the error sub-types
+pub use parser::ArxmlParserError;
+pub use lexer::ArxmlLexerError;
 
 // reexport some of the info from the specification
 pub use autosar_data_specification::AttributeName;
