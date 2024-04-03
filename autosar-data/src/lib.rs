@@ -94,8 +94,8 @@ mod lexer;
 mod parser;
 
 // allow public access to the error sub-types
-pub use parser::ArxmlParserError;
 pub use lexer::ArxmlLexerError;
+pub use parser::ArxmlParserError;
 
 // reexport some of the info from the specification
 pub use autosar_data_specification::AttributeName;

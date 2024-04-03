@@ -228,7 +228,20 @@ impl<'a> ArxmlLexer<'a> {
                         }
                         b'!' => {
                             // second char is '!' -> parse a comment
-                            return self.read_comment(endpos).map(|res| (self.line, res));
+                            // we found a '>' character, but comments are allowed to contain unquoted '<' and '>'
+                            // this means we need to make sure the end is actually '-->', not just '>'
+                            let mut comment_endpos = endpos;
+                            while comment_endpos < self.buffer.len()
+                                && !self.buffer[comment_endpos - 2..].starts_with(b"-->")
+                            {
+                                comment_endpos += 1;
+                            }
+                            if comment_endpos < self.buffer.len() {
+                                return self.read_comment(comment_endpos).map(|res| (self.line, res));
+                            } else {
+                                // hit the end of the input -> unclosed comment
+                                return Err(self.error(ArxmlLexerError::InvalidComment));
+                            }
                         }
                         _ => {
                             // any other second char -> BeginElement
@@ -362,5 +375,13 @@ mod test {
         // ArxmlEvent: Debug
         let event = ArxmlEvent::ArxmlHeader(None);
         let _ = format!("{event:#?}");
+    }
+
+    /// github issue #15 - comments can contain '<' and '>'
+    #[test]
+    fn test_w3c_comment_example() {
+        let data = b"<!-- declarations for <head> & <body> -->";
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::Comment(_)))));
     }
 }
