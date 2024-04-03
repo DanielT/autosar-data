@@ -2021,7 +2021,13 @@ impl Element {
     /// Set or delete the comment attached to the element
     ///
     /// Set None to remove the comment.
-    pub fn set_comment(&self, opt_comment: Option<String>) {
+    pub fn set_comment(&self, mut opt_comment: Option<String>) {
+        if let Some(comment) = &mut opt_comment {
+            // make sure the comment we store never contains "--" as this is forbidden by the w3 xml specification
+            if comment.contains("--") {
+                *comment = comment.replace("--", "__");
+            }
+        }
         self.0.lock().comment = opt_comment;
     }
 
