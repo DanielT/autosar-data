@@ -1240,6 +1240,94 @@ impl Element {
         None
     }
 
+    /// Get or create a sub element
+    ///
+    /// This is a shorthand for `get_sub_element` followed by `create_cub_element` if getting an existing element fails.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let element = model.root_element().get_or_create_sub_element(ElementName::ArPackages)?;
+    /// let element2 = model.root_element().get_or_create_sub_element(ElementName::ArPackages)?;
+    /// assert_eq!(element, element2);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Possible Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::ItemNameRequired`]: The sub element requires an item name, so you must use `create_named_sub_element`().
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
+    pub fn get_or_create_sub_element(&self, name: ElementName) -> Result<Element, AutosarDataError> {
+        let version = self.min_version()?;
+        let mut locked_elem = self.0.try_lock().ok_or(AutosarDataError::ParentElementLocked)?;
+        for item in &locked_elem.content {
+            if let ElementContent::Element(subelem) = item {
+                if subelem.element_name() == name {
+                    return Ok(subelem.clone());
+                }
+            }
+        }
+        locked_elem.create_sub_element(self.downgrade(), name, version)
+    }
+    /// Get or create a named sub element
+    ///
+    /// Checks if a matching subelement exists, and returns it if it does.
+    /// If no matching subelement exists, tries to create one.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let ar_packages = model.root_element().get_or_create_sub_element(ElementName::ArPackages)?;
+    /// let pkg = ar_packages.get_or_create_named_sub_element(ElementName::ArPackage, "Pkg")?;
+    /// let pkg_2 = ar_packages.get_or_create_named_sub_element(ElementName::ArPackage, "Pkg")?;
+    /// assert_eq!(pkg, pkg_2);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Possible Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::ItemNameRequired`]: The sub element requires an item name, so you must use `create_named_sub_element`().
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
+    pub fn get_or_create_named_sub_element(
+        &self,
+        element_name: ElementName,
+        item_name: &str,
+    ) -> Result<Element, AutosarDataError> {
+        let model = self.model()?;
+        let version = self.min_version()?;
+        let mut locked_elem = self.0.try_lock().ok_or(AutosarDataError::ParentElementLocked)?;
+        for item in &locked_elem.content {
+            if let ElementContent::Element(subelem) = item {
+                if subelem.element_name() == element_name && subelem.item_name().as_deref().unwrap_or("") == item_name {
+                    return Ok(subelem.clone());
+                }
+            }
+        }
+        locked_elem.create_named_sub_element(self.downgrade(), element_name, item_name, &model, version)
+    }
+
     /// Create a depth first iterator over this element and all of its sub elements
     ///
     /// Each step in the iteration returns the depth and an element. Due to the nature of a depth first search,
@@ -3191,6 +3279,32 @@ mod test {
         );
         assert!(el_autosar.get_sub_element(ElementName::Abs).is_none());
         assert!(el_l2.get_sub_element(ElementName::Br).is_some());
+    }
+
+    #[test]
+    fn get_or_create() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = model.root_element();
+
+        assert_eq!(el_autosar.sub_elements().count(), 0);
+        let el_admin_data = el_autosar.get_or_create_sub_element(ElementName::AdminData).unwrap();
+        let el_ar_packages = el_autosar.get_or_create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_packages2 = el_autosar.get_or_create_sub_element(ElementName::ArPackages).unwrap();
+        assert_ne!(el_admin_data, el_ar_packages);
+        assert_eq!(el_ar_packages, el_ar_packages2);
+
+        let el_ar_package = el_ar_packages
+            .get_or_create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
+        let el_ar_package2 = el_ar_packages
+            .get_or_create_named_sub_element(ElementName::ArPackage, "Pkg2")
+            .unwrap();
+        let el_ar_package3 = el_ar_packages
+            .get_or_create_named_sub_element(ElementName::ArPackage, "Pkg2")
+            .unwrap();
+        assert_ne!(el_ar_package, el_ar_package2);
+        assert_eq!(el_ar_package2, el_ar_package3);
     }
 
     #[test]
