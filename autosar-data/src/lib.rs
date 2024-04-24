@@ -274,13 +274,13 @@ pub enum AutosarDataError {
 
 /// An Autosar arxml file
 #[derive(Clone)]
-pub struct ArxmlFile(Arc<Mutex<ArxmlFileRaw>>);
+pub struct ArxmlFile(Arc<RwLock<ArxmlFileRaw>>);
 
 /// Weak reference to an arxml file
 ///
 /// (see the documentation of [`std::sync::Arc`] for an explanation of weak references)
 #[derive(Clone)]
-pub struct WeakArxmlFile(Weak<Mutex<ArxmlFileRaw>>);
+pub struct WeakArxmlFile(Weak<RwLock<ArxmlFileRaw>>);
 
 /// The data of an arxml file
 pub(crate) struct ArxmlFileRaw {

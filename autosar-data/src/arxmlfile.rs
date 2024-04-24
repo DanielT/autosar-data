@@ -26,7 +26,7 @@ impl ArxmlFile {
     /// ```
     #[must_use]
     pub fn filename(&self) -> PathBuf {
-        self.0.lock().filename.clone()
+        self.0.read().filename.clone()
     }
 
     /// Get the [`AutosarVersion`] of the file
@@ -41,7 +41,7 @@ impl ArxmlFile {
     /// ```
     #[must_use]
     pub fn version(&self) -> AutosarVersion {
-        self.0.lock().version
+        self.0.read().version
     }
 
     /// Set the [`AutosarVersion`] of the file
@@ -67,7 +67,7 @@ impl ArxmlFile {
     pub fn set_version(&self, new_ver: AutosarVersion) -> Result<(), AutosarDataError> {
         let (compat_errors, _) = self.check_version_compatibility(new_ver);
         if compat_errors.is_empty() {
-            let mut file = self.0.lock();
+            let mut file = self.0.write();
             file.version = new_ver;
             Ok(())
         } else {
@@ -127,7 +127,7 @@ impl ArxmlFile {
                 filename: new_filename,
             })
         } else {
-            self.0.lock().filename = new_filename;
+            self.0.write().filename = new_filename;
             Ok(())
         }
     }
@@ -152,7 +152,7 @@ impl ArxmlFile {
     /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
     ///
     pub fn model(&self) -> Result<AutosarModel, AutosarDataError> {
-        let locked_file = self.0.lock();
+        let locked_file = self.0.write();
         // This reference must always be valid, so it is an error if upgrade() fails
         locked_file.model.upgrade().ok_or(AutosarDataError::ItemDeleted)
     }
@@ -204,7 +204,7 @@ impl ArxmlFile {
             Some(false) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>"),
             None => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
         }
-        model.0.write().set_version(self.0.lock().version);
+        model.0.write().set_version(self.0.read().version);
         model
             .root_element()
             .serialize_internal(&mut outstring, 0, false, Some(self.downgrade()));
@@ -232,7 +232,7 @@ impl ArxmlFile {
     /// ```
     #[must_use]
     pub fn xml_standalone(&self) -> Option<bool> {
-        self.0.lock().xml_standalone
+        self.0.read().xml_standalone
     }
 
     /// Create a weak reference to this `ArxmlFile`
@@ -258,7 +258,7 @@ impl ArxmlFile {
 
 impl ArxmlFileRaw {
     pub(crate) fn wrap(self) -> ArxmlFile {
-        ArxmlFile(Arc::new(Mutex::new(self)))
+        ArxmlFile(Arc::new(RwLock::new(self)))
     }
 }
 
@@ -278,7 +278,7 @@ impl Hash for ArxmlFile {
 
 impl std::fmt::Debug for ArxmlFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let self_locked = self.0.lock();
+        let self_locked = self.0.read();
         f.debug_struct("ArxmlFile")
             .field("filename", &self_locked.filename)
             .field("version", &self_locked.version)
@@ -395,14 +395,14 @@ mod test {
             r#"<?xml version="1.0" encoding="utf-8"?>
 <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>"#
         );
-        file.0.lock().xml_standalone = Some(false);
+        file.0.write().xml_standalone = Some(false);
         let text = file.serialize().unwrap();
         assert_eq!(
             text,
             r#"<?xml version="1.0" encoding="utf-8" standalone="no"?>
 <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>"#
         );
-        file.0.lock().xml_standalone = Some(true);
+        file.0.write().xml_standalone = Some(true);
         let text = file.serialize().unwrap();
         assert_eq!(
             text,
