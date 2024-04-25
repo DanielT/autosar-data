@@ -204,7 +204,7 @@ impl ArxmlFile {
             Some(false) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>"),
             None => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
         }
-        model.0.lock().set_version(self.0.lock().version);
+        model.0.write().set_version(self.0.lock().version);
         model
             .root_element()
             .serialize_internal(&mut outstring, 0, false, Some(self.downgrade()));

@@ -102,7 +102,7 @@ impl ElementRaw {
                     subelem.set_character_data(CharacterData::String(new_name.to_owned()), version)?;
                     model.fix_identifiables(&old_path, &new_path);
                     let new_prefix = new_path;
-                    let mut model_locked = model.0.lock();
+                    let mut model_locked = model.0.write();
 
                     // check all references and update those that point to this element or its sub elements
                     let refpaths = model_locked.reference_origins.keys().cloned().collect::<Vec<String>>();
@@ -806,7 +806,7 @@ impl ElementRaw {
         }
 
         // the move_element was moved within this autosar model, so we can update all other references pointing to it
-        let mut model_locked = model.0.lock();
+        let mut model_locked = model.0.write();
         for orig_ref in &original_paths {
             if let Some(suffix) = orig_ref.strip_prefix(&src_path_prefix) {
                 // e.g. orig_ref = "/Pkg/Foo/Sub/Element" and src_path_prefix = "/Pkg/Foo" then suffix = "/Sub/Element"

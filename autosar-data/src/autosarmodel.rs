@@ -94,7 +94,7 @@ impl AutosarModel {
         filename: P,
         version: AutosarVersion,
     ) -> Result<ArxmlFile, AutosarDataError> {
-        let mut data = self.0.lock();
+        let mut data = self.0.write();
 
         if data.files.iter().any(|af| af.filename() == filename.as_ref()) {
             return Err(AutosarDataError::DuplicateFilenameError {
@@ -173,10 +173,10 @@ impl AutosarModel {
         }
         .wrap();
 
-        if self.0.lock().files.is_empty() {
+        if self.0.read().files.is_empty() {
             root_element.set_parent(ElementOrModel::Model(self.downgrade()));
             root_element.0.lock().file_membership.insert(arxml_file.downgrade());
-            self.0.lock().root_element = root_element;
+            self.0.write().root_element = root_element;
         } else {
             let result = self.merge_file_data(&root_element, arxml_file.downgrade());
             if let Err(error) = result {
@@ -185,7 +185,7 @@ impl AutosarModel {
             }
         }
 
-        let mut data = self.0.lock();
+        let mut data = self.0.write();
         data.identifiables.reserve(parser.identifiables.len());
         for (key, value) in parser.identifiables {
             // the same identifiables can be present in multiple files
@@ -500,9 +500,8 @@ impl AutosarModel {
     /// # }
     /// ```
     pub fn remove_file(&self, file: &ArxmlFile) {
-        let find_result = self
-            .0
-            .lock()
+        let mut locked_model = self.0.write();
+        let find_result = locked_model
             .files
             .iter()
             .enumerate()
@@ -510,14 +509,15 @@ impl AutosarModel {
             .map(|(pos, _)| pos);
         // find_result is stored first so that the lock on model is dropped
         if let Some(pos) = find_result {
-            self.0.lock().files.swap_remove(pos);
-            if self.0.lock().files.is_empty() {
+            locked_model.files.swap_remove(pos);
+            if locked_model.files.is_empty() {
                 // no other files remain in the model, so it reverts to being empty
-                self.root_element().0.lock().content.clear();
-                self.root_element().set_file_membership(HashSet::new());
-                self.0.lock().identifiables.clear();
-                self.0.lock().reference_origins.clear();
+                locked_model.root_element.0.lock().content.clear();
+                locked_model.root_element.set_file_membership(HashSet::new());
+                locked_model.identifiables.clear();
+                locked_model.reference_origins.clear();
             } else {
+                drop(locked_model);
                 // other files still contribute elements, so only the elements specifically associated with this file should be removed
                 let _ = self.root_element().remove_from_file(file);
                 // self.unmerge_file(&file.downgrade());
@@ -618,8 +618,8 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn root_element(&self) -> Element {
-        let locked_proj = self.0.lock();
-        locked_proj.root_element.clone()
+        let locked_model = self.0.read();
+        locked_model.root_element.clone()
     }
 
     /// get a named element by its Autosar path
@@ -645,7 +645,7 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn get_element_by_path(&self, path: &str) -> Option<Element> {
-        let model = self.0.lock();
+        let model = self.0.read();
         model.identifiables.get(path).and_then(WeakElement::upgrade)
     }
 
@@ -720,7 +720,7 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn identifiable_elements(&self) -> Vec<String> {
-        let model = self.0.lock();
+        let model = self.0.read();
         let mut identifiables_list: Vec<String> =
             model.identifiables.keys().map(std::borrow::ToOwned::to_owned).collect();
         identifiables_list.sort();
@@ -751,7 +751,7 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn get_references_to(&self, target_path: &str) -> Vec<WeakElement> {
-        if let Some(origins) = self.0.lock().reference_origins.get(target_path) {
+        if let Some(origins) = self.0.read().reference_origins.get(target_path) {
             origins.clone()
         } else {
             Vec::new()
@@ -781,7 +781,7 @@ impl AutosarModel {
     pub fn check_references(&self) -> Vec<WeakElement> {
         let mut broken_refs = Vec::new();
 
-        let model = self.0.lock();
+        let model = self.0.read();
         for (path, element_list) in &model.reference_origins {
             if let Some(target_elem_weak) = model.identifiables.get(path) {
                 // reference target exists
@@ -831,13 +831,13 @@ impl AutosarModel {
 
     // add an identifiable element to the cache
     pub(crate) fn add_identifiable(&self, new_path: String, elem: WeakElement) {
-        let mut model = self.0.lock();
+        let mut model = self.0.write();
         model.identifiables.insert(new_path, elem);
     }
 
     // fix a single identifiable element or tree of elements in the cache which has been moved/renamed
     pub(crate) fn fix_identifiables(&self, old_path: &str, new_path: &str) {
-        let mut model = self.0.lock();
+        let mut model = self.0.write();
 
         // the renamed element might contain other identifiable elements that are affected by the renaming
         let keys: Vec<String> = model.identifiables.keys().cloned().collect();
@@ -857,12 +857,12 @@ impl AutosarModel {
 
     // remove a deleted element from the cache
     pub(crate) fn remove_identifiable(&self, path: &str) {
-        let mut model = self.0.lock();
+        let mut model = self.0.write();
         model.identifiables.remove(path);
     }
 
     pub(crate) fn add_reference_origin(&self, new_ref: &str, origin: WeakElement) {
-        let mut data = self.0.lock();
+        let mut data = self.0.write();
         // add the new entry
         if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
             referrer_list.push(origin);
@@ -873,7 +873,7 @@ impl AutosarModel {
 
     pub(crate) fn fix_reference_origins(&self, old_ref: &str, new_ref: &str, origin: WeakElement) {
         if old_ref != new_ref {
-            let mut data = self.0.lock();
+            let mut data = self.0.write();
             let mut remove_list = false;
             // remove the old entry
             if let Some(referrer_list) = data.reference_origins.get_mut(old_ref) {
@@ -895,7 +895,7 @@ impl AutosarModel {
     }
 
     pub(crate) fn remove_reference_origin(&self, reference: &str, element: WeakElement) {
-        let mut data = self.0.lock();
+        let mut data = self.0.write();
         let mut count = 1;
         if let Some(referrer_list) = data.reference_origins.get_mut(reference) {
             if let Some(index) = referrer_list.iter().position(|x| *x == element) {
@@ -920,20 +920,21 @@ impl AutosarModelRaw {
     }
 
     pub(crate) fn wrap(self) -> AutosarModel {
-        AutosarModel(Arc::new(Mutex::new(self)))
+        AutosarModel(Arc::new(RwLock::new(self)))
     }
 }
 
 impl std::fmt::Debug for AutosarModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let model = self.0.read();
         // instead of the usual f.debug_struct().field().field() ...
         // this is disassembled here, in order to hold self.0.lock() as briefly as possible
-        let rootelem = self.0.lock().root_element.clone();
+        let rootelem = model.root_element.clone();
         let mut dbgstruct = f.debug_struct("AutosarModel");
         dbgstruct.field("root_element", &rootelem);
-        dbgstruct.field("files", &self.0.lock().files);
-        dbgstruct.field("identifiables", &self.0.lock().identifiables);
-        dbgstruct.field("reference_origins", &self.0.lock().reference_origins);
+        dbgstruct.field("files", &model.files);
+        dbgstruct.field("identifiables", &model.identifiables);
+        dbgstruct.field("reference_origins", &model.reference_origins);
         dbgstruct.finish()
     }
 }

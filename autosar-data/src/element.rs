@@ -2640,7 +2640,7 @@ mod test {
         let el_ar_packages = el_ar_package.parent().unwrap().unwrap();
         let result = el_ar_packages.remove_sub_element(el_ar_package);
         // deleting identifiable elements should also cause the cached references to them to be removed
-        assert_eq!(model.0.lock().identifiables.len(), 0);
+        assert_eq!(model.0.read().identifiables.len(), 0);
         assert!(result.is_ok());
 
         // the removed element may still exist if there were other references to it, but it is no longer usable
@@ -3145,7 +3145,7 @@ mod test {
             .is_ok());
         model
             .0
-            .lock()
+            .read()
             .reference_origins
             .get("/PackageRenamed/EcuInstance1")
             .unwrap();
@@ -3156,13 +3156,13 @@ mod test {
             .is_ok());
         model
             .0
-            .lock()
+            .read()
             .reference_origins
             .get("/PackageRenamed/EcuInstance2")
             .unwrap();
         assert!(model
             .0
-            .lock()
+            .read()
             .reference_origins
             .get("/PackageRenamed/EcuInstance1")
             .is_none());
@@ -3184,7 +3184,7 @@ mod test {
         assert!(el_fibex_element_ref.remove_character_data().is_ok());
         assert!(model
             .0
-            .lock()
+            .read()
             .reference_origins
             .get("/PackageRenamed/EcuInstance2")
             .is_none());

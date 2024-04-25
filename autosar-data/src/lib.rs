@@ -75,6 +75,7 @@
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
 pub use iterators::*;
 use parking_lot::Mutex;
+use parking_lot::RwLock;
 use parser::ArxmlParser;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -111,11 +112,11 @@ pub use autosar_data_specification::EnumItem;
 /// It stores the association between elements and files.
 /// In addition, this top-level structure provides caching of Autosar paths, to allow quick resolution of cross-references.
 #[derive(Clone)]
-pub struct AutosarModel(Arc<Mutex<AutosarModelRaw>>);
+pub struct AutosarModel(Arc<RwLock<AutosarModelRaw>>);
 
 // Weak reference to an instance of AutosarModel
 #[derive(Clone)]
-pub(crate) struct WeakAutosarModel(Weak<Mutex<AutosarModelRaw>>);
+pub(crate) struct WeakAutosarModel(Weak<RwLock<AutosarModelRaw>>);
 
 /// The inner autosar data model (unlocked)
 ///
