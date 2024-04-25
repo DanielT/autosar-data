@@ -5,7 +5,7 @@ use crate::element::ElementSortKey;
 use autosar_data_specification::{
     AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementMultiplicity, ElementName,
 };
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::HashSet;
@@ -64,7 +64,7 @@ impl ElementRaw {
                 // In this case path() descends to the parent, then calls item_name() and would deadlock.
                 // This case happens when subelem is *not* a ShortName but elemtype.is_named() returns true because there
                 // is a name in some other version, so it is acceptable to return None when locking fails
-                if let Some(subelem_locked) = subelem.0.try_lock_for(Duration::from_millis(10)) {
+                if let Some(subelem_locked) = subelem.0.try_read_for(Duration::from_millis(10)) {
                     if subelem_locked.elemname == ElementName::ShortName {
                         if let Some(CharacterData::String(name)) = subelem_locked.character_data() {
                             return Some(name);
@@ -97,7 +97,7 @@ impl ElementRaw {
 
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
             if let Some(ElementContent::Element(subelem_wrapped)) = self.content.first() {
-                let mut subelem = subelem_wrapped.0.lock();
+                let mut subelem = subelem_wrapped.0.write();
                 if subelem.element_name() == ElementName::ShortName {
                     subelem.set_character_data(CharacterData::String(new_name.to_owned()), version)?;
                     model.fix_identifiables(&old_path, &new_path);
@@ -116,7 +116,7 @@ impl ElementRaw {
 
                                     for weak_ref_elem in &reflist {
                                         if let Some(ref_elem) = weak_ref_elem.upgrade() {
-                                            let mut ref_elem_locked = ref_elem.0.lock();
+                                            let mut ref_elem_locked = ref_elem.0.write();
                                             // can't use .set_character_data() here, because the model is locked
                                             ref_elem_locked.content[0] = ElementContent::CharacterData(
                                                 CharacterData::String(refpath_new.clone()),
@@ -177,7 +177,7 @@ impl ElementRaw {
         while let Some(cur_elem) = &cur_elem_opt {
             if let Some(name) = cur_elem
                 .0
-                .try_lock_for(std::time::Duration::from_millis(10))
+                .try_read_for(std::time::Duration::from_millis(10))
                 .ok_or(AutosarDataError::ParentElementLocked)?
                 .item_name()
             {
@@ -202,7 +202,7 @@ impl ElementRaw {
 
         if let Ok(mut cur_elem_opt) = self.parent() {
             while let Some(cur_elem) = cur_elem_opt {
-                if let Some(locked_cur_elem) = cur_elem.0.try_lock_for(std::time::Duration::from_millis(10)) {
+                if let Some(locked_cur_elem) = cur_elem.0.try_read_for(std::time::Duration::from_millis(10)) {
                     // build a string for this path component
                     if locked_cur_elem.elemtype.is_named() {
                         if let Some(item_name) = locked_cur_elem.item_name() {
@@ -407,9 +407,9 @@ impl ElementRaw {
             let shortname_element =
                 sub_element
                     .0
-                    .lock()
+                    .write()
                     .create_sub_element(sub_element.downgrade(), ElementName::ShortName, version)?;
-            let _ = shortname_element.0.lock().set_character_data(item_name_cdata, version);
+            let _ = shortname_element.0.write().set_character_data(item_name_cdata, version);
             model.add_identifiable(path, sub_element.downgrade());
             Ok(sub_element)
         } else {
@@ -428,8 +428,8 @@ impl ElementRaw {
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
         let other_elemname = {
-            // need to do this inside its own scope to limit the lifetime of the mutex
-            let other_element = other.0.lock();
+            // need to do this inside its own scope to limit the lifetime of the lock
+            let other_element = other.0.read();
             other_element.elemname
         };
         let (_, end) = self.calc_element_insert_range(other_elemname, version)?;
@@ -446,8 +446,8 @@ impl ElementRaw {
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
         let other_elemname = {
-            // need to do this inside its own scope to limit the lifetime of the mutex
-            let other_element = other.0.lock();
+            // need to do this inside its own scope to limit the lifetime of the lock
+            let other_element = other.0.read();
             other_element.elemname
         };
         let (start_pos, end_pos) = self.calc_element_insert_range(other_elemname, version)?;
@@ -474,19 +474,19 @@ impl ElementRaw {
             if parent == *other {
                 return Err(AutosarDataError::ForbiddenCopyOfParent);
             }
-            wrapped_parent = parent.0.lock().parent.clone();
+            wrapped_parent = parent.0.read().parent.clone();
         }
 
         // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
         // Additionally, implementing this manually provides the opportunity to filter out
         // elements that ae not compatible with the version of the current file.
-        let newelem = other.0.lock().deep_copy(version)?;
+        let newelem = other.0.read().deep_copy(version)?;
         let path = self.path_unchecked()?;
 
         // set the parent of the newelem - the methods path(), containing_file(), etc become available on newelem
         newelem.set_parent(ElementOrModel::Element(self_weak));
         if newelem.is_identifiable() {
-            newelem.0.lock().make_unique_item_name(model, &path)?;
+            newelem.0.read().make_unique_item_name(model, &path)?;
         }
 
         let mut path_parts: Vec<Option<String>> = vec![Some(path)];
@@ -533,7 +533,7 @@ impl ElementRaw {
         .wrap();
 
         {
-            let mut copy = copy_wrapped.0.lock();
+            let mut copy = copy_wrapped.0.write();
             // copy all the attributes
             for attribute in &self.attributes {
                 // get the specification of the attribute
@@ -574,8 +574,8 @@ impl ElementRaw {
                             .find_sub_element(sub_elem_name, target_version as u32)
                             .is_some()
                         {
-                            if let Ok(copied_sub_elem) = sub_elem.0.lock().deep_copy(target_version) {
-                                copied_sub_elem.0.lock().parent = ElementOrModel::Element(copy_wrapped.downgrade());
+                            if let Ok(copied_sub_elem) = sub_elem.0.read().deep_copy(target_version) {
+                                copied_sub_elem.0.write().parent = ElementOrModel::Element(copy_wrapped.downgrade());
                                 copy.content.push(ElementContent::Element(copied_sub_elem));
                             }
                         }
@@ -610,7 +610,7 @@ impl ElementRaw {
             // note: the method set_character_data is not suitable here, because it updates the identifiables hashmap
             if let Some(ElementContent::Element(short_name_elem)) = self.content.first() {
                 // the SHORT-NAME at index 0 is guaranteed to exist, because the earlier is_identifiable check succeeded
-                let mut sn_element = short_name_elem.0.lock();
+                let mut sn_element = short_name_elem.0.write();
                 sn_element.content.clear();
                 sn_element
                     .content
@@ -741,7 +741,7 @@ impl ElementRaw {
             if parent == *move_element {
                 return Err(AutosarDataError::ForbiddenMoveToSubElement);
             }
-            wrapped_parent = parent.0.lock().parent.clone();
+            wrapped_parent = parent.0.read().parent.clone();
         }
 
         let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
@@ -758,15 +758,15 @@ impl ElementRaw {
             })
             .collect();
 
-        let src_path_prefix = move_element.0.lock().path_unchecked()?;
+        let src_path_prefix = move_element.0.read().path_unchecked()?;
         let dest_path_prefix = self.path_unchecked()?;
 
-        // limit the lifetime of the mutex on src_parent
+        // limit the lifetime of the lock on src_parent
         {
             // lock the source parent element and remove the move_element from its content list
             let mut src_parent_locked = src_parent
                 .0
-                .try_lock_for(Duration::from_millis(10))
+                .try_write_for(Duration::from_millis(10))
                 .ok_or(AutosarDataError::ParentElementLocked)?;
             let idx = src_parent_locked
                 .content
@@ -783,13 +783,15 @@ impl ElementRaw {
         }
 
         // set the parent of the new element to the current element
-        move_element.0.lock().parent = ElementOrModel::Element(self_weak);
-        let dest_path = if move_element.is_identifiable() {
-            let new_name = move_element.0.lock().make_unique_item_name(model, &dest_path_prefix)?;
+        let mut move_element_locked = move_element.0.write();
+        move_element_locked.parent = ElementOrModel::Element(self_weak);
+        let dest_path = if move_element_locked.is_identifiable() {
+            let new_name = move_element_locked.make_unique_item_name(model, &dest_path_prefix)?;
             format!("{dest_path_prefix}/{new_name}")
         } else {
             dest_path_prefix
         };
+        drop(move_element_locked);
 
         // fix the identifiables cache
         if move_element.is_identifiable() {
@@ -817,7 +819,7 @@ impl ElementRaw {
                         if let Some(ref_element) = ref_element_weak.upgrade() {
                             ref_element
                                 .0
-                                .lock()
+                                .write()
                                 .set_character_data(CharacterData::String(refstr.clone()), version)?;
                         }
                     }
@@ -845,7 +847,7 @@ impl ElementRaw {
         model_src: &AutosarModel,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let src_path_prefix = move_element.0.lock().path_unchecked()?;
+        let src_path_prefix = move_element.0.read().path_unchecked()?;
         let dest_path_prefix = self.path_unchecked()?;
         let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
 
@@ -872,7 +874,7 @@ impl ElementRaw {
             // lock the parent of the new element and remove it from the parent's content list
             let mut src_parent_locked = src_parent
                 .0
-                .try_lock_for(Duration::from_millis(10))
+                .try_write_for(Duration::from_millis(10))
                 .ok_or(AutosarDataError::ParentElementLocked)?;
             let idx = src_parent_locked
                 .content
@@ -898,13 +900,15 @@ impl ElementRaw {
         }
 
         // set the parent of the new element to the current element
-        move_element.0.lock().parent = ElementOrModel::Element(self_weak);
-        let dest_path = if move_element.is_identifiable() {
-            let new_name = move_element.0.lock().make_unique_item_name(model, &dest_path_prefix)?;
+        let mut move_element_locked = move_element.0.write();
+        move_element_locked.parent = ElementOrModel::Element(self_weak);
+        let dest_path = if move_element_locked.is_identifiable() {
+            let new_name = move_element_locked.make_unique_item_name(model, &dest_path_prefix)?;
             format!("{dest_path_prefix}/{new_name}")
         } else {
             dest_path_prefix
         };
+        drop(move_element_locked);
 
         // cache references to all the identifiable elements in move_element
         for (orig_path, identifiable_element) in &original_paths {
@@ -922,7 +926,7 @@ impl ElementRaw {
                     refstr = format!("{dest_path}{suffix}");
                     ref_element
                         .0
-                        .lock()
+                        .write()
                         .set_character_data(CharacterData::String(refstr.clone()), version)?;
                 }
                 model.add_reference_origin(&refstr, ref_element.downgrade());
@@ -1037,7 +1041,7 @@ impl ElementRaw {
         model: &AutosarModel,
     ) -> Result<(), AutosarDataError> {
         let path = Cow::from(self.path_unchecked()?);
-        let mut sub_element_locked = sub_element.0.lock();
+        let mut sub_element_locked = sub_element.0.write();
         // find the position of sub_element in the parent element first to verify that sub_element actuall *is* a sub element
         let pos = self
             .content
@@ -1082,7 +1086,7 @@ impl ElementRaw {
             if let ElementContent::Element(sub_element) = item {
                 sub_element
                     .0
-                    .lock()
+                    .write()
                     .remove_internal(sub_element.downgrade(), model, Cow::from(path.as_ref()));
             }
         }
@@ -1286,6 +1290,6 @@ impl ElementRaw {
     }
 
     pub(crate) fn wrap(self) -> Element {
-        Element(Arc::new(Mutex::new(self)))
+        Element(Arc::new(RwLock::new(self)))
     }
 }

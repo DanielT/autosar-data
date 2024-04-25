@@ -340,7 +340,7 @@ impl<'a> ArxmlParser<'a> {
         lexer: &mut ArxmlLexer,
     ) -> Result<Element, AutosarDataError> {
         let wrapped_element = raw_element.wrap();
-        let mut element = wrapped_element.0.lock();
+        let mut element = wrapped_element.0.write();
 
         let mut elem_idx: Vec<usize> = Vec::new();
         let mut short_name_found = false;
@@ -377,7 +377,7 @@ impl<'a> ArxmlParser<'a> {
                         // if this sub element was a short name, then Autosar path handling is needed
                         if name == ElementName::ShortName {
                             short_name_found = true;
-                            let sub_element_inner = sub_element.0.lock();
+                            let sub_element_inner = sub_element.0.read();
                             if let Some(ElementContent::CharacterData(CharacterData::String(name_string))) =
                                 sub_element_inner.content.first()
                             {

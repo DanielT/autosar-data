@@ -74,7 +74,6 @@
 
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
 pub use iterators::*;
-use parking_lot::Mutex;
 use parking_lot::RwLock;
 use parser::ArxmlParser;
 use rustc_hash::FxHashMap;
@@ -293,9 +292,9 @@ pub(crate) struct ArxmlFileRaw {
 /// An arxml element
 ///
 /// This is a wrapper type which provides all the necessary manipulation functions. The actual element data is
-/// held behind Arc<Mutex<>>.
+/// held behind Arc<RwLock<>>.
 #[derive(Clone)]
-pub struct Element(Arc<Mutex<ElementRaw>>);
+pub struct Element(Arc<RwLock<ElementRaw>>);
 
 /// Weak reference to an Element
 ///
@@ -304,7 +303,7 @@ pub struct Element(Arc<Mutex<ElementRaw>>);
 /// This `WeakElement` can be held indefinitely without forcing the referenced data to remain valid.
 /// When access is needed, the method upgrade() will attempt to get a strong reference and return an [Element]
 #[derive(Clone)]
-pub struct WeakElement(Weak<Mutex<ElementRaw>>);
+pub struct WeakElement(Weak<RwLock<ElementRaw>>);
 
 /// The data of an arxml element
 pub(crate) struct ElementRaw {

@@ -175,7 +175,7 @@ impl AutosarModel {
 
         if self.0.read().files.is_empty() {
             root_element.set_parent(ElementOrModel::Model(self.downgrade()));
-            root_element.0.lock().file_membership.insert(arxml_file.downgrade());
+            root_element.0.write().file_membership.insert(arxml_file.downgrade());
             self.0.write().root_element = root_element;
         } else {
             let result = self.merge_file_data(&root_element, arxml_file.downgrade());
@@ -231,7 +231,7 @@ impl AutosarModel {
         let files: HashSet<WeakArxmlFile> = self.files().map(|f| f.downgrade()).collect();
 
         AutosarModel::merge_element(&root, &files, new_root, &new_file)?;
-        self.root_element().0.lock().file_membership.insert(new_file);
+        self.root_element().0.write().file_membership.insert(new_file);
 
         Ok(())
     }
@@ -370,7 +370,7 @@ impl AutosarModel {
             }
         }
         if let Some(elem_b) = item_b {
-            let elem_count = parent_a.0.lock().content.len();
+            let elem_count = parent_a.0.read().content.len();
             if !elements_merge.iter().any(|(_, merge_b)| merge_b == &elem_b) {
                 elements_b_only.push((elem_b, elem_count));
             }
@@ -384,16 +384,17 @@ impl AutosarModel {
         // elements in elements_a_only are already present in the model, so they only need to be restricted
         for element in elements_a_only {
             // files contains the permisions of the parent
-            if element.0.lock().file_membership.is_empty() {
-                element.0.lock().file_membership = files.to_owned();
+            let mut elem_locked = element.0.write();
+            if elem_locked.file_membership.is_empty() {
+                elem_locked.file_membership = files.to_owned();
             }
         }
         // elements in elements_b_only are not present in the model. They need to be moved over and inserted at a reasonable position
-        let mut parent_a_locked = parent_a.0.lock();
+        let mut parent_a_locked = parent_a.0.write();
         for (idx, (new_element, insert_pos)) in elements_b_only.into_iter().enumerate() {
             new_element.set_parent(ElementOrModel::Element(parent_a.downgrade()));
             // restrict new_element, it is only present in new_file
-            new_element.0.lock().file_membership.insert(new_file.clone());
+            new_element.0.write().file_membership.insert(new_file.clone());
             // add the new_element (from side b) to the content of parent_a
             // to do this, first check valid element insertion positions
             let (first_pos, last_pos) = parent_a_locked
@@ -413,14 +414,15 @@ impl AutosarModel {
 
         // recurse for elements that need to be merged
         for (elem_a, elem_b) in elements_merge {
-            let files = if !elem_a.0.lock().file_membership.is_empty() {
-                elem_a.0.lock().file_membership.clone()
+            let files = if !elem_a.0.read().file_membership.is_empty() {
+                elem_a.0.read().file_membership.clone()
             } else {
                 files.clone()
             };
             AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file)?;
-            if !elem_a.0.lock().file_membership.is_empty() {
-                elem_a.0.lock().file_membership.insert(new_file.clone());
+            let mut elem_a_locked = elem_a.0.write();
+            if !elem_a_locked.file_membership.is_empty() {
+                elem_a_locked.file_membership.insert(new_file.clone());
             }
         }
 
@@ -512,7 +514,7 @@ impl AutosarModel {
             locked_model.files.swap_remove(pos);
             if locked_model.files.is_empty() {
                 // no other files remain in the model, so it reverts to being empty
-                locked_model.root_element.0.lock().content.clear();
+                locked_model.root_element.0.write().content.clear();
                 locked_model.root_element.set_file_membership(HashSet::new());
                 locked_model.identifiables.clear();
                 locked_model.reference_origins.clear();
@@ -912,7 +914,7 @@ impl AutosarModel {
 impl AutosarModelRaw {
     pub(crate) fn set_version(&mut self, new_ver: AutosarVersion) {
         let attribute_value = CharacterData::String(format!("http://autosar.org/schema/r4.0 {}", new_ver.filename()));
-        let _ = self.root_element.0.lock().set_attribute_internal(
+        let _ = self.root_element.0.write().set_attribute_internal(
             AttributeName::xsiSchemalocation,
             attribute_value,
             new_ver,

@@ -42,7 +42,7 @@ impl Iterator for ElementsIterator {
     type Item = Element;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let element = self.element.0.lock();
+        let element = self.element.0.read();
         while self.index < element.content.len() {
             let ec = &element.content[self.index];
             self.index += 1;
@@ -64,7 +64,7 @@ impl Iterator for ElementContentIterator {
     type Item = ElementContent;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let element = self.element.0.lock();
+        let element = self.element.0.read();
         if self.index < element.content.len() {
             let ec = &element.content[self.index];
             self.index += 1;
@@ -182,7 +182,7 @@ impl Iterator for AttributeIterator {
     type Item = Attribute;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let element = self.element.0.lock();
+        let element = self.element.0.read();
         if self.index < element.attributes.len() {
             let value = element.attributes[self.index].clone();
             self.index += 1;

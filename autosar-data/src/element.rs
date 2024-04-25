@@ -36,11 +36,11 @@ impl Element {
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     pub fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
-        self.0.lock().parent()
+        self.0.read().parent()
     }
 
     pub(crate) fn set_parent(&self, new_parent: ElementOrModel) {
-        self.0.lock().set_parent(new_parent);
+        self.0.write().set_parent(new_parent);
     }
 
     /// Get the [`ElementName`] of the element
@@ -57,7 +57,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn element_name(&self) -> ElementName {
-        self.0.lock().elemname
+        self.0.read().elemname
     }
 
     /// Get the [`ElementType`] of the element
@@ -75,7 +75,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn element_type(&self) -> ElementType {
-        self.0.lock().elemtype
+        self.0.read().elemtype
     }
 
     /// Get the name of an identifiable element
@@ -97,7 +97,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn item_name(&self) -> Option<String> {
-        self.0.lock().item_name()
+        self.0.read().item_name()
     }
 
     /// Set the item name of this element
@@ -141,7 +141,7 @@ impl Element {
         }
         let model = self.model()?;
         let version = self.min_version()?;
-        self.0.lock().set_item_name(new_name, &model, version)
+        self.0.write().set_item_name(new_name, &model, version)
     }
 
     /// Returns true if the element is identifiable
@@ -161,7 +161,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn is_identifiable(&self) -> bool {
-        self.0.lock().is_identifiable()
+        self.0.read().is_identifiable()
     }
 
     /// Returns true if the element should contain a referenct to another element
@@ -207,7 +207,7 @@ impl Element {
     ///  - [`AutosarDataError::ElementNotIdentifiable`]: The current element is not identifiable, so it has no Autosar path
     ///
     pub fn path(&self) -> Result<String, AutosarDataError> {
-        self.0.lock().path()
+        self.0.read().path()
     }
 
     /// Get a reference to the [`AutosarModel`] containing the current element
@@ -237,7 +237,7 @@ impl Element {
             let parent = {
                 let element = cur_elem
                     .0
-                    .try_lock_for(std::time::Duration::from_millis(10))
+                    .try_read_for(std::time::Duration::from_millis(10))
                     .ok_or(AutosarDataError::ParentElementLocked)?;
                 match &element.parent {
                     ElementOrModel::Element(weak_parent) => {
@@ -307,7 +307,7 @@ impl Element {
     pub fn create_sub_element(&self, element_name: ElementName) -> Result<Element, AutosarDataError> {
         let version = self.min_version()?;
         self.0
-            .try_lock()
+            .try_write()
             .ok_or(AutosarDataError::ParentElementLocked)?
             .create_sub_element(self.downgrade(), element_name, version)
     }
@@ -349,7 +349,7 @@ impl Element {
     ) -> Result<Element, AutosarDataError> {
         let version = self.min_version()?;
         self.0
-            .lock()
+            .write()
             .create_sub_element_at(self.downgrade(), element_name, position, version)
     }
 
@@ -390,7 +390,7 @@ impl Element {
         let model = self.model()?;
         let version = self.min_version()?;
         self.0
-            .lock()
+            .write()
             .create_named_sub_element(self.downgrade(), element_name, item_name, &model, version)
     }
 
@@ -434,7 +434,7 @@ impl Element {
         let model = self.model()?;
         let version = self.min_version()?;
         self.0
-            .lock()
+            .write()
             .create_named_sub_element_at(self.downgrade(), element_name, item_name, position, &model, version)
     }
 
@@ -485,7 +485,7 @@ impl Element {
         let model = self.model()?;
         let version = self.min_version()?;
         self.0
-            .lock()
+            .write()
             .create_copied_sub_element(self.downgrade(), other, &model, version)
     }
 
@@ -537,7 +537,7 @@ impl Element {
         let model = self.model()?;
         let version = self.min_version()?;
         self.0
-            .lock()
+            .write()
             .create_copied_sub_element_at(self.downgrade(), other, position, &model, version)
     }
 
@@ -589,7 +589,7 @@ impl Element {
             });
         }
         self.0
-            .lock()
+            .write()
             .move_element_here(self.downgrade(), move_element, &model, &model_src, version)
     }
 
@@ -642,7 +642,7 @@ impl Element {
             });
         }
         self.0
-            .lock()
+            .write()
             .move_element_here_at(self.downgrade(), move_element, position, &model, &model_src, version)
     }
 
@@ -675,7 +675,7 @@ impl Element {
     ///  - [`AutosarDataError::ShortNameRemovalForbidden`]: It is not permitted to remove the SHORT-NAME of identifiable elements since this would result in invalid data
     pub fn remove_sub_element(&self, sub_element: Element) -> Result<(), AutosarDataError> {
         let model = self.model()?;
-        self.0.lock().remove_sub_element(sub_element, &model)
+        self.0.write().remove_sub_element(sub_element, &model)
     }
 
     /// Set the reference target for the element to target
@@ -724,7 +724,7 @@ impl Element {
             {
                 let model = self.model()?;
                 let version = self.min_version()?;
-                let mut element = self.0.lock();
+                let mut element = self.0.write();
                 // set the DEST attribute first - this could fail if the target element has the wrong type
                 if element
                     .set_attribute_internal(AttributeName::Dest, CharacterData::Enum(enum_item), version)
@@ -874,7 +874,7 @@ impl Element {
 
                     // update the character data
                     {
-                        let mut element = self.0.lock();
+                        let mut element = self.0.write();
                         element.content.clear();
                         element.content.push(ElementContent::CharacterData(chardata));
                     }
@@ -947,7 +947,7 @@ impl Element {
                             model.remove_reference_origin(&reference, self.downgrade());
                         }
                     }
-                    self.0.lock().content.clear();
+                    self.0.write().content.clear();
                 }
                 Ok(())
             }
@@ -983,7 +983,7 @@ impl Element {
     ///  - [`AutosarDataError::IncorrectContentType`] the element `content_type` is not Mixed
     ///  - [`AutosarDataError::InvalidPosition`] the position is not valid
     pub fn insert_character_content_item(&self, chardata: &str, position: usize) -> Result<(), AutosarDataError> {
-        let mut element = self.0.lock();
+        let mut element = self.0.write();
         if let ContentMode::Mixed = element.elemtype.content_mode() {
             if position <= element.content.len() {
                 element.content.insert(
@@ -1025,7 +1025,7 @@ impl Element {
     ///  - [`AutosarDataError::IncorrectContentType`] the element `content_type` is not Mixed
     ///  - [`AutosarDataError::InvalidPosition`] the position is not valid
     pub fn remove_character_content_item(&self, position: usize) -> Result<(), AutosarDataError> {
-        let mut element = self.0.lock();
+        let mut element = self.0.write();
         if let ContentMode::Mixed = element.elemtype.content_mode() {
             if position < element.content.len() {
                 if let ElementContent::CharacterData(_) = element.content[position] {
@@ -1053,7 +1053,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn content_item_count(&self) -> usize {
-        self.0.lock().content.len()
+        self.0.read().content.len()
     }
 
     /// Get the character content of the element
@@ -1082,7 +1082,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn character_data(&self) -> Option<CharacterData> {
-        self.0.lock().character_data()
+        self.0.read().character_data()
     }
 
     /// Create an iterator over all of the content of this element
@@ -1155,7 +1155,7 @@ impl Element {
         if let Ok(Some(parent)) = self.parent() {
             parent
                 .0
-                .lock()
+                .read()
                 .content
                 .iter()
                 .position(|ec| matches!(ec, ElementContent::Element(elem) if elem == self))
@@ -1202,7 +1202,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn get_sub_element(&self, name: ElementName) -> Option<Element> {
-        let locked_elem = self.0.lock();
+        let locked_elem = self.0.read();
         for item in &locked_elem.content {
             if let ElementContent::Element(subelem) = item {
                 if subelem.element_name() == name {
@@ -1233,7 +1233,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn get_sub_element_at(&self, position: usize) -> Option<Element> {
-        let locked_elem = self.0.lock();
+        let locked_elem = self.0.read();
         if let Some(ElementContent::Element(subelem)) = locked_elem.content.get(position) {
             return Some(subelem.clone());
         }
@@ -1270,7 +1270,7 @@ impl Element {
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn get_or_create_sub_element(&self, name: ElementName) -> Result<Element, AutosarDataError> {
         let version = self.min_version()?;
-        let mut locked_elem = self.0.try_lock().ok_or(AutosarDataError::ParentElementLocked)?;
+        let mut locked_elem = self.0.try_write().ok_or(AutosarDataError::ParentElementLocked)?;
         for item in &locked_elem.content {
             if let ElementContent::Element(subelem) = item {
                 if subelem.element_name() == name {
@@ -1317,7 +1317,7 @@ impl Element {
     ) -> Result<Element, AutosarDataError> {
         let model = self.model()?;
         let version = self.min_version()?;
-        let mut locked_elem = self.0.try_lock().ok_or(AutosarDataError::ParentElementLocked)?;
+        let mut locked_elem = self.0.try_write().ok_or(AutosarDataError::ParentElementLocked)?;
         for item in &locked_elem.content {
             if let ElementContent::Element(subelem) = item {
                 if subelem.element_name() == element_name && subelem.item_name().as_deref().unwrap_or("") == item_name {
@@ -1384,7 +1384,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn attribute_value(&self, attrname: AttributeName) -> Option<CharacterData> {
-        self.0.lock().attribute_value(attrname)
+        self.0.read().attribute_value(attrname)
     }
 
     /// Set the value of a named attribute
@@ -1410,7 +1410,7 @@ impl Element {
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
-        self.0.lock().set_attribute_internal(attrname, value, version)
+        self.0.write().set_attribute_internal(attrname, value, version)
     }
 
     /// Set the value of a named attribute from a string
@@ -1436,7 +1436,7 @@ impl Element {
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
-        self.0.lock().set_attribute_string(attrname, stringvalue, version)
+        self.0.write().set_attribute_string(attrname, stringvalue, version)
     }
 
     /// Remove an attribute from the element
@@ -1455,7 +1455,7 @@ impl Element {
     /// ```
     #[must_use]
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
-        self.0.lock().remove_attribute(attrname)
+        self.0.write().remove_attribute(attrname)
     }
 
     /// Recursively sort all sub-elements of this element
@@ -1475,7 +1475,7 @@ impl Element {
     /// element.sort();
     /// ```
     pub fn sort(&self) {
-        self.0.lock().sort();
+        self.0.write().sort();
     }
 
     /// create a textual sorting key that can be used to determine the ordering of otherwise equal elements
@@ -1565,9 +1565,10 @@ impl Element {
         inline: bool,
         for_file: Option<WeakArxmlFile>,
     ) {
-        let element_name = self.element_name().to_str();
+        let element = self.0.read();
+        let element_name = element.elemname.to_str();
 
-        if let Some(comment) = &self.0.lock().comment {
+        if let Some(comment) = &self.0.read().comment {
             // put the comment on a separate line
             if !inline {
                 self.serialize_newline_indent(outstring, indent);
@@ -1582,7 +1583,7 @@ impl Element {
             self.serialize_newline_indent(outstring, indent);
         }
 
-        if self.content().count() > 0 {
+        if element.content.len() > 0 {
             outstring.push('<');
             outstring.push_str(element_name);
             self.serialize_attributes(outstring);
@@ -1593,8 +1594,8 @@ impl Element {
                     // serialize each sub-element
                     for subelem in self.sub_elements() {
                         if for_file.is_none()
-                            || subelem.0.lock().file_membership.is_empty()
-                            || subelem.0.lock().file_membership.contains(for_file.as_ref().unwrap())
+                            || subelem.0.read().file_membership.is_empty()
+                            || subelem.0.read().file_membership.contains(for_file.as_ref().unwrap())
                         {
                             subelem.serialize_internal(outstring, indent + 1, false, for_file.clone());
                         }
@@ -1607,7 +1608,6 @@ impl Element {
                 }
                 ContentType::CharacterData => {
                     // write the character data on the same line as the opening tag
-                    let element = self.0.lock();
                     if let Some(ElementContent::CharacterData(chardata)) = element.content.first() {
                         chardata.serialize_internal(outstring);
                     }
@@ -1622,8 +1622,8 @@ impl Element {
                         match item {
                             ElementContent::Element(subelem) => {
                                 if for_file.is_none()
-                                    || subelem.0.lock().file_membership.is_empty()
-                                    || subelem.0.lock().file_membership.contains(for_file.as_ref().unwrap())
+                                    || subelem.0.read().file_membership.is_empty()
+                                    || subelem.0.read().file_membership.contains(for_file.as_ref().unwrap())
                                 {
                                     subelem.serialize_internal(outstring, indent + 1, true, for_file.clone());
                                 }
@@ -1656,7 +1656,7 @@ impl Element {
     }
 
     fn serialize_attributes(&self, outstring: &mut String) {
-        let element = self.0.lock();
+        let element = self.0.read();
         if !element.attributes.is_empty() {
             for attribute in &element.attributes {
                 outstring.push(' ');
@@ -1669,7 +1669,7 @@ impl Element {
     }
 
     pub(crate) fn elemtype(&self) -> ElementType {
-        self.0.lock().elemtype
+        self.0.read().elemtype
     }
 
     // an element might have a diffeent element type depending on the version - as a result of a
@@ -1701,7 +1701,7 @@ impl Element {
 
         // check the compatibility of all the attributes in this element
         {
-            let element = self.0.lock();
+            let element = self.0.read();
             for attribute in &element.attributes {
                 // find the specification for the current attribute
                 if let Some(AttributeSpec {
@@ -1738,7 +1738,7 @@ impl Element {
 
         // check the compatibility of all sub-elements
         for sub_element in self.sub_elements() {
-            if sub_element.0.lock().file_membership.is_empty() || sub_element.0.lock().file_membership.contains(file) {
+            if sub_element.0.read().file_membership.is_empty() || sub_element.0.read().file_membership.contains(file) {
                 if let Some((_, indices)) = elemtype_new
                     .find_sub_element(sub_element.element_name(), target_version as u32)
                     .or(elemtype_new.find_sub_element(sub_element.element_name(), u32::MAX))
@@ -1787,14 +1787,14 @@ impl Element {
     /// ```
     #[must_use]
     pub fn list_valid_sub_elements(&self) -> Vec<ValidSubElementInfo> {
-        let etype = self.0.lock().elemtype;
+        let etype = self.0.read().elemtype;
         let mut valid_sub_elements = Vec::new();
 
         if let Ok(version) = self.min_version() {
             for (element_name, _, version_mask, named_mask) in etype.sub_element_spec_iter() {
                 if version.compatible(version_mask) {
                     let is_named = version.compatible(named_mask);
-                    let is_allowed = self.0.lock().calc_element_insert_range(element_name, version).is_ok();
+                    let is_allowed = self.0.read().calc_element_insert_range(element_name, version).is_ok();
                     valid_sub_elements.push(ValidSubElementInfo {
                         element_name,
                         is_named,
@@ -1836,7 +1836,7 @@ impl Element {
         while let Some(cur_elem) = &cur_elem_opt {
             let locked_cur_elem = cur_elem
                 .0
-                .try_lock_for(std::time::Duration::from_millis(10))
+                .try_read_for(std::time::Duration::from_millis(10))
                 .ok_or(AutosarDataError::ParentElementLocked)?;
             if !locked_cur_elem.file_membership.is_empty() {
                 return Ok((cur_elem == self, locked_cur_elem.file_membership.clone()));
@@ -1852,7 +1852,7 @@ impl Element {
 
     /// return the file membership of this element without trying to get an inherited value
     pub(crate) fn file_membership_local(&self) -> HashSet<WeakArxmlFile> {
-        self.0.lock().file_membership.clone()
+        self.0.read().file_membership.clone()
     }
 
     /// set the file membership of an element
@@ -1872,7 +1872,7 @@ impl Element {
             .map_or(u32::MAX, |p| p.element_type().splittable());
         // can always reset the membership to empty = inherited; otherwise the parent must be splittable
         if file_membership.is_empty() || parent_splittable != 0 {
-            self.0.lock().file_membership = file_membership;
+            self.0.write().file_membership = file_membership;
         }
     }
 
@@ -1910,7 +1910,7 @@ impl Element {
                 if !current_fileset.contains(&weak_file) {
                     let mut updated_fileset = current_fileset;
                     updated_fileset.insert(weak_file);
-                    self.0.lock().file_membership = updated_fileset;
+                    self.0.write().file_membership = updated_fileset;
 
                     // recursively continue with the parent
                     if let Some(parent) = self.parent()? {
@@ -1938,7 +1938,7 @@ impl Element {
             // which does not include the new file
             if self.element_type().splittable() != 0 {
                 for se in self.sub_elements() {
-                    if let Some(mut subelem) = se.0.try_lock() {
+                    if let Some(mut subelem) = se.0.try_write() {
                         if subelem.file_membership.is_empty() {
                             subelem.file_membership = current_fileset.clone();
                         }
@@ -1951,7 +1951,7 @@ impl Element {
             // if the parent is splittable, or if the current element already has a fileset, then that fileset should be updated
             let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
             if parent_splittable || local {
-                self.0.lock().file_membership = extended_fileset;
+                self.0.write().file_membership = extended_fileset;
             }
 
             // recursively continue with the parent
@@ -2007,16 +2007,16 @@ impl Element {
                     }
                 }
                 // this works even if the element was just removed
-                self.0.lock().file_membership = restricted_fileset;
+                self.0.write().file_membership = restricted_fileset;
 
                 // update all sub elements with non-default file_membership
                 let mut to_delete = Vec::new();
                 for (_, subelem) in self.elements_dfs() {
                     // only need to care about those where file_membership is not empty. All other inherit from their parent
-                    if !subelem.0.lock().file_membership.is_empty() {
-                        subelem.0.lock().file_membership.remove(&weak_file);
+                    if !subelem.0.read().file_membership.is_empty() {
+                        subelem.0.write().file_membership.remove(&weak_file);
                         // if the file_membership just went to empty, then subelem should be deleted
-                        if subelem.0.lock().file_membership.is_empty() {
+                        if subelem.0.read().file_membership.is_empty() {
                             to_delete.push(subelem);
                         }
                     }
@@ -2044,7 +2044,7 @@ impl Element {
     /// It is intended for display in error messages.
     #[must_use]
     pub fn xml_path(&self) -> String {
-        self.0.lock().xml_path()
+        self.0.read().xml_path()
     }
 
     /// Find the upper and lower bound on the insert position for a new sub element
@@ -2079,7 +2079,7 @@ impl Element {
         element_name: ElementName,
         version: AutosarVersion,
     ) -> Result<(usize, usize), AutosarDataError> {
-        self.0.lock().calc_element_insert_range(element_name, version)
+        self.0.read().calc_element_insert_range(element_name, version)
     }
 
     /// Return the comment attachd to the element (if any)
@@ -2103,7 +2103,7 @@ impl Element {
     /// let opt_comment = element.comment();
     /// ```
     pub fn comment(&self) -> Option<String> {
-        self.0.lock().comment.clone()
+        self.0.read().comment.clone()
     }
 
     /// Set or delete the comment attached to the element
@@ -2116,7 +2116,7 @@ impl Element {
                 *comment = comment.replace("--", "__");
             }
         }
-        self.0.lock().comment = opt_comment;
+        self.0.write().comment = opt_comment;
     }
 
     /// find the minumum version of all arxml files which contain this element
@@ -2139,15 +2139,14 @@ impl Element {
 
 impl std::fmt::Debug for Element {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let elem = self.0.read();
         let mut dbgstruct = f.debug_struct("Element");
-        dbgstruct.field("elemname", &self.0.lock().elemname);
-        dbgstruct.field("elemtype", &self.0.lock().elemtype);
-        dbgstruct.field("parent", &self.0.lock().parent);
-        // avoid holding the lock on self.0 while recursing to print all the sub elements
-        let content = self.0.lock().content.clone();
-        dbgstruct.field("content", &content);
-        dbgstruct.field("attributes", &self.0.lock().attributes);
-        dbgstruct.field("file_membership", &self.0.lock().file_membership);
+        dbgstruct.field("elemname", &elem.elemname);
+        dbgstruct.field("elemtype", &elem.elemtype);
+        dbgstruct.field("parent", &elem.parent);
+        dbgstruct.field("content", &elem.content);
+        dbgstruct.field("attributes", &elem.attributes);
+        dbgstruct.field("file_membership", &elem.file_membership);
         dbgstruct.finish()
     }
 }
@@ -2339,7 +2338,7 @@ mod test {
         // inserting another COMPU-METHOD into ELEMENTS hould be allowed at any position
         let (start_pos, end_pos) = el_elements
             .0
-            .lock()
+            .read()
             .calc_element_insert_range(ElementName::CompuMethod, AutosarVersion::Autosar_00050)
             .unwrap();
         assert_eq!(start_pos, 0);
@@ -2414,8 +2413,8 @@ mod test {
         assert!(el_autosar.create_sub_element(ElementName::Autosar).is_err());
         assert!(el_autosar.create_sub_element_at(ElementName::Autosar, 0).is_err());
 
-        // creating a sub element fails when any parent element in the hierarchy is locked
-        let el_autosar_locked = el_autosar.0.lock();
+        // creating a sub element fails when any parent element in the hierarchy is locked for writing
+        let el_autosar_locked = el_autosar.0.write();
         assert!(el_elements
             .create_named_sub_element(ElementName::System, "System")
             .is_err());
@@ -2499,7 +2498,7 @@ mod test {
         assert!(el_autosar.set_item_name("Autosar").is_err());
 
         // invalid preconditions
-        let el_autosar_locked = el_autosar.0.lock();
+        let el_autosar_locked = el_autosar.0.write();
         // fails because a parent element is locked
         assert!(el_ar_package.set_item_name("TestPackage_renamed").is_err());
         drop(el_autosar_locked);
@@ -2786,8 +2785,8 @@ mod test {
             .unwrap();
         assert_eq!(xmlns, "http://autosar.org/schema/r4.0".to_string());
 
-        // attribute operation fails when a parent element is locked
-        let lock = el_autosar.0.lock();
+        // attribute operation fails when a parent element is locked for writing
+        let lock = el_autosar.0.write();
         assert!(el_ar_packages
             .set_attribute(AttributeName::Uuid, CharacterData::String(String::from("1234")))
             .is_err());
@@ -3076,7 +3075,7 @@ mod test {
             .unwrap();
         assert!(el_fibex_element_ref.get_reference_target().is_err());
         // invalid reference: no DEST attribute
-        el_fibex_element_ref.0.lock().attributes.clear(); // remove the DEST attribute
+        el_fibex_element_ref.0.write().attributes.clear(); // remove the DEST attribute
         assert!(el_fibex_element_ref.get_reference_target().is_err());
         el_fibex_element_ref.set_reference_target(&el_ecu_instance2).unwrap();
         // invalid reference: bad reference string
@@ -3201,12 +3200,12 @@ mod test {
         // slightly different behavior for the internal version that is used for locked elements
         assert!(el_autosar
             .0
-            .lock()
+            .write()
             .set_character_data(CharacterData::UnsignedInteger(0), AutosarVersion::Autosar_00050)
             .is_err());
         assert!(el_fibex_element_ref
             .0
-            .lock()
+            .write()
             .set_character_data(CharacterData::UnsignedInteger(0), AutosarVersion::Autosar_00050)
             .is_err());
 
@@ -3426,14 +3425,14 @@ mod test {
         // find_element_insert_pos does not operat on CharacterData elements, e.g. SHORT-NAME
         assert!(el_short_name
             .0
-            .lock()
+            .read()
             .calc_element_insert_range(ElementName::Desc, AutosarVersion::Autosar_00050)
             .is_err());
 
         // find_element_insert_pos fails to find a place for a sequence element with multiplicity 0-1
         assert!(el_autosar
             .0
-            .lock()
+            .read()
             .calc_element_insert_range(ElementName::ArPackages, AutosarVersion::Autosar_00050)
             .is_err());
     }
