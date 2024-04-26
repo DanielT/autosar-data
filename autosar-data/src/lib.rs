@@ -73,10 +73,11 @@
 //!
 
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
+use fxhash::{FxBuildHasher, FxHashMap};
+use indexmap::IndexMap;
 pub use iterators::*;
 use parking_lot::RwLock;
 use parser::ArxmlParser;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -103,6 +104,8 @@ pub use autosar_data_specification::AutosarVersion;
 pub use autosar_data_specification::ElementName;
 pub use autosar_data_specification::EnumItem;
 
+type FxIndexMap<K, V> = IndexMap<K, V, FxBuildHasher>;
+
 /// `AutosarModel` is the top level data type in the autosar-data crate.
 ///
 /// An instance of `AutosarModel` is required for all other operations.
@@ -126,7 +129,7 @@ pub(crate) struct AutosarModelRaw {
     root_element: Element,
     files: Vec<ArxmlFile>,
     /// identifiables is a HashMap of all named elements, needed to resolve references without doing a full search.
-    identifiables: FxHashMap<String, WeakElement>,
+    identifiables: FxIndexMap<String, WeakElement>,
     /// reference_origins is a HashMap of all referencing alements. This is needed to efficiently fix up the references when a referenced element is renamed.
     reference_origins: FxHashMap<String, Vec<WeakElement>>,
 }

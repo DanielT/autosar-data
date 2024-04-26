@@ -14,7 +14,8 @@ autosar-data-specification = "0.12"
 thiserror = "~1.0"
 smallvec = { version = "~1.11.0", features = ["union", "const_generics"]}
 parking_lot = "0.12"
-rustc-hash = "1.1.0"
+indexmap = "2.2.0"
+fxhash = "0.2.1"
 
 [dev-dependencies]
 tempfile = "3.8"

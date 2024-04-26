@@ -5,8 +5,8 @@ use crate::element::ElementSortKey;
 use autosar_data_specification::{
     AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementMultiplicity, ElementName,
 };
+use fxhash::FxHashMap;
 use parking_lot::RwLock;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::sync::Arc;

@@ -1,3 +1,5 @@
+use std::iter::FusedIterator;
+
 use super::*;
 
 #[doc(hidden)]
@@ -172,6 +174,8 @@ impl Iterator for ElementsDfsIterator {
     }
 }
 
+impl FusedIterator for ElementsDfsIterator {}
+
 #[doc(hidden)]
 pub struct AttributeIterator {
     pub(crate) element: Element,
@@ -186,11 +190,51 @@ impl Iterator for AttributeIterator {
         if self.index < element.attributes.len() {
             let value = element.attributes[self.index].clone();
             self.index += 1;
-            return Some(value);
+            Some(value)
+        } else {
+            self.index = usize::MAX;
+            None
         }
-        None
     }
 }
+
+impl FusedIterator for AttributeIterator {}
+
+#[doc(hidden)]
+pub struct IdentifiablesIterator {
+    pub(crate) model: AutosarModel,
+    pub(crate) position: usize,
+}
+
+impl IdentifiablesIterator {
+    pub(crate) fn new(model: &AutosarModel) -> Self {
+        Self {
+            model: model.clone(),
+            position: 0,
+        }
+    }
+}
+
+impl Iterator for IdentifiablesIterator {
+    type Item = (String, WeakElement);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let model = self.model.0.read();
+        if self.position < model.identifiables.len() {
+            let pos = self.position;
+            self.position += 1;
+            model
+                .identifiables
+                .get_index(pos)
+                .map(|(key, elem)| (key.clone(), elem.clone()))
+        } else {
+            self.position = usize::MAX;
+            None
+        }
+    }
+}
+
+impl FusedIterator for IdentifiablesIterator {}
 
 #[cfg(test)]
 mod test {
@@ -263,5 +307,22 @@ mod test {
         // next() would return the element ELEMENTS inside el_ar_package_1, but next_sibling should return el_ar_package_2 instead
         let (_, item) = dfs_iter.next_sibling().unwrap();
         assert_eq!(item, el_ar_package_2);
+    }
+
+    #[test]
+    fn identifiable_elements_iterator() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package1")
+            .unwrap();
+        el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package2")
+            .unwrap();
+
+        let iter = model.identifiable_elements();
+        assert_eq!(iter.count(), 2);
     }
 }

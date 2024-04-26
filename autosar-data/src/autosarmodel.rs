@@ -52,7 +52,7 @@ impl AutosarModel {
         .wrap();
         let model = AutosarModelRaw {
             files: Vec::new(),
-            identifiables: FxHashMap::default(),
+            identifiables: FxIndexMap::default(),
             reference_origins: FxHashMap::default(),
             root_element: root_elem.clone(),
         }
@@ -703,9 +703,9 @@ impl AutosarModel {
         self.root_element().sort();
     }
 
-    /// Create a list of the Autosar paths of all identifiable elements
+    /// Create an iterator over the list of the Autosar paths of all identifiable elements
     ///
-    /// The list contains the full Autosar path of each element, sorted alphabetically.
+    /// The list contains the full Autosar path of each element. It is not sorted.
     ///
     /// # Example
     ///
@@ -713,7 +713,7 @@ impl AutosarModel {
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
     /// # let model = AutosarModel::new();
-    /// for path in model.identifiable_elements() {
+    /// for (path, _) in model.identifiable_elements() {
     ///     let element = model.get_element_by_path(&path).unwrap();
     ///     // [...]
     /// }
@@ -721,12 +721,8 @@ impl AutosarModel {
     /// # }
     /// ```
     #[must_use]
-    pub fn identifiable_elements(&self) -> Vec<String> {
-        let model = self.0.read();
-        let mut identifiables_list: Vec<String> =
-            model.identifiables.keys().map(std::borrow::ToOwned::to_owned).collect();
-        identifiables_list.sort();
-        identifiables_list
+    pub fn identifiable_elements(&self) -> IdentifiablesIterator {
+        IdentifiablesIterator::new(self)
     }
 
     /// return all elements referring to the given target path
@@ -849,7 +845,7 @@ impl AutosarModel {
                 if suffix.is_empty() || suffix.starts_with('/') {
                     let new_key = format!("{new_path}{suffix}");
                     // fix the identifiables hashmap
-                    if let Some(entry) = model.identifiables.remove(&key) {
+                    if let Some(entry) = model.identifiables.swap_remove(&key) {
                         model.identifiables.insert(new_key, entry);
                     }
                 }
@@ -860,7 +856,7 @@ impl AutosarModel {
     // remove a deleted element from the cache
     pub(crate) fn remove_identifiable(&self, path: &str) {
         let mut model = self.0.write();
-        model.identifiables.remove(path);
+        model.identifiables.swap_remove(path);
     }
 
     pub(crate) fn add_reference_origin(&self, new_ref: &str, origin: WeakElement) {
@@ -1193,10 +1189,10 @@ mod test {
         let model = AutosarModel::new();
         let (file, _) = model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
         assert_eq!(model.files().count(), 1);
-        assert_eq!(model.identifiable_elements().len(), 1);
+        assert_eq!(model.identifiable_elements().count(), 1);
         model.remove_file(&file);
         assert_eq!(model.files().count(), 0);
-        assert_eq!(model.identifiable_elements().len(), 0);
+        assert_eq!(model.identifiable_elements().count(), 0);
         // complicated: remove one of several files
         let model = AutosarModel::new();
         model.load_buffer(FILEBUF.as_bytes(), "test1", true).unwrap();
@@ -1251,13 +1247,14 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#;
         let model = AutosarModel::new();
         model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
-        let identifiable_elements = model.identifiable_elements();
-        assert_eq!(identifiable_elements[0], "/OuterPackage1");
-        assert_eq!(identifiable_elements[1], "/OuterPackage1/InnerPackage1");
-        assert_eq!(identifiable_elements[2], "/OuterPackage1/InnerPackage2");
-        assert_eq!(identifiable_elements[3], "/OuterPackage2");
-        assert_eq!(identifiable_elements[4], "/OuterPackage2/InnerPackage1");
-        assert_eq!(identifiable_elements[5], "/OuterPackage2/InnerPackage2");
+        let mut identifiable_elements = model.identifiable_elements().collect::<Vec<_>>();
+        identifiable_elements.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(identifiable_elements[0].0, "/OuterPackage1");
+        assert_eq!(identifiable_elements[1].0, "/OuterPackage1/InnerPackage1");
+        assert_eq!(identifiable_elements[2].0, "/OuterPackage1/InnerPackage2");
+        assert_eq!(identifiable_elements[3].0, "/OuterPackage2");
+        assert_eq!(identifiable_elements[4].0, "/OuterPackage2/InnerPackage1");
+        assert_eq!(identifiable_elements[5].0, "/OuterPackage2/InnerPackage2");
     }
 
     #[test]

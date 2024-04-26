@@ -1583,7 +1583,7 @@ impl Element {
             self.serialize_newline_indent(outstring, indent);
         }
 
-        if element.content.len() > 0 {
+        if !element.content.is_empty() {
             outstring.push('<');
             outstring.push_str(element_name);
             self.serialize_attributes(outstring);

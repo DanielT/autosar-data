@@ -1,7 +1,7 @@
 use std::env;
 
 use autosar_data::{AutosarModel, CharacterData, Element, ElementName, EnumItem};
-use rustc_hash::FxHashMap;
+use fxhash::FxHashMap;
 
 enum TimeRangeTolerance {
     Relative(i64),
@@ -40,8 +40,7 @@ fn main() {
 fn extract_bus_info(model: AutosarModel) {
     for element in model
         .identifiable_elements()
-        .iter()
-        .filter_map(|path| model.get_element_by_path(&path))
+        .filter_map(|(_path, weak)| weak.upgrade())
     {
         match element.element_name() {
             ElementName::CanCluster => {
