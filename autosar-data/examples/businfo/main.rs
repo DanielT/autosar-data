@@ -38,10 +38,7 @@ fn main() {
 //   <AR-PACKAGE> ...
 //     <CAN_CLUSTER> -or- <FLEXRAY-CLUSTER> -or- <J1939-CLUSTER>
 fn extract_bus_info(model: AutosarModel) {
-    for element in model
-        .identifiable_elements()
-        .filter_map(|(_path, weak)| weak.upgrade())
-    {
+    for element in model.identifiable_elements().filter_map(|(_path, weak)| weak.upgrade()) {
         match element.element_name() {
             ElementName::CanCluster => {
                 display_can_cluster(&element);
@@ -226,7 +223,7 @@ fn display_can_ft(frame_triggering: &Element) -> Option<()> {
     let canid = &frame_triggering
         .get_sub_element(ElementName::Identifier)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata));
+        .and_then(|cdata| cdata.decode_integer::<i64>());
     let addressing_mode = if let Some(CharacterData::Enum(value)) = frame_triggering
         .get_sub_element(ElementName::CanAddressingMode)
         .and_then(|elem| elem.character_data())
@@ -250,11 +247,11 @@ fn display_can_ft(frame_triggering: &Element) -> Option<()> {
                 range_elem
                     .get_sub_element(ElementName::LowerCanId)
                     .and_then(|elem| elem.character_data())
-                    .and_then(|cdata| decode_integer(&cdata)),
+                    .and_then(|cdata| cdata.decode_integer::<i64>()),
                 range_elem
                     .get_sub_element(ElementName::UpperCanId)
                     .and_then(|elem| elem.character_data())
-                    .and_then(|cdata| decode_integer(&cdata)),
+                    .and_then(|cdata| cdata.decode_integer::<i64>()),
             )
         } else {
             (None, None)
@@ -265,7 +262,7 @@ fn display_can_ft(frame_triggering: &Element) -> Option<()> {
     let frame_length = frame
         .get_sub_element(ElementName::FrameLength)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata));
+        .and_then(|cdata| cdata.decode_integer::<i64>());
 
     print!("    Can Frame: {frame_name}");
     if ft_name != frame_name {
@@ -365,35 +362,35 @@ fn display_flexray_cluster(cluster_element: &Element) -> Option<()> {
     if let Some(macroticks) = fcc
         .get_sub_element(ElementName::MacroPerCycle)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
+        .and_then(|cdata| cdata.decode_integer::<i64>())
     {
         println!("  Macroticks per cycle: {macroticks}");
     }
     if let Some(static_slots) = fcc
         .get_sub_element(ElementName::NumberOfStaticSlots)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
+        .and_then(|cdata| cdata.decode_integer::<i64>())
     {
         println!("  Number of static slots: {static_slots}");
     }
     if let Some(static_duration) = fcc
         .get_sub_element(ElementName::StaticSlotDuration)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
+        .and_then(|cdata| cdata.decode_integer::<i64>())
     {
         println!("  Static slot duration: {static_duration}");
     }
     if let Some(static_length) = fcc
         .get_sub_element(ElementName::PayloadLengthStatic)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
+        .and_then(|cdata| cdata.decode_integer::<i64>())
     {
         println!("  Static slot payload length: {static_length}");
     }
     if let Some(minislots) = fcc
         .get_sub_element(ElementName::NumberOfMinislots)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
+        .and_then(|cdata| cdata.decode_integer::<i64>())
     {
         println!("  Number of minislots: {minislots}");
     }
@@ -470,13 +467,13 @@ fn display_flexray_ft(frame_triggering: &Element) -> Option<()> {
         slot_id = timings
             .get_sub_element(ElementName::SlotId)
             .and_then(|elem| elem.character_data())
-            .and_then(|cdata| decode_integer(&cdata));
+            .and_then(|cdata| cdata.decode_integer::<i64>());
         base_cycle = timings
             .get_sub_element(ElementName::CommunicationCycle)
             .and_then(|elem| elem.get_sub_element(ElementName::CycleRepetition))
             .and_then(|elem| elem.get_sub_element(ElementName::BaseCycle))
             .and_then(|elem| elem.character_data())
-            .and_then(|cdata| decode_integer(&cdata));
+            .and_then(|cdata| cdata.decode_integer::<i64>());
         cycle_repetition = timings
             .get_sub_element(ElementName::CommunicationCycle)
             .and_then(|elem| elem.get_sub_element(ElementName::CycleRepetition))
@@ -629,7 +626,7 @@ fn display_mapped_pdu(pdu_mapping: &Element) -> Option<()> {
     let start_position = pdu_mapping
         .get_sub_element(ElementName::StartPosition)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata));
+        .and_then(|cdata| cdata.decode_integer::<i64>());
     println!("      Mapped {}: {pdu_name}", pdu.element_name());
     if let Some(bo) = byte_order {
         println!("        Byte order: {bo}");
@@ -656,7 +653,7 @@ fn display_pdu(pdu: &Element, indent: usize) -> Option<()> {
     if let Some(length) = pdu
         .get_sub_element(ElementName::Length)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| decode_integer(&cdata))
+        .and_then(|cdata| cdata.decode_integer::<i64>())
     {
         println!("{indentation}Length: {length}");
     }
@@ -807,7 +804,7 @@ fn display_isignal_ipdu(pdu: &Element, indent: usize) {
             if let Some(num_reps) = event_timing
                 .get_sub_element(ElementName::NumberOfRepetitions)
                 .and_then(|elem| elem.character_data())
-                .and_then(|cdata| decode_integer(&cdata))
+                .and_then(|cdata| cdata.decode_integer::<i64>())
             {
                 println!("{indentation}  Number of repetitions: {num_reps}");
             }
@@ -847,11 +844,11 @@ fn display_isignal_ipdu(pdu: &Element, indent: usize) {
                 let start_pos = mapping
                     .get_sub_element(ElementName::StartPosition)
                     .and_then(|elem| elem.character_data())
-                    .and_then(|cdata| decode_integer(&cdata));
+                    .and_then(|cdata| cdata.decode_integer::<i64>());
                 let length = signal
                     .get_sub_element(ElementName::Length)
                     .and_then(|elem| elem.character_data())
-                    .and_then(|cdata| decode_integer(&cdata));
+                    .and_then(|cdata| cdata.decode_integer::<i64>());
                 signals.insert(refpath, (name, start_pos, length));
             } else if let Some(signal_group) = mapping
                 .get_sub_element(ElementName::ISignalGroupRef)
@@ -909,7 +906,7 @@ fn get_time_range(base: &Element) -> Option<TimeRange> {
         base.get_sub_element(ElementName::RelativeTolerance)
             .and_then(|elem| elem.get_sub_element(ElementName::Relative))
             .and_then(|elem| elem.character_data())
-            .and_then(|cdata| decode_integer(&cdata))
+            .and_then(|cdata| cdata.decode_integer::<i64>())
             .map(TimeRangeTolerance::Relative)
     };
 
@@ -1010,11 +1007,11 @@ fn display_isignal_group(
                     .get_sub_element(ElementName::DataIds)
                     .and_then(|elem| elem.get_sub_element(ElementName::DataId))
                     .and_then(|elem| elem.character_data())
-                    .and_then(|cdata| decode_integer(&cdata));
+                    .and_then(|cdata| cdata.decode_integer::<i64>());
                 let data_length = e2exf_props_cond
                     .get_sub_element(ElementName::DataLength)
                     .and_then(|elem| elem.character_data())
-                    .and_then(|cdata| decode_integer(&cdata));
+                    .and_then(|cdata| cdata.decode_integer::<i64>());
                 if let (Some(name), Some(id), Some(length)) = (transformer_name, data_id, data_length) {
                     println!("{indentation}    End to end transformer properties: {name}");
                     println!("{indentation}      Data id: {id}");
@@ -1074,14 +1071,14 @@ fn display_nm_pdu(pdu: &Element, indent: usize) {
             if let Some(start_pos) = mapping
                 .get_sub_element(ElementName::StartPosition)
                 .and_then(|elem| elem.character_data())
-                .and_then(|cdata| decode_integer(&cdata))
+                .and_then(|cdata| cdata.decode_integer::<i64>())
             {
                 print!(", start pos: {start_pos}");
             }
             if let Some(length) = signal
                 .get_sub_element(ElementName::Length)
                 .and_then(|elem| elem.character_data())
-                .and_then(|cdata| decode_integer(&cdata))
+                .and_then(|cdata| cdata.decode_integer::<i64>())
             {
                 print!(", length: {length} bit");
             }
@@ -1704,35 +1701,6 @@ fn get_socket_ecu(socket_address: &Element) -> Option<Element> {
             Some(ecu_instance)
         } else {
             None
-        }
-    } else {
-        None
-    }
-}
-
-// decode a string into an integer
-// most integers in arxml files are actually declared as strings in the xsd file, to allow hex (0x) and binary (0b) encoded values
-fn decode_integer(cdata: &CharacterData) -> Option<i64> {
-    if let CharacterData::String(text) = cdata {
-        if text == "0" {
-            Some(0)
-        } else if text.starts_with("0x") {
-            let hexstr = text.strip_prefix("0x").unwrap();
-            Some(i64::from_str_radix(hexstr, 16).ok()?)
-        } else if text.starts_with("0X") {
-            let hexstr = text.strip_prefix("0X").unwrap();
-            Some(i64::from_str_radix(hexstr, 16).ok()?)
-        } else if text.starts_with("0b") {
-            let binstr = text.strip_prefix("0b").unwrap();
-            Some(i64::from_str_radix(binstr, 2).ok()?)
-        } else if text.starts_with("0B") {
-            let binstr = text.strip_prefix("0B").unwrap();
-            Some(i64::from_str_radix(binstr, 2).ok()?)
-        } else if text.starts_with('0') {
-            let octstr = text.strip_prefix('0').unwrap();
-            Some(i64::from_str_radix(octstr, 8).ok()?)
-        } else {
-            Some(text.parse().ok()?)
         }
     } else {
         None

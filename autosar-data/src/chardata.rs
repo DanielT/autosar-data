@@ -168,6 +168,39 @@ impl CharacterData {
             None
         }
     }
+
+    /// get a string value and immediately convert it to a signed integer
+    ///
+    /// Many numbers are stored as strings in order to allow hexadecimal, octal, and binary encoding.
+    /// This function handles the conversion from text to integer.
+    /// If the stored value is already an integer, it will be converted to the output type.
+    ///
+    /// Returns the value if the conversion succeeds, or None otherwise
+    #[must_use]
+    pub fn decode_integer<T: num_traits::Num + TryFrom<u64>>(&self) -> Option<T> {
+        if let CharacterData::String(text) = self {
+            if text == "0" {
+                // handle this first to avoid hitting the octal case
+                T::try_from(0u64).ok()
+            } else if let Some(hexstr) = text.strip_prefix("0x") {
+                T::from_str_radix(hexstr, 16).ok()
+            } else if let Some(hexstr) = text.strip_prefix("0X") {
+                T::from_str_radix(hexstr, 16).ok()
+            } else if let Some(binstr) = text.strip_prefix("0b") {
+                T::from_str_radix(binstr, 2).ok()
+            } else if let Some(binstr) = text.strip_prefix("0B") {
+                T::from_str_radix(binstr, 2).ok()
+            } else if let Some(octstr) = text.strip_prefix('0') {
+                T::from_str_radix(octstr, 8).ok()
+            } else {
+                T::from_str_radix(text, 10).ok()
+            }
+        } else if let CharacterData::UnsignedInteger(value) = self {
+            T::try_from(*value).ok()
+        } else {
+            None
+        }
+    }
 }
 
 impl Display for CharacterData {
@@ -420,5 +453,44 @@ mod test {
 
         assert!(CharacterData::UnsignedInteger(1).unsigned_integer_value().is_some());
         assert!(CharacterData::UnsignedInteger(1).enum_value().is_none());
+    }
+
+    #[test]
+    fn decode_integer() {
+        let data = CharacterData::String("text".to_string());
+        let result = data.decode_integer::<u32>();
+        assert!(result.is_none());
+
+        let data = CharacterData::String("0x123412341234".to_string());
+        let result = data.decode_integer::<u32>();
+        assert!(result.is_none());
+
+        let data = CharacterData::String("0x1234".to_string());
+        let result = data.decode_integer::<u32>().unwrap();
+        assert_eq!(result, 0x1234);
+
+        let data = CharacterData::String("0X123456".to_string());
+        let result = data.decode_integer::<u32>().unwrap();
+        assert_eq!(result, 0x123456);
+
+        let data = CharacterData::String("0b1010".to_string());
+        let result = data.decode_integer::<u32>().unwrap();
+        assert_eq!(result, 10);
+
+        let data = CharacterData::String("0B101010".to_string());
+        let result = data.decode_integer::<u32>().unwrap();
+        assert_eq!(result, 42);
+
+        let data = CharacterData::String("0733".to_string());
+        let result = data.decode_integer::<u32>().unwrap();
+        assert_eq!(result, 475);
+
+        let data = CharacterData::String("0".to_string());
+        let result = data.decode_integer::<u32>().unwrap();
+        assert_eq!(result, 0);
+
+        let data = CharacterData::String("-55".to_string());
+        let result = data.decode_integer::<i32>().unwrap();
+        assert_eq!(result, -55);
     }
 }
