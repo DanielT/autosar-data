@@ -39,6 +39,46 @@ impl Element {
         self.0.read().parent()
     }
 
+    /// Get the next named parent (or grandparent, etc) of the current element
+    ///
+    /// This function steps through the hierarchy until an identifiable element is found.
+    /// It never returns the current element, even if the current element is identifiable.
+    /// 
+    /// The function returns a suitable element if one is found, or None if the root is reached.
+    /// 
+    /// # Example
+    /// 
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050)?;
+    /// # let el_arpackage = model.root_element().create_sub_element(ElementName::ArPackages)?.create_named_sub_element(ElementName::ArPackage, "Pkg")?;
+    /// let el_elements = el_arpackage.create_sub_element(ElementName::Elements)?;
+    /// let el_system = el_elements.create_named_sub_element(ElementName::System, "Sys")?;
+    /// let named_parent = el_elements.named_parent()?.unwrap();
+    /// let named_parent2 = el_system.named_parent()?.unwrap();
+    /// assert_eq!(named_parent, el_arpackage);
+    /// assert_eq!(named_parent2, el_arpackage);
+    /// # Ok(())
+    /// # }
+    /// ```
+    /// 
+    /// # Possible Errors
+    /// 
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    pub fn named_parent(&self) -> Result<Option<Element>, AutosarDataError> {
+        let mut cur_elem_opt = self.parent()?;
+        while let Some(parent) = cur_elem_opt {
+            if parent.is_identifiable() {
+                return Ok(Some(parent));
+            }
+            cur_elem_opt = parent.parent()?;
+        }
+
+        Ok(None)
+    }
+
     pub(crate) fn set_parent(&self, new_parent: ElementOrModel) {
         self.0.write().set_parent(new_parent);
     }
@@ -2424,6 +2464,29 @@ mod test {
         assert!(el_autosar.create_sub_element(ElementName::AdminData).is_err());
         assert!(el_autosar.create_sub_element_at(ElementName::AdminData, 0).is_err());
         drop(el_autosar_locked);
+    }
+
+    #[test]
+    fn parent() {
+        let model = AutosarModel::new();
+        model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package")
+            .unwrap();
+        let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
+        let el_system = el_elements.create_named_sub_element(ElementName::System, "Sys").unwrap();
+        let el_fibex = el_system.create_sub_element(ElementName::FibexElements).unwrap();
+        let el_fibex_cond = el_fibex.create_sub_element(ElementName::FibexElementRefConditional).unwrap();
+
+        let parent = el_fibex_cond.parent().unwrap().unwrap();
+        assert_eq!(parent, el_fibex);
+        let named_parent = el_fibex_cond.named_parent().unwrap().unwrap();
+        assert_eq!(named_parent, el_system);
+
+        let named_parent = el_system.named_parent().unwrap().unwrap();
+        assert_eq!(named_parent, el_ar_package);
     }
 
     #[test]
