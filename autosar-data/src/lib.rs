@@ -364,7 +364,7 @@ pub enum ContentType {
 /// Holds a weak reference to either an element or an arxml file
 ///
 /// This enum is used for references to the parent of each element. For all elements other than the
-/// root element, the parent is an element. The root element itself has a referenct to the `ArxmlFile` structure.
+/// root element, the parent is an element. The root element itself has a reference to the `ArxmlFile` structure.
 #[derive(Clone)]
 pub(crate) enum ElementOrModel {
     Element(WeakElement),
