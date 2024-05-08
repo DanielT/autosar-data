@@ -43,11 +43,11 @@ impl Element {
     ///
     /// This function steps through the hierarchy until an identifiable element is found.
     /// It never returns the current element, even if the current element is identifiable.
-    /// 
+    ///
     /// The function returns a suitable element if one is found, or None if the root is reached.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```
     /// # use autosar_data::*;
     /// # fn main() -> Result<(), AutosarDataError> {
@@ -63,9 +63,9 @@ impl Element {
     /// # Ok(())
     /// # }
     /// ```
-    /// 
+    ///
     /// # Possible Errors
-    /// 
+    ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     pub fn named_parent(&self) -> Result<Option<Element>, AutosarDataError> {
         let mut cur_elem_opt = self.parent()?;
@@ -204,7 +204,7 @@ impl Element {
         self.0.read().is_identifiable()
     }
 
-    /// Returns true if the element should contain a referenct to another element
+    /// Returns true if the element should contain a reference to another element
     ///
     /// The function does not check if the reference is valid
     ///

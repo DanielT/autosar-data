@@ -608,7 +608,7 @@ impl AutosarModel {
         ArxmlFileIterator::new(self.clone())
     }
 
-    /// Get a referenct to the root ```<AUTOSAR ...>``` element of this model
+    /// Get a reference to the root ```<AUTOSAR ...>``` element of this model
     ///
     /// # Example
     ///
