@@ -60,7 +60,7 @@ impl ArxmlFile {
     /// file.set_version(AutosarVersion::Autosar_00050);
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::VersionIncompatibleData`] the existing data is not compatible with the new version
     ///
@@ -147,7 +147,7 @@ impl ArxmlFile {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
     ///

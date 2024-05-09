@@ -304,7 +304,7 @@ pub struct Element(Arc<RwLock<ElementRaw>>);
 /// (see the documentation of [`std::sync::Arc`] for an explanation of weak references)
 ///
 /// This `WeakElement` can be held indefinitely without forcing the referenced data to remain valid.
-/// When access is needed, the method upgrade() will attempt to get a strong reference and return an [Element]
+/// When access is needed, the method `upgrade()` will attempt to get a strong reference and return an [Element]
 #[derive(Clone)]
 pub struct WeakElement(Weak<RwLock<ElementRaw>>);
 

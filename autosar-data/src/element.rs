@@ -32,7 +32,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     pub fn parent(&self) -> Result<Option<Element>, AutosarDataError> {
@@ -64,7 +64,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     pub fn named_parent(&self) -> Result<Option<Element>, AutosarDataError> {
@@ -167,7 +167,7 @@ impl Element {
     /// }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -239,7 +239,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: Th ecurrent element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -265,7 +265,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -334,7 +334,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -371,7 +371,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -412,7 +412,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -454,7 +454,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -508,7 +508,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -559,7 +559,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -606,7 +606,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -658,7 +658,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -706,7 +706,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -743,7 +743,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -821,7 +821,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -881,7 +881,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -967,7 +967,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -1018,7 +1018,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::IncorrectContentType`] the element `content_type` is not Mixed
     ///  - [`AutosarDataError::InvalidPosition`] the position is not valid
@@ -1060,7 +1060,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::IncorrectContentType`] the element `content_type` is not Mixed
     ///  - [`AutosarDataError::InvalidPosition`] the position is not valid
@@ -1298,7 +1298,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -1340,7 +1340,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -1442,7 +1442,7 @@ impl Element {
     /// # assert!(result.is_ok());
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::InvalidAttribute`]: The `AttributeName` is not valid for this element
@@ -1468,7 +1468,7 @@ impl Element {
     /// # assert!(result.is_ok());
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::InvalidAttribute`]: The `AttributeName` is not valid for this element
@@ -1865,7 +1865,7 @@ impl Element {
     /// # Ok(())
     /// # }
     /// ```
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -1933,7 +1933,7 @@ impl Element {
     /// element.add_to_file(&file);
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -2024,7 +2024,7 @@ impl Element {
     /// element.remove_from_file(&file);
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
@@ -2110,7 +2110,7 @@ impl Element {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     /// - [`AutosarDataError::ElementInsertionConflict`]: The sub element conflicts with an existing sub element
     /// - [`AutosarDataError::InvalidSubElement`]: The sub element is not valid inside this element

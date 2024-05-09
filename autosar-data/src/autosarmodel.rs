@@ -70,7 +70,7 @@ impl AutosarModel {
     /// # Parameters
     ///
     ///  - `filename`: A filename for the data from the buffer. It must be unique within the model.
-    ///    It will be used by write(), and is also used to identify this data in error messages.
+    ///    It will be used by `write()`, and is also used to identify this data in error messages.
     ///  - `version`: The [`AutosarVersion`] that will be used by the data created inside this file
     ///
     /// # Example
@@ -84,7 +84,7 @@ impl AutosarModel {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
     ///  - [`AutosarDataError::VersionMismatch`]: The new file cannot be creatd with a version that differs from the version of existing data
@@ -137,7 +137,7 @@ impl AutosarModel {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
     ///  - [`AutosarDataError::OverlappingDataError`]: The new data contains Autosar paths that are already defined by the existing data
@@ -449,7 +449,7 @@ impl AutosarModel {
     /// # }
     /// ```
     ///
-    /// # Possible Errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::IoErrorOpen`]: The file could not be opened
     ///  - [`AutosarDataError::IoErrorRead`]: There was an error while reading the file
@@ -559,7 +559,7 @@ impl AutosarModel {
     ///
     /// This is a wrapper around `serialize_files`. The current filename of each file will be used to write the serialized data.
     ///
-    /// If any of the individual files cannot be written, then write() will abort and return the error.
+    /// If any of the individual files cannot be written, then `write()` will abort and return the error.
     /// This may result in a situation where some files have been written and others have not.
     ///
     /// # Example
@@ -683,7 +683,7 @@ impl AutosarModel {
         self.root_element().elements_dfs()
     }
 
-    /// Recursively sort all elements in the model. This is exactly identical to calling sort() on the root element of the model.
+    /// Recursively sort all elements in the model. This is exactly identical to calling `sort()` on the root element of the model.
     ///
     /// All sub elements of the root element are sorted alphabetically.
     /// If the sub-elements are named, then the sorting is performed according to the item names,

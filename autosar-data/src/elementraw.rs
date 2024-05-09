@@ -22,10 +22,10 @@ use crate::{
 ///
 /// Note regarding deadlock avoidance:
 /// Consider the case where two element operations are started in parallel on different threads.
-/// One calls file() or path() and traverses the hierarchy of elements upward
+/// One calls `file()` or `path()` and traverses the hierarchy of elements upward
 /// root <- element <- element <- current element (locked)
 ///
-/// The other calls e.g. `create_copied_sub_element`() or `remove_sub_element`() and wants to lock all of its sub elements
+/// The other calls e.g. `create_copied_sub_element()` or `remove_sub_element()` and wants to lock all of its sub elements
 /// root -> current element (locked) -> element -> element
 ///
 /// These two operations could deadlock if they operate on the same tree of elements.
