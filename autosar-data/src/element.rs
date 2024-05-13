@@ -2142,6 +2142,7 @@ impl Element {
     /// # let element = model.root_element();
     /// let opt_comment = element.comment();
     /// ```
+    #[must_use]
     pub fn comment(&self) -> Option<String> {
         self.0.read().comment.clone()
     }
@@ -2476,9 +2477,13 @@ mod test {
             .create_named_sub_element(ElementName::ArPackage, "Package")
             .unwrap();
         let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
-        let el_system = el_elements.create_named_sub_element(ElementName::System, "Sys").unwrap();
+        let el_system = el_elements
+            .create_named_sub_element(ElementName::System, "Sys")
+            .unwrap();
         let el_fibex = el_system.create_sub_element(ElementName::FibexElements).unwrap();
-        let el_fibex_cond = el_fibex.create_sub_element(ElementName::FibexElementRefConditional).unwrap();
+        let el_fibex_cond = el_fibex
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
 
         let parent = el_fibex_cond.parent().unwrap().unwrap();
         assert_eq!(parent, el_fibex);
