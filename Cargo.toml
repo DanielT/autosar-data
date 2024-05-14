@@ -2,9 +2,11 @@
 members = [
     "autosar-data",
     "autosar-data-specification",
+    "autosar-data-abstraction",
 ]
 resolver = "2"
 
 [patch.crates-io]
 autosar-data = { path = "autosar-data" }
 autosar-data-specification = { path = "./autosar-data-specification" }
+autosar-data-abstraction = { path = "./autosar-data-abstraction" }
