@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, str::FromStr};
+use std::{collections::HashMap, hash::Hash};
 
 use crate::*;
 
@@ -780,18 +780,12 @@ impl AutosarModel {
                 if let Some(target_elem) = target_elem_weak.upgrade() {
                     // the target of the reference exists, but the reference can still be technically invalid
                     // if the content of the DEST attribute on the reference is wrong
-                    let target_elemname = target_elem.element_name();
-                    // e.g. if the target is a <SYSTEM>, then the reference must have the attribute DEST="SYSTEM".
-                    // Converting the ElementName of the target_elem to an EnumItem for use in the DEST attribute
-                    // is done by converting ElementName -> str -> EnumItem
-                    let required_reftype = EnumItem::from_str(target_elemname.to_str()).unwrap();
-
                     for referring_elem_weak in element_list {
                         if let Some(referring_elem) = referring_elem_weak.upgrade() {
-                            if let Some(CharacterData::Enum(reftype)) =
+                            if let Some(CharacterData::Enum(dest_value)) =
                                 referring_elem.attribute_value(AttributeName::Dest)
                             {
-                                if reftype != required_reftype {
+                                if target_elem.element_type().verify_reference_dest(dest_value) {
                                     // wrong reference type in the DEST attribute
                                     broken_refs.push(referring_elem_weak.clone());
                                 }

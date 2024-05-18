@@ -552,6 +552,14 @@ impl ElementType {
         None
     }
 
+    /// verify that the given `dest_value` is a valid enum item that can be used to refer to this element type
+    #[must_use]
+    pub fn verify_reference_dest(&self, dest_value: EnumItem) -> bool {
+        let (start, end) = DATATYPES[self.typ as usize].ref_info;
+        let values = &REF_ITEMS[start as usize..end as usize];
+        values.contains(&dest_value)
+    }
+
     #[cfg(feature = "docstrings")]
     #[must_use]
     pub const fn docstring(&self) -> &'static str {
@@ -1199,6 +1207,7 @@ mod test {
 
         let ref_value = physical_request_ref_type.reference_dest_value(&ident_type).unwrap();
         assert_eq!(ref_value, EnumItem::TpConnectionIdent);
+        assert!(ident_type.verify_reference_dest(ref_value));
         let invalid_ref = physical_request_ref_type.reference_dest_value(&tp_connections_type);
         assert!(invalid_ref.is_none());
     }

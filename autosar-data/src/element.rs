@@ -836,20 +836,12 @@ impl Element {
                     .get_element_by_path(&reference)
                     .ok_or(AutosarDataError::InvalidReference)?;
 
-                let dest = self
+                let dest_value = self
                     .attribute_value(AttributeName::Dest)
-                    .map(|cdata| cdata.to_string())
+                    .and_then(|cdata| cdata.enum_value())
                     .ok_or(AutosarDataError::InvalidReference)?;
-                if dest == target_elem.element_name().to_str() {
-                    // common case: the value of DEST is equal to the element name of the target
+                if target_elem.element_type().verify_reference_dest(dest_value) {
                     Ok(target_elem)
-                } else if let Some(refval) = self.element_type().reference_dest_value(&target_elem.element_type()) {
-                    // uncommon: find a correct DEST value in the specification
-                    if refval.to_string() == dest {
-                        Ok(target_elem)
-                    } else {
-                        Err(AutosarDataError::InvalidReference)
-                    }
                 } else {
                     Err(AutosarDataError::InvalidReference)
                 }
