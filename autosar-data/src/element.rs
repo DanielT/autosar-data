@@ -2150,6 +2150,20 @@ impl Element {
     /// Set or delete the comment attached to the element
     ///
     /// Set None to remove the comment.
+    ///
+    /// If the new comment value contains "--", then this is replaced with "__", because "--" is forbidden inside XML comments.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use std::collections::HashSet;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::LATEST).unwrap();
+    /// # let element = model.root_element();
+    /// # let string = "".to_string();
+    /// element.set_comment(Some(string));
+    /// ```
     pub fn set_comment(&self, mut opt_comment: Option<String>) {
         if let Some(comment) = &mut opt_comment {
             // make sure the comment we store never contains "--" as this is forbidden by the w3 xml specification
@@ -2162,8 +2176,20 @@ impl Element {
 
     /// find the minumum version of all arxml files which contain this element
     ///
-    /// typically this reduces to finding out which single file contains the element and returning this version.
-    fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
+    /// Typically this reduces to finding out which single file contains the element and returning this version.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use std::collections::HashSet;
+    /// # let model = AutosarModel::new();
+    /// let file1 = model.create_file("file1", AutosarVersion::LATEST).unwrap();
+    /// let file2 = model.create_file("file2", AutosarVersion::Autosar_4_3_0).unwrap();
+    /// let version = model.root_element().min_version().unwrap();
+    /// assert_eq!(version, AutosarVersion::Autosar_4_3_0);
+    /// ```
+    pub fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
         let (_, files) = self.file_membership()?;
         if files.is_empty() {
             return Err(AutosarDataError::NoFilesInModel);
