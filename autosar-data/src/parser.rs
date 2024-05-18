@@ -401,18 +401,16 @@ impl<'a> ArxmlParser<'a> {
                     if let Ok(name) = ElementName::from_bytes(elem_text) {
                         if name == element.elemname {
                             break;
-                        } else {
-                            return Err(self.error(ArxmlParserError::IncorrectEndElement {
-                                element: element.elemname,
-                                other_element: name,
-                            }));
                         }
-                    } else {
-                        return Err(self.error(ArxmlParserError::InvalidEndElement {
-                            parent_element: element.elemname,
-                            invalid_element: String::from_utf8_lossy(elem_text).to_string(),
+                        return Err(self.error(ArxmlParserError::IncorrectEndElement {
+                            element: element.elemname,
+                            other_element: name,
                         }));
                     }
+                    return Err(self.error(ArxmlParserError::InvalidEndElement {
+                        parent_element: element.elemname,
+                        invalid_element: String::from_utf8_lossy(elem_text).to_string(),
+                    }));
                 }
                 ArxmlEvent::Characters(text_content) => {
                     if let Some(character_data_spec) = element.elemtype.chardata_spec() {
@@ -462,12 +460,11 @@ impl<'a> ArxmlParser<'a> {
         // Some elements have multiple entries, and the correct one must be chosen based on the autosar version
         // First try to find the sub element using the current file version. If that fails then search again
         // allowing elements from all autosar versions. This is useful in order to give better diagnostics.
-        let (sub_elem_type, new_elem_indices) = match elemtype.find_sub_element(name, self.fileversion as u32) {
-            Some(result) => {
+        let (sub_elem_type, new_elem_indices) =
+            if let Some(result) = elemtype.find_sub_element(name, self.fileversion as u32) {
                 // normal case: the element was found in the spec, while restricted to only the current version
                 result
-            }
-            None => {
+            } else {
                 // fallback: the search is retried, while allowing matching sub-elements from any AutosarVersion
                 let (sub_elemtype, elem_idx) = elemtype.find_sub_element(name, u32::MAX).ok_or_else(|| {
                     self.error(ArxmlParserError::IncorrectBeginElement {
@@ -488,8 +485,7 @@ impl<'a> ArxmlParser<'a> {
                     },
                 )?;
                 (sub_elemtype, elem_idx)
-            }
-        };
+            };
 
         Ok((sub_elem_type, new_elem_indices))
     }

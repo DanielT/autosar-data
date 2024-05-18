@@ -1593,7 +1593,7 @@ impl Element {
     pub fn serialize(&self) -> String {
         let mut outstring = String::new();
 
-        self.serialize_internal(&mut outstring, 0, false, None);
+        self.serialize_internal(&mut outstring, 0, false, &None);
 
         outstring
     }
@@ -1603,7 +1603,7 @@ impl Element {
         outstring: &mut String,
         indent: usize,
         inline: bool,
-        for_file: Option<WeakArxmlFile>,
+        for_file: &Option<WeakArxmlFile>,
     ) {
         let element = self.0.read();
         let element_name = element.elemname.to_str();
@@ -1611,7 +1611,7 @@ impl Element {
         if let Some(comment) = &self.0.read().comment {
             // put the comment on a separate line
             if !inline {
-                self.serialize_newline_indent(outstring, indent);
+                Self::serialize_newline_indent(outstring, indent);
             }
             outstring.push_str("<!--");
             outstring.push_str(comment);
@@ -1620,7 +1620,7 @@ impl Element {
 
         // write the opening tag on a new line and indent it
         if !inline {
-            self.serialize_newline_indent(outstring, indent);
+            Self::serialize_newline_indent(outstring, indent);
         }
 
         if !element.content.is_empty() {
@@ -1637,11 +1637,11 @@ impl Element {
                             || subelem.0.read().file_membership.is_empty()
                             || subelem.0.read().file_membership.contains(for_file.as_ref().unwrap())
                         {
-                            subelem.serialize_internal(outstring, indent + 1, false, for_file.clone());
+                            subelem.serialize_internal(outstring, indent + 1, false, for_file);
                         }
                     }
                     // put the closing tag on a new line and indent it
-                    self.serialize_newline_indent(outstring, indent);
+                    Self::serialize_newline_indent(outstring, indent);
                     outstring.push_str("</");
                     outstring.push_str(element_name);
                     outstring.push('>');
@@ -1665,7 +1665,7 @@ impl Element {
                                     || subelem.0.read().file_membership.is_empty()
                                     || subelem.0.read().file_membership.contains(for_file.as_ref().unwrap())
                                 {
-                                    subelem.serialize_internal(outstring, indent + 1, true, for_file.clone());
+                                    subelem.serialize_internal(outstring, indent + 1, true, for_file);
                                 }
                             }
                             ElementContent::CharacterData(chardata) => {
@@ -1688,7 +1688,7 @@ impl Element {
         }
     }
 
-    fn serialize_newline_indent(&self, outstring: &mut String, indent: usize) {
+    fn serialize_newline_indent(outstring: &mut String, indent: usize) {
         outstring.push('\n');
         for _ in 0..indent {
             outstring.push_str("  ");
@@ -1980,7 +1980,7 @@ impl Element {
                 for se in self.sub_elements() {
                     if let Some(mut subelem) = se.0.try_write() {
                         if subelem.file_membership.is_empty() {
-                            subelem.file_membership = current_fileset.clone();
+                            subelem.file_membership.clone_from(&current_fileset);
                         }
                     }
                 }
@@ -2189,6 +2189,13 @@ impl Element {
     /// let version = model.root_element().min_version().unwrap();
     /// assert_eq!(version, AutosarVersion::Autosar_4_3_0);
     /// ```
+    ///
+    /// # Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
         let (_, files) = self.file_membership()?;
         if files.is_empty() {
@@ -3421,7 +3428,7 @@ mod test {
         let el_autosar = model.root_element();
 
         let mut outstring = String::from(r#"<?xml version="1.0" encoding="utf-8"?>"#);
-        el_autosar.serialize_internal(&mut outstring, 0, false, None);
+        el_autosar.serialize_internal(&mut outstring, 0, false, &None);
 
         assert_eq!(FILEBUF, outstring);
     }

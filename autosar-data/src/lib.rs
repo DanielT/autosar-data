@@ -128,9 +128,9 @@ pub(crate) struct WeakAutosarModel(Weak<RwLock<AutosarModelRaw>>);
 pub(crate) struct AutosarModelRaw {
     root_element: Element,
     files: Vec<ArxmlFile>,
-    /// identifiables is a HashMap of all named elements, needed to resolve references without doing a full search.
+    /// `identifiables` is a `HashMap` of all named elements, needed to resolve references without doing a full search.
     identifiables: FxIndexMap<String, WeakElement>,
-    /// reference_origins is a HashMap of all referencing alements. This is needed to efficiently fix up the references when a referenced element is renamed.
+    /// `reference_origins` is a `HashMap` of all referencing alements. This is needed to efficiently fix up the references when a referenced element is renamed.
     reference_origins: FxHashMap<String, Vec<WeakElement>>,
 }
 
@@ -138,23 +138,23 @@ pub(crate) struct AutosarModelRaw {
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum AutosarDataError {
-    /// IoErrorRead: An IoError that occurred while reading a file
+    /// `IoErrorRead`: An `IoError` that occurred while reading a file
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorRead { filename: PathBuf, ioerror: std::io::Error },
 
-    /// IoErrorOpen: an IoError that occurres while opening a file
+    /// `IoErrorOpen`: an `IoError` that occurres while opening a file
     #[error("Failed to open {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorOpen { filename: PathBuf, ioerror: std::io::Error },
 
-    /// IoErrorWrite: An IoError that occurred while writing a file
+    /// `IoErrorWrite`: An `IoError` that occurred while writing a file
     #[error("Failed to write {}: {ioerror}", .filename.to_string_lossy())]
     IoErrorWrite { filename: PathBuf, ioerror: std::io::Error },
 
-    /// DuplicateFilenameError,
+    /// `DuplicateFilenameError`: The model can'#'t contain two files with identical names
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
     DuplicateFilenameError { verb: &'static str, filename: PathBuf },
 
-    /// LexerError: An error originating in the lexer, such as unclodes strings, mismatched '<' and '>', etc
+    /// `LexerError`: An error originating in the lexer, such as unclodes strings, mismatched '<' and '>', etc
     #[error("Failed to tokenize {} on line {line}: {source}", .filename.to_string_lossy())]
     LexerError {
         filename: PathBuf,
@@ -162,7 +162,7 @@ pub enum AutosarDataError {
         source: ArxmlLexerError,
     },
 
-    /// ParserError: A parser error
+    /// `ParserError`: A parser error
     #[error("Failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
     ParserError {
         filename: PathBuf,
@@ -209,7 +209,7 @@ pub enum AutosarDataError {
     #[error("Element insertion conflict")]
     ElementInsertionConflict,
 
-    /// The ElementName is not a valid sub element according to the specification.
+    /// The `ElementName` is not a valid sub element according to the specification.
     #[error("Invalid sub element")]
     InvalidSubElement,
 
@@ -217,7 +217,7 @@ pub enum AutosarDataError {
     #[error("element not found")]
     ElementNotFound,
 
-    /// Remove_sub_element cannot remove the SHORT-NAME of identifiable elements, as this would render the data invalid
+    /// [`Element::remove_sub_element`] cannot remove the SHORT-NAME of identifiable elements, as this would render the data invalid
     #[error("the SHORT-NAME sub element may not be removed")]
     ShortNameRemovalForbidden,
 
@@ -294,8 +294,7 @@ pub(crate) struct ArxmlFileRaw {
 
 /// An arxml element
 ///
-/// This is a wrapper type which provides all the necessary manipulation functions. The actual element data is
-/// held behind Arc<RwLock<>>.
+/// This is a wrapper type which provides all the necessary manipulation functions.
 #[derive(Clone)]
 pub struct Element(Arc<RwLock<ElementRaw>>);
 
@@ -393,11 +392,11 @@ pub enum CompatibilityError {
 
 /// information about a sub element
 ///
-/// This structure is returned by [`Element::list_valid_sub_elements`()]
+/// This structure is returned by [`Element::list_valid_sub_elements()`]
 pub struct ValidSubElementInfo {
     /// name of the potential sub element
     pub element_name: ElementName,
-    /// is the sub element named, i.e. does it need to be created with [Element::create_named_sub_element()]
+    /// is the sub element named, i.e. does it need to be created with [`Element::create_named_sub_element()`]
     pub is_named: bool,
     /// is the sub element currently allowed, given the existing content of the element. Note that some sub elements are mutually exclusive.
     pub is_allowed: bool,

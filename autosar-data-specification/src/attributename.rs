@@ -218,6 +218,10 @@ impl AttributeName {
     const STRING_TABLE: [&'static str; 101] = ["NOHREF", "ONMOUSEOUT", "SHOW-RESOURCE-TYPE", "MOREROWS", "SPANNAME", "ONBLUR", "DEST", "SHOW-RESOURCE-PAGE", "CLASS", "SHOW-RESOURCE-SHORT-NAME", "SHOW-RESOURCE-NUMBER", "SHORT-LABEL", "ONDBLCLICK", "ROWSEP", "FRAME", "ALLOW-BREAK", "HEIGHT", "xmlns:xsi", "BINDING-TIME", "NAMEST", "EDIT-WIDTH", "EDITFIT", "BREAK", "BLUEPRINT-VALUE", "VIEW", "COORDS", "COLOR", "SHOW-RESOURCE-CATEGORY", "xmlns", "PGWIDE", "ORIENT", "FILENAME", "INDEX", "NAME", "TYPE", "ENUM-TABLE", "SHOW-CONTENT", "ONKEYUP", "SHAPE", "ONMOUSEUP", "BASE", "BGCOLOR", "FLOAT", "L", "NOTE-TYPE", "STYLE", "ALT", "COLNUM", "TABSTYLE", "VALIGN", "LEVEL", "GID", "S", "SHOW-RESOURCE-LONG-NAME", "KEEP-WITH-PREVIOUS", "HTML-FIT", "ONMOUSEOVER", "ROTATE", "HELP-ENTRY", "UUID", "INTERVAL-TYPE", "FONT", "WIDTH", "GENERATOR", "ONMOUSEDOWN", "COLWIDTH", "TEX-RENDER", "HREF", "FIT", "HTML-WIDTH", "ITEM-LABEL-POS", "ONMOUSEMOVE", "ALIGN", "ONKEYPRESS", "COLNAME", "SHOW-RESOURCE-ALIAS-NAME", "SCALE", "SI", "xsi:schemaLocation", "ACCESSKEY", "T", "NAMEEND", "xml:space", "EDITSCALE", "VALIDITY", "HTML-SCALE", "COLSEP", "NOTATION", "COLS", "NAME-PATTERN", "EDIT-HEIGHT", "RESOLUTION-POLICY", "SD", "TABINDEX", "TITLE", "ONKEYDOWN", "MIME-TYPE", "HTML-HEIGHT", "ONCLICK", "SHOW-SEE", "ONFOCUS"];
 
     /// derive an enum entry from an input string using a perfect hash function
+    ///
+    /// # Errors
+    ///
+    /// [`ParseAttributeNameError`]: The input string did not match the name of any enum item
     pub fn from_bytes(input: &[u8]) -> Result<Self, ParseAttributeNameError> {
         static DISPLACEMENTS: [(u16, u16); 21] = [(0, 0), (0, 1), (0, 21), (0, 55), (0, 52), (0, 46), (0, 29), (0, 6), (0, 4), (1, 42), (0, 57), (0, 82), (0, 64), (0, 21), (12, 82), (1, 87), (22, 29), (7, 30), (0, 0), (44, 96), (64, 36)];
         let (g, f1, f2) = hashfunc(input);

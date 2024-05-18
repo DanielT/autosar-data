@@ -59,20 +59,21 @@ impl CharacterData {
             if let CharacterData::Enum(attrval) = self {
                 if let Some((_, enumitem_version_mask)) = items.iter().find(|(item, _)| *item == *attrval) {
                     if target_version.compatible(*enumitem_version_mask) {
-                        return (true, *enumitem_version_mask);
+                        (true, *enumitem_version_mask)
                     } else {
-                        return (false, *enumitem_version_mask);
+                        (false, *enumitem_version_mask)
                     }
                 } else {
                     // no spec for this item -> not allowed in any version
-                    return (false, 0);
+                    (false, 0)
                 }
             } else {
                 // content is not an enum item, but an enum item is expected
-                return (false, u32::MAX);
+                (false, u32::MAX)
             }
+        } else {
+            (true, u32::MAX)
         }
-        (true, u32::MAX)
     }
 
     pub(crate) fn parse(input: &str, character_data_spec: &CharacterDataSpec, version: AutosarVersion) -> Option<Self> {

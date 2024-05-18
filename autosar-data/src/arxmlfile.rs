@@ -1,5 +1,4 @@
 use std::hash::Hash;
-use std::path::Path;
 
 use crate::*;
 
@@ -173,15 +172,10 @@ impl ArxmlFile {
     /// ```
     #[must_use]
     pub fn elements_dfs(&self) -> ArxmlFileElementsDfsIterator {
-        ArxmlFileElementsDfsIterator::new(self.downgrade(), &self.model().unwrap().root_element())
+        ArxmlFileElementsDfsIterator::new(self)
     }
 
     /// Serialize the content of the file to a String
-    ///
-    /// # Possible errors
-    ///
-    /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
-    /// [`AutosarDataError::EmptyFile`]: The file is empty and cannot be serialized
     ///
     /// # Example
     ///
@@ -191,6 +185,11 @@ impl ArxmlFile {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let text = file.serialize();
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
+    /// [`AutosarDataError::EmptyFile`]: The file is empty and cannot be serialized
     pub fn serialize(&self) -> Result<String, AutosarDataError> {
         let model = self.model()?;
         if !model.root_element().file_membership()?.1.contains(&self.downgrade()) {
@@ -207,7 +206,7 @@ impl ArxmlFile {
         model.0.write().set_version(self.0.read().version);
         model
             .root_element()
-            .serialize_internal(&mut outstring, 0, false, Some(self.downgrade()));
+            .serialize_internal(&mut outstring, 0, false, &Some(self.downgrade()));
 
         Ok(outstring)
     }

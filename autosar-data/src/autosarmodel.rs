@@ -1,9 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    path::Path,
-    str::FromStr,
-};
+use std::{collections::HashMap, hash::Hash, str::FromStr};
 
 use crate::*;
 
@@ -386,7 +381,7 @@ impl AutosarModel {
             // files contains the permisions of the parent
             let mut elem_locked = element.0.write();
             if elem_locked.file_membership.is_empty() {
-                elem_locked.file_membership = files.to_owned();
+                files.clone_into(&mut elem_locked.file_membership);
             }
         }
         // elements in elements_b_only are not present in the model. They need to be moved over and inserted at a reasonable position
@@ -574,10 +569,9 @@ impl AutosarModel {
     /// # }
     /// ```
     ///
-    /// # Possible errors
+    /// # Errors
     ///
     ///  - [`AutosarDataError::IoErrorWrite`]: There was an error while writing a file
-    ///
     pub fn write(&self) -> Result<(), AutosarDataError> {
         for (pathbuf, filedata) in self.serialize_files() {
             std::fs::write(pathbuf.clone(), filedata).map_err(|err| AutosarDataError::IoErrorWrite {

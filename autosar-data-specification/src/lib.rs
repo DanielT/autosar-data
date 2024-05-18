@@ -8,27 +8,27 @@
 //!
 //! ## Supported standards:
 //!
-//! | xsd filename      | description               |
-//! |-------------------|---------------------------|
-//! | AUTOSAR_4-0-1.xsd | AUTOSAR 4.0.1             |
-//! | AUTOSAR_4-0-2.xsd | AUTOSAR 4.0.2             |
-//! | AUTOSAR_4-0-3.xsd | AUTOSAR 4.0.3             |
-//! | AUTOSAR_4-1-1.xsd | AUTOSAR 4.1.1             |
-//! | AUTOSAR_4-1-2.xsd | AUTOSAR 4.1.2             |
-//! | AUTOSAR_4-1-3.xsd | AUTOSAR 4.1.3             |
-//! | AUTOSAR_4-2-1.xsd | AUTOSAR 4.2.1             |
-//! | AUTOSAR_4-2-2.xsd | AUTOSAR 4.2.2             |
-//! | AUTOSAR_4-3-0.xsd | AUTOSAR 4.3.0             |
-//! | AUTOSAR_00042.xsd | AUTOSAR Adaptive 17-03    |
-//! | AUTOSAR_00043.xsd | AUTOSAR Adaptive 17-10    |
-//! | AUTOSAR_00044.xsd | AUTOSAR Classic 4.3.1     |
-//! | AUTOSAR_00045.xsd | AUTOSAR Adaptive 18-03    |
-//! | AUTOSAR_00046.xsd | AUTOSAR Classic 4.4.0 / Adaptive 18-10 |
-//! | AUTOSAR_00047.xsd | AUTOSAR Adaptive 19-03    |
-//! | AUTOSAR_00048.xsd | AUTOSAR 4.5.0             |
-//! | AUTOSAR_00049.xsd | AUTOSAR R20-11            |
-//! | AUTOSAR_00050.xsd | AUTOSAR R21-11            |
-//! | AUTOSAR_00051.xsd | AUTOSAR R22-11            |
+//! | xsd filename        | description               |
+//! |---------------------|---------------------------|
+//! | `AUTOSAR_4-0-1.xsd` | AUTOSAR 4.0.1             |
+//! | `AUTOSAR_4-0-2.xsd` | AUTOSAR 4.0.2             |
+//! | `AUTOSAR_4-0-3.xsd` | AUTOSAR 4.0.3             |
+//! | `AUTOSAR_4-1-1.xsd` | AUTOSAR 4.1.1             |
+//! | `AUTOSAR_4-1-2.xsd` | AUTOSAR 4.1.2             |
+//! | `AUTOSAR_4-1-3.xsd` | AUTOSAR 4.1.3             |
+//! | `AUTOSAR_4-2-1.xsd` | AUTOSAR 4.2.1             |
+//! | `AUTOSAR_4-2-2.xsd` | AUTOSAR 4.2.2             |
+//! | `AUTOSAR_4-3-0.xsd` | AUTOSAR 4.3.0             |
+//! | `AUTOSAR_00042.xsd` | AUTOSAR Adaptive 17-03    |
+//! | `AUTOSAR_00043.xsd` | AUTOSAR Adaptive 17-10    |
+//! | `AUTOSAR_00044.xsd` | AUTOSAR Classic 4.3.1     |
+//! | `AUTOSAR_00045.xsd` | AUTOSAR Adaptive 18-03    |
+//! | `AUTOSAR_00046.xsd` | AUTOSAR Classic 4.4.0 / Adaptive 18-10 |
+//! | `AUTOSAR_00047.xsd` | AUTOSAR Adaptive 19-03    |
+//! | `AUTOSAR_00048.xsd` | AUTOSAR 4.5.0             |
+//! | `AUTOSAR_00049.xsd` | AUTOSAR R20-11            |
+//! | `AUTOSAR_00050.xsd` | AUTOSAR R21-11            |
+//! | `AUTOSAR_00051.xsd` | AUTOSAR R22-11            |
 //!
 //! ## Using the crate
 //!
@@ -82,10 +82,10 @@ mod specification;
 
 use std::ops::BitXor;
 
-pub use attributename::AttributeName;
-pub use autosarversion::AutosarVersion;
-pub use elementname::ElementName;
-pub use enumitem::EnumItem;
+pub use attributename::{AttributeName, ParseAttributeNameError};
+pub use autosarversion::{AutosarVersion, ParseAutosarVersionError};
+pub use elementname::{ElementName, ParseElementNameError};
+pub use enumitem::{EnumItem, ParseEnumItemError};
 use specification::{
     ATTRIBUTES, AUTOSAR_ELEMENT, CHARACTER_DATA, DATATYPES, ELEMENTS, REFERENCE_TYPE_IDX, REF_ITEMS, SUBELEMENTS,
     VERSION_INFO,
@@ -110,17 +110,17 @@ pub enum StdRestrict {
 /// The `ContentMode` specifies what content may occur inside an element
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ContentMode {
-    /// Sequence: an ordered sequence of elements
+    /// `Sequence`: an ordered sequence of elements
     Sequence,
-    /// Choice: a single element must be chosen from multiple options.
+    /// `Choice`: a single element must be chosen from multiple options.
     /// If the multiplicity of the chosen element is `Any` then it may repeat so there might still be more than one sub element
     Choice,
-    /// Bag: From a list of choices, choose a sub element any number of times.
-    /// In this ContentMode all allowed sub elements may occur any number of times and in any order
+    /// `Bag`: From a list of choices, choose a sub element any number of times.
+    /// In this content mode all allowed sub elements may occur any number of times and in any order
     Bag,
-    /// Characters: no sub elements are permitted, there can only be character content
+    /// `Characters`: no sub elements are permitted, there can only be character content
     Characters,
-    /// Mixed: both characters content and sub elements are allowed, in any order. It's basically like HTML
+    /// `Mixed`: both characters content and sub elements are allowed, in any order. It's basically like HTML
     Mixed,
 }
 
@@ -130,12 +130,13 @@ pub enum CharacterDataSpec {
     Enum {
         items: &'static [(EnumItem, u32)],
     },
-    /// The character data is restricted to match a regex, which is given in text form in the filed regex.
-    /// The check_fn is a function that validates input according to the regex.
-    /// If a max_length is given, then it restricts the length (in bytes).
+    /// The character data is restricted to match a regular expression, which is given in text form in the field `regex`.
     Pattern {
+        /// The `check_fn` is a function that validates input according to the regex.
         check_fn: fn(&[u8]) -> bool,
+        // Regular expression as a string; it is only informational. Checking is performed by `check_fn`
         regex: &'static str,
+        /// If a `max_length` is given, then it restricts the length (in bytes).
         max_length: Option<usize>,
     },
     /// An arbitrary string; if preserve whitepace is set, then whitespace should be preserved during parsing (see the XML standard)
@@ -525,7 +526,7 @@ impl ElementType {
 
     /// find the correct `EnumItem` to use in the DEST attribute when referring from this element to the other element
     ///
-    /// Returns `Some(enum_item`) it the reference is possible, and None otherwise.
+    /// Returns `Some(enum_item)` if the reference is possible, and None otherwise.
     ///
     /// Example:
     ///
@@ -1143,6 +1144,26 @@ mod test {
         assert_ne!(ar_packages_type.splittable() & AutosarVersion::Autosar_00051 as u32, 0);
         assert!(ar_packages_type.splittable_in(AutosarVersion::Autosar_00051));
         assert_ne!(elements_type.splittable() & AutosarVersion::Autosar_00051 as u32, 0);
+    }
+
+    #[test]
+    fn std_restriction() {
+        let (ar_packages_type, _) = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap();
+        let (ar_package_type, _) = ar_packages_type
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap();
+        let (elements_type, _) = ar_package_type
+            .find_sub_element(ElementName::Elements, u32::MAX)
+            .unwrap();
+        let (machine_type, _) = elements_type.find_sub_element(ElementName::Machine, u32::MAX).unwrap();
+        let (defapp_timeout_type, _) = machine_type
+            .find_sub_element(ElementName::DefaultApplicationTimeout, u32::MAX)
+            .unwrap();
+
+        assert_eq!(ar_package_type.std_restriction(), StdRestrict::NotRestricted);
+        assert_eq!(defapp_timeout_type.std_restriction(), StdRestrict::AdaptivePlatform);
     }
 
     #[test]

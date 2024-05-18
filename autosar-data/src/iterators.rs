@@ -87,16 +87,15 @@ impl ElementContentIterator {
 
 #[doc(hidden)]
 pub struct ArxmlFileElementsDfsIterator {
-    file: WeakArxmlFile,
-    dfs_iter: ElementsDfsIterator,
+    weak_file: WeakArxmlFile,
+    dfs_iter: Option<ElementsDfsIterator>,
 }
 
 impl ArxmlFileElementsDfsIterator {
-    pub(crate) fn new(file: WeakArxmlFile, element: &Element) -> Self {
-        Self {
-            file,
-            dfs_iter: ElementsDfsIterator::new(element),
-        }
+    pub(crate) fn new(file: &ArxmlFile) -> Self {
+        let weak_file = file.downgrade();
+        let dfs_iter = file.model().ok().map(|m| m.elements_dfs());
+        Self { weak_file, dfs_iter }
     }
 }
 
@@ -104,14 +103,16 @@ impl Iterator for ArxmlFileElementsDfsIterator {
     type Item = (usize, Element);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut next_element = self.dfs_iter.next();
+        let iter = self.dfs_iter.as_mut()?;
+        let mut next_element = iter.next();
         while let Some((depth, elem)) = next_element {
             let files = elem.file_membership_local();
-            if files.is_empty() || files.contains(&self.file) {
+            if files.is_empty() || files.contains(&self.weak_file) {
+                // found an element that is present in this file
                 return Some((depth, elem));
-            } else {
-                next_element = self.dfs_iter.next_sibling();
             }
+            // skip the current subtree
+            next_element = iter.next_sibling();
         }
         None
     }

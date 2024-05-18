@@ -11,50 +11,50 @@ pub struct ParseAutosarVersionError;
 #[non_exhaustive]
 /// Enum of all Autosar versions
 pub enum AutosarVersion {
-    /// AUTOSAR 4.0.1 - xsd file name: AUTOSAR_4-0-1.xsd
+    /// AUTOSAR 4.0.1 - xsd file name: `AUTOSAR_4-0-1.xsd`
     Autosar_4_0_1 = 0x1,
-    /// AUTOSAR 4.0.2 - xsd file name: AUTOSAR_4-0-2.xsd
+    /// AUTOSAR 4.0.2 - xsd file name: `AUTOSAR_4-0-2.xsd`
     Autosar_4_0_2 = 0x2,
-    /// AUTOSAR 4.0.3 - xsd file name: AUTOSAR_4-0-3.xsd
+    /// AUTOSAR 4.0.3 - xsd file name: `AUTOSAR_4-0-3.xsd`
     Autosar_4_0_3 = 0x4,
-    /// AUTOSAR 4.1.1 - xsd file name: AUTOSAR_4-1-1.xsd
+    /// AUTOSAR 4.1.1 - xsd file name: `AUTOSAR_4-1-1.xsd`
     Autosar_4_1_1 = 0x8,
-    /// AUTOSAR 4.1.2 - xsd file name: AUTOSAR_4-1-2.xsd
+    /// AUTOSAR 4.1.2 - xsd file name: `AUTOSAR_4-1-2.xsd`
     Autosar_4_1_2 = 0x10,
-    /// AUTOSAR 4.1.3 - xsd file name: AUTOSAR_4-1-3.xsd
+    /// AUTOSAR 4.1.3 - xsd file name: `AUTOSAR_4-1-3.xsd`
     Autosar_4_1_3 = 0x20,
-    /// AUTOSAR 4.2.1 - xsd file name: AUTOSAR_4-2-1.xsd
+    /// AUTOSAR 4.2.1 - xsd file name: `AUTOSAR_4-2-1.xsd`
     Autosar_4_2_1 = 0x40,
-    /// AUTOSAR 4.2.2 - xsd file name: AUTOSAR_4-2-2.xsd
+    /// AUTOSAR 4.2.2 - xsd file name: `AUTOSAR_4-2-2.xsd`
     Autosar_4_2_2 = 0x80,
-    /// AUTOSAR 4.3.0 - xsd file name: AUTOSAR_4-3-0.xsd
+    /// AUTOSAR 4.3.0 - xsd file name: `AUTOSAR_4-3-0.xsd`
     Autosar_4_3_0 = 0x100,
-    /// AUTOSAR Adaptive 17-03 - xsd file name: AUTOSAR_00042.xsd
+    /// AUTOSAR Adaptive 17-03 - xsd file name: `AUTOSAR_00042.xsd`
     Autosar_00042 = 0x200,
-    /// AUTOSAR Adaptive 17-10 - xsd file name: AUTOSAR_00043.xsd
+    /// AUTOSAR Adaptive 17-10 - xsd file name: `AUTOSAR_00043.xsd`
     Autosar_00043 = 0x400,
-    /// AUTOSAR Classic 4.3.1 - xsd file name: AUTOSAR_00044.xsd
+    /// AUTOSAR Classic 4.3.1 - xsd file name: `AUTOSAR_00044.xsd`
     Autosar_00044 = 0x800,
-    /// AUTOSAR Adaptive 18-03 - xsd file name: AUTOSAR_00045.xsd
+    /// AUTOSAR Adaptive 18-03 - xsd file name: `AUTOSAR_00045.xsd`
     Autosar_00045 = 0x1000,
-    /// AUTOSAR Classic 4.4.0 / Adaptive 18-10 - xsd file name: AUTOSAR_00046.xsd
+    /// AUTOSAR Classic 4.4.0 / Adaptive 18-10 - xsd file name: `AUTOSAR_00046.xsd`
     Autosar_00046 = 0x2000,
-    /// AUTOSAR Adaptive 19-03 - xsd file name: AUTOSAR_00047.xsd
+    /// AUTOSAR Adaptive 19-03 - xsd file name: `AUTOSAR_00047.xsd`
     Autosar_00047 = 0x4000,
-    /// AUTOSAR 4.5.0 - xsd file name: AUTOSAR_00048.xsd
+    /// AUTOSAR 4.5.0 - xsd file name: `AUTOSAR_00048.xsd`
     Autosar_00048 = 0x8000,
-    /// AUTOSAR R20-11 - xsd file name: AUTOSAR_00049.xsd
+    /// AUTOSAR R20-11 - xsd file name: `AUTOSAR_00049.xsd`
     Autosar_00049 = 0x10000,
-    /// AUTOSAR R21-11 - xsd file name: AUTOSAR_00050.xsd
+    /// AUTOSAR R21-11 - xsd file name: `AUTOSAR_00050.xsd`
     Autosar_00050 = 0x20000,
-    /// AUTOSAR R22-11 - xsd file name: AUTOSAR_00051.xsd
+    /// AUTOSAR R22-11 - xsd file name: `AUTOSAR_00051.xsd`
     Autosar_00051 = 0x40000,
-    /// AUTOSAR R23-11 - xsd file name: AUTOSAR_00052.xsd
+    /// AUTOSAR R23-11 - xsd file name: `AUTOSAR_00052.xsd`
     Autosar_00052 = 0x80000,
 }
 
 impl AutosarVersion {
-    /// get the name of the xds file matching the Autosar version
+    /// get the name of the xsd file matching the Autosar version
     #[must_use]
     pub fn filename(&self) -> &'static str {
         match self {
