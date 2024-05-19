@@ -1,5 +1,7 @@
-use crate::{abstraction_element, AbstactionElement, ArPackage, AutosarAbstractionError, EcuInstance};
-use autosar_data::{AutosarDataError, AutosarModel, CharacterData, Element, ElementName, ElementsIterator};
+use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
+use autosar_data::{
+    AutosarDataError, AutosarModel, CharacterData, Element, ElementName, ElementsIterator, WeakElement,
+};
 
 /// Settings for a CAN cluster
 #[derive(Debug, Clone, PartialEq)]
@@ -103,6 +105,7 @@ impl CanCluster {
     /// let settings2 = cluster.get_settings();
     /// assert_eq!(settings, settings2);
     /// ```
+    #[must_use]
     pub fn get_settings(&self) -> CanClusterSettings {
         let mut settings = CanClusterSettings {
             baudrate: 0,
@@ -187,7 +190,8 @@ impl CanCluster {
     /// # let can_channel = cluster.create_physical_channel("Channel").unwrap();
     /// let channel = cluster.physical_channel().unwrap();
     /// # assert_eq!(channel, can_channel);
-    /// ```
+    /// ````
+    #[must_use]
     pub fn physical_channel(&self) -> Option<CanPhysicalChannel> {
         let channel = self
             .0
@@ -201,7 +205,7 @@ impl CanCluster {
 
 //##################################################################
 
-/// The CanPhysicalChannel contains all of the communication on a CAN network
+/// The `CanPhysicalChannel contains all of the communication on a CAN network
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CanPhysicalChannel(Element);
 abstraction_element!(CanPhysicalChannel, CanPhysicalChannel);
@@ -272,6 +276,7 @@ impl CanCommunicationController {
     /// # Errors
     ///
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
+    #[must_use]
     pub fn connected_channels(&self) -> CanCtrlChannelsIterator {
         if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element()) {
             CanCtrlChannelsIterator::new(self, &ecu)
@@ -284,7 +289,7 @@ impl CanCommunicationController {
         }
     }
 
-    /// get the EcuInstance that contains this CanCommunicationController
+    /// get the [`EcuInstance`] that contains this `CanCommunicationController`
     ///
     /// # Example
     ///
@@ -416,7 +421,7 @@ impl Iterator for CanCtrlChannelsIterator {
                         for ref_origin in model
                             .get_references_to(&connector.path().ok()?)
                             .iter()
-                            .filter_map(|weakelem| weakelem.upgrade())
+                            .filter_map(WeakElement::upgrade)
                             .filter_map(|elem| elem.named_parent().ok().flatten())
                         {
                             // This assumes that each connector will only ever be referenced by at most one

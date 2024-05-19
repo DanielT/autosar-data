@@ -1,6 +1,7 @@
-use crate::{abstraction_element, AbstactionElement, ArPackage, AutosarAbstractionError, EcuInstance};
+use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
 use autosar_data::{
-    AutosarDataError, AutosarModel, CharacterData, Element, ElementName, ElementsIterator, WeakElement,
+    AutosarDataError, AutosarModel, AutosarVersion, CharacterData, Element, ElementName, ElementsIterator, EnumItem,
+    WeakElement,
 };
 
 /// Provides information about the VLAN of an [`EthernetPhysicalChannel`]
@@ -10,7 +11,7 @@ pub struct EthernetVlanInfo {
     pub vlan_id: u16,
 }
 
-/// An EthernetCluster contains all configuration items associated with an ethernet network.
+/// An `EthernetCluster` contains all configuration items associated with an ethernet network.
 /// The cluster connects multiple ECUs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EthernetCluster(Element);
@@ -189,6 +190,108 @@ impl EthernetPhysicalChannel {
         let cluster_elem = self.0.named_parent()?.unwrap();
         EthernetCluster::try_from(cluster_elem)
     }
+
+    /// create a network endpoint - IPv4 or IPv6 address - for this channel
+    ///
+    /// In older versions of the Autosar standard, up to version 4.4.0, the `NetworkEndpoint` could be linked to an Ecu.
+    /// The parameter `ecu` specifies the target.
+    /// The link is obsoleted in newer versions, and will only be created if the file version allows it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// let endpoint_address = NetworkEndpointAddress::IPv4 {
+    ///     address: Some("192.168.0.1".to_string()),
+    ///     address_source: Some(IPv4AddressSource::Fixed),
+    ///     default_gateway: Some("192.168.0.2".to_string()),
+    ///     network_mask: Some("255.255.255.0".to_string()),
+    /// };
+    /// let network_endpoint = channel.create_network_endpoint("Address1", endpoint_address, None).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
+    pub fn create_network_endpoint(
+        &self,
+        name: &str,
+        address: NetworkEndpointAddress,
+        ecu: Option<&EcuInstance>,
+    ) -> Result<NetworkEndpoint, AutosarAbstractionError> {
+        let network_endpoint = NetworkEndpoint::new(name, self, address)?;
+
+        if let Some(ecu_instance) = ecu {
+            let version = self.0.min_version()?;
+            if version <= AutosarVersion::Autosar_00046 {
+                let ne_element = network_endpoint.element();
+
+                // get a connector referenced by this physical channel which is contained in the ecu_instance
+                if let Some(connector) = self.0.get_sub_element(ElementName::CommConnectors).and_then(|cc| {
+                    cc.sub_elements().find(|ccrc| {
+                        ccrc.get_sub_element(ElementName::CommunicationConnectorRef)
+                            .and_then(|ccr| {
+                                ccr.get_reference_target()
+                                    .and_then(|r| r.named_parent())
+                                    .ok()
+                                    .flatten()
+                                    .map(|p| p == ecu_instance.element())
+                            })
+                            .unwrap_or(false)
+                    })
+                }) {
+                    let _ = connector
+                        .get_or_create_sub_element(ElementName::NetworkEndpointRefs)
+                        .and_then(|ner| ner.create_sub_element(ElementName::NetworkEndpointRef))
+                        .and_then(|ner| ner.set_reference_target(&ne_element));
+                } else {
+                    // no connector between the ECU and this channel -> abort
+                    self.0
+                        .get_sub_element(ElementName::NetworkEndpoints)
+                        .and_then(|endpoints| endpoints.remove_sub_element(ne_element).ok());
+                }
+            }
+        }
+
+        Ok(network_endpoint)
+    }
+
+    /// create an iterator over all `NetworkEnpoint`s in this channel
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # let endpoint_address = NetworkEndpointAddress::IPv4 {
+    /// #     address: Some("192.168.0.1".to_string()),
+    /// #     address_source: Some(IPv4AddressSource::Fixed),
+    /// #     default_gateway: Some("192.168.0.2".to_string()),
+    /// #     network_mask: Some("255.255.255.0".to_string()),
+    /// # };
+    /// # channel.create_network_endpoint("Address1", endpoint_address, None).unwrap();
+    /// for network_endpoint in channel.network_endpoints() {
+    ///     // ...
+    /// }
+    /// # assert_eq!(channel.network_endpoints().count(), 1)
+    /// ```
+    #[must_use]
+    pub fn network_endpoints(&self) -> NetworkEndpointIterator {
+        NetworkEndpointIterator::new(self)
+    }
 }
 
 //##################################################################
@@ -252,6 +355,7 @@ impl EthernetCommunicationController {
     /// # Errors
     ///
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
+    #[must_use]
     pub fn connected_channels(&self) -> EthernetCtrlChannelsIterator {
         if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element()) {
             EthernetCtrlChannelsIterator::new(self, &ecu)
@@ -396,6 +500,278 @@ impl EthernetCommunicationController {
 
 //##################################################################
 
+/// A network endpoint contains address information for a connection
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NetworkEndpoint(Element);
+abstraction_element!(NetworkEndpoint, NetworkEndpoint);
+
+impl NetworkEndpoint {
+    fn new(
+        name: &str,
+        channel: &EthernetPhysicalChannel,
+        address: NetworkEndpointAddress,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let el_network_endpoint = channel
+            .0
+            .get_or_create_sub_element(ElementName::NetworkEndpoints)?
+            .create_named_sub_element(ElementName::NetworkEndpoint, name)?;
+
+        let network_endpoint = Self(el_network_endpoint);
+        let result = network_endpoint.add_network_endpoint_address(address);
+        if let Err(error) = result {
+            let _ = channel.0.remove_sub_element(network_endpoint.0);
+            return Err(error);
+        }
+
+        Ok(network_endpoint)
+    }
+
+    /// add a network endpoint address to this `NetworkEndpoint`
+    ///
+    /// A `NetworkEndpoint` may have multiple sets of address information. The following restrictions apply:
+    ///
+    /// - all addresses must have the same type, i.e. all IPv4 or all IPv6
+    /// - only one of them may be a `Fixed` address, all others must be dynamic (DHCP, automatic link local, etc.)
+    pub fn add_network_endpoint_address(&self, address: NetworkEndpointAddress) -> Result<(), AutosarAbstractionError> {
+        let mut fixedcount = 0;
+        if matches!(address, NetworkEndpointAddress::IPv4 { address_source, .. } if address_source == Some(IPv4AddressSource::Fixed))
+            || matches!(address, NetworkEndpointAddress::IPv6 { address_source, .. } if address_source == Some(IPv6AddressSource::Fixed))
+        {
+            fixedcount = 1;
+        }
+        for existing_address in self.addresses() {
+            if std::mem::discriminant(&existing_address) != std::mem::discriminant(&address) {
+                return Err(AutosarAbstractionError::InvalidParameter(
+                    "you cannot mix IPv4 and IPv6 inside one NetworkEndpoint".to_string(),
+                ));
+            }
+            if matches!(existing_address, NetworkEndpointAddress::IPv4 { address_source, .. } if address_source == Some(IPv4AddressSource::Fixed))
+                || matches!(existing_address, NetworkEndpointAddress::IPv6 { address_source, .. } if address_source == Some(IPv6AddressSource::Fixed))
+            {
+                fixedcount += 1;
+            }
+        }
+        if fixedcount > 1 {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "Only one NetworkEndpointAddress can be a fixed address".to_string(),
+            ));
+        }
+
+        let addresses = self
+            .0
+            .get_or_create_sub_element(ElementName::NetworkEndpointAddresses)?;
+        match address {
+            NetworkEndpointAddress::IPv4 {
+                address,
+                address_source,
+                default_gateway,
+                network_mask,
+            } => {
+                let cfg = addresses.create_sub_element(ElementName::Ipv4Configuration)?;
+                if let Some(addr) = address {
+                    cfg.create_sub_element(ElementName::Ipv4Address)?
+                        .set_character_data(CharacterData::String(addr))?;
+                }
+                if let Some(addr_src) = address_source {
+                    cfg.create_sub_element(ElementName::Ipv4AddressSource)?
+                        .set_character_data(addr_src.to_cdata())?;
+                }
+                if let Some(defgw) = default_gateway {
+                    cfg.create_sub_element(ElementName::DefaultGateway)?
+                        .set_character_data(CharacterData::String(defgw))?;
+                }
+                if let Some(netmask) = network_mask {
+                    cfg.create_sub_element(ElementName::NetworkMask)?
+                        .set_character_data(CharacterData::String(netmask))?;
+                }
+            }
+            NetworkEndpointAddress::IPv6 {
+                address,
+                address_source,
+                default_router,
+            } => {
+                let cfg = addresses.create_sub_element(ElementName::Ipv6Configuration)?;
+                if let Some(addr) = address {
+                    cfg.create_sub_element(ElementName::Ipv6Address)?
+                        .set_character_data(CharacterData::String(addr))?;
+                }
+                if let Some(addr_src) = address_source {
+                    cfg.create_sub_element(ElementName::Ipv6AddressSource)?
+                        .set_character_data(addr_src.to_cdata())?;
+                }
+                if let Some(dr) = default_router {
+                    cfg.create_sub_element(ElementName::DefaultRouter)?
+                        .set_character_data(CharacterData::String(dr))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn addresses(&self) -> NetworkEndpointAddressIterator {
+        NetworkEndpointAddressIterator::new(self)
+    }
+}
+
+//##################################################################
+
+/// address information for a network endpoint
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkEndpointAddress {
+    /// IPv4 addressing information
+    IPv4 {
+        /// IPv4 address in the form "a.b.c.d". This is used if the address source is FIXED
+        address: Option<String>,
+        /// defines how the address is obtained
+        address_source: Option<IPv4AddressSource>,
+        /// ip address of the default gateway
+        default_gateway: Option<String>,
+        /// Network mask in the form "a.b.c.d"
+        network_mask: Option<String>,
+    },
+    /// IPv6 addressing information
+    IPv6 {
+        /// IPv6 address, without abbreviation
+        address: Option<String>,
+        /// defines how the address is obtained
+        address_source: Option<IPv6AddressSource>,
+        /// IP address of the default router
+        default_router: Option<String>,
+    },
+}
+
+impl TryFrom<Element> for NetworkEndpointAddress {
+    type Error = AutosarAbstractionError;
+
+    fn try_from(element: Element) -> Result<Self, Self::Error> {
+        match element.element_name() {
+            ElementName::Ipv4Configuration => {
+                let address = element
+                    .get_sub_element(ElementName::Ipv4Address)
+                    .and_then(|i4a| i4a.character_data())
+                    .and_then(|cdata| cdata.string_value());
+                let address_source = element
+                    .get_sub_element(ElementName::Ipv4AddressSource)
+                    .and_then(|i4as| i4as.character_data())
+                    .and_then(IPv4AddressSource::from_cdata);
+                let default_gateway = element
+                    .get_sub_element(ElementName::DefaultGateway)
+                    .and_then(|dg| dg.character_data())
+                    .and_then(|cdata| cdata.string_value());
+                let network_mask = element
+                    .get_sub_element(ElementName::NetworkMask)
+                    .and_then(|nm| nm.character_data())
+                    .and_then(|cdata| cdata.string_value());
+
+                Ok(NetworkEndpointAddress::IPv4 {
+                    address,
+                    address_source,
+                    default_gateway,
+                    network_mask,
+                })
+            }
+            ElementName::Ipv6Configuration => {
+                let address = element
+                    .get_sub_element(ElementName::Ipv6Address)
+                    .and_then(|i6a| i6a.character_data())
+                    .and_then(|cdata| cdata.string_value());
+                let address_source = element
+                    .get_sub_element(ElementName::Ipv6AddressSource)
+                    .and_then(|i6as| i6as.character_data())
+                    .and_then(IPv6AddressSource::from_cdata);
+                let default_router = element
+                    .get_sub_element(ElementName::DefaultRouter)
+                    .and_then(|dr| dr.character_data())
+                    .and_then(|cdata| cdata.string_value());
+
+                Ok(NetworkEndpointAddress::IPv6 {
+                    address,
+                    address_source,
+                    default_router,
+                })
+            }
+            _ => Err(AutosarAbstractionError::ConversionError {
+                element,
+                dest: "NetwworkEndpointAddress".to_string(),
+            }),
+        }
+    }
+}
+
+/// `IPv4AddressSource` defines how the address of an IPv4 `NetworkEndpoint` is obtained
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IPv4AddressSource {
+    /// use AutoIp (aka APIPA) to assign a link-local address
+    AutoIp,
+    /// use AutoIp with DoIp settings to assign a link-local address
+    AutoIpDoIp,
+    /// dynamic assignment using DHCP
+    DHCPv4,
+    /// static IP address configuration - the address must be specified in NetworkEndpointAddress
+    Fixed,
+}
+
+impl IPv4AddressSource {
+    fn from_cdata(cdata: CharacterData) -> Option<Self> {
+        match cdata {
+            CharacterData::Enum(EnumItem::AutoIp) => Some(Self::AutoIp),
+            CharacterData::Enum(EnumItem::AutoIpDoip) => Some(Self::AutoIpDoIp),
+            CharacterData::Enum(EnumItem::Dhcpv4) => Some(Self::DHCPv4),
+            CharacterData::Enum(EnumItem::Fixed) => Some(Self::Fixed),
+            _ => None,
+        }
+    }
+
+    fn to_cdata(self) -> CharacterData {
+        match self {
+            Self::AutoIp => CharacterData::Enum(EnumItem::AutoIp),
+            Self::AutoIpDoIp => CharacterData::Enum(EnumItem::AutoIpDoip),
+            Self::DHCPv4 => CharacterData::Enum(EnumItem::Dhcpv4),
+            Self::Fixed => CharacterData::Enum(EnumItem::Fixed),
+        }
+    }
+}
+
+/// `IPv6AddressSource` defines how the address of an IPv6 `NetworkEndpoint` is obtained
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IPv6AddressSource {
+    /// dynamic assignment using DHCP
+    DHCPv6,
+    /// static IP address configuration - the address must be specified in NetworkEndpointAddress
+    Fixed,
+    /// automatic link local address assignment
+    LinkLocal,
+    /// automatic link local address assignment using doip parameters
+    LinkLocalDoIp,
+    /// IPv6 stateless autoconfiguration
+    RouterAdvertisement,
+}
+
+impl IPv6AddressSource {
+    fn from_cdata(cdata: CharacterData) -> Option<Self> {
+        match cdata {
+            CharacterData::Enum(EnumItem::Dhcpv6) => Some(Self::DHCPv6),
+            CharacterData::Enum(EnumItem::Fixed) => Some(Self::Fixed),
+            CharacterData::Enum(EnumItem::LinkLocal) => Some(Self::LinkLocal),
+            CharacterData::Enum(EnumItem::LinkLocalDoip) => Some(Self::LinkLocalDoIp),
+            CharacterData::Enum(EnumItem::RouterAdvertisement) => Some(Self::RouterAdvertisement),
+            _ => None,
+        }
+    }
+
+    fn to_cdata(self) -> CharacterData {
+        match self {
+            Self::DHCPv6 => CharacterData::Enum(EnumItem::Dhcpv6),
+            Self::Fixed => CharacterData::Enum(EnumItem::Fixed),
+            Self::LinkLocal => CharacterData::Enum(EnumItem::LinkLocal),
+            Self::LinkLocalDoIp => CharacterData::Enum(EnumItem::LinkLocalDoip),
+            Self::RouterAdvertisement => CharacterData::Enum(EnumItem::RouterAdvertisement),
+        }
+    }
+}
+
+//##################################################################
+
 #[doc(hidden)]
 pub struct EthernetCtrlChannelsIterator {
     connector_iter: Option<ElementsIterator>,
@@ -477,6 +853,70 @@ impl Iterator for EthernetClusterChannelsIterator {
         for channel in elements_iter.by_ref() {
             if let Ok(ethernet_physical_channel) = EthernetPhysicalChannel::try_from(channel) {
                 return Some(ethernet_physical_channel);
+            }
+        }
+        None
+    }
+}
+
+//##################################################################
+
+#[doc(hidden)]
+pub struct NetworkEndpointIterator {
+    elements_iter: Option<ElementsIterator>,
+}
+
+impl NetworkEndpointIterator {
+    fn new(channel: &EthernetPhysicalChannel) -> Self {
+        let elements_iter = channel
+            .0
+            .get_sub_element(ElementName::NetworkEndpoints)
+            .map(|ne| ne.sub_elements());
+
+        Self { elements_iter }
+    }
+}
+
+impl Iterator for NetworkEndpointIterator {
+    type Item = NetworkEndpoint;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let elements_iter = self.elements_iter.as_mut()?;
+        for endpoint in elements_iter.by_ref() {
+            if let Ok(network_endpoint) = NetworkEndpoint::try_from(endpoint) {
+                return Some(network_endpoint);
+            }
+        }
+        None
+    }
+}
+
+//##################################################################
+
+#[doc(hidden)]
+pub struct NetworkEndpointAddressIterator {
+    elements_iter: Option<ElementsIterator>,
+}
+
+impl NetworkEndpointAddressIterator {
+    fn new(network_endpoint: &NetworkEndpoint) -> Self {
+        let elements_iter = network_endpoint
+            .0
+            .get_sub_element(ElementName::NetworkEndpointAddresses)
+            .map(|nea| nea.sub_elements());
+
+        Self { elements_iter }
+    }
+}
+
+impl Iterator for NetworkEndpointAddressIterator {
+    type Item = NetworkEndpointAddress;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let elements_iter = self.elements_iter.as_mut()?;
+        for channel in elements_iter.by_ref() {
+            if let Ok(network_endpoint_address) = NetworkEndpointAddress::try_from(channel) {
+                return Some(network_endpoint_address);
             }
         }
         None

@@ -9,23 +9,21 @@ mod flexray;
 mod system;
 
 pub use arpackage::ArPackage;
-pub use can::{CanCluster, CanClusterSettings, CanCommunicationController, CanPhysicalChannel};
-pub use ecuinstance::EcuInstance;
-pub use ethernet::{EthernetCluster, EthernetCommunicationController, EthernetPhysicalChannel, EthernetVlanInfo};
-pub use flexray::{
-    FlexrayChannelName, FlexrayCluster, FlexrayClusterSettings, FlexrayCommunicationController, FlexrayPhysicalChannel,
-};
-pub use system::{System, SystemCategory};
+pub use can::*;
+pub use ecuinstance::*;
+pub use ethernet::*;
+pub use flexray::*;
+pub use system::*;
 
 /// The error type `AutosarAbstractionError` wraps all errors from the crate
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum AutosarAbstractionError {
-    /// converting an autosar-data element to an AbstactionElement failed
+    /// converting an autosar-data element to a class in the abstract model failed
     #[error("conversion error: could not convert {} to {}", .element.element_name(), dest)]
     ConversionError { element: Element, dest: String },
 
-    /// ModelError wraps [`AutosarDataError`] errors from autosar-data operations, e.g.
+    /// `ModelError` wraps [`AutosarDataError`] errors from autosar-data operations, e.g.
     /// [`AutosarDataError::ItemDeleted`], [`AutosarDataError::IncorrectContentType`], ...
     #[error("model error: {}", .0)]
     ModelError(AutosarDataError),
@@ -49,7 +47,7 @@ impl From<AutosarDataError> for AutosarAbstractionError {
     }
 }
 
-pub trait AbstactionElement {
+pub trait AbstractionElement {
     #[must_use]
     fn element(&self) -> Element;
 
@@ -76,7 +74,7 @@ macro_rules! abstraction_element {
             }
         }
 
-        impl AbstactionElement for $name {
+        impl AbstractionElement for $name {
             fn element(&self) -> Element {
                 self.0.clone()
             }
