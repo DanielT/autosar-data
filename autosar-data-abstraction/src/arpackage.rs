@@ -1,8 +1,8 @@
 use autosar_data::{AutosarModel, Element, ElementName};
 
-use crate::{abstraction_element, AbstactionElement, AutosarAbstractionError};
+use crate::{abstraction_element, AbstractionElement, AutosarAbstractionError};
 
-/// An ArPackage is an Autosar package, which can contain other packages or elements
+/// An `ArPackage` is an Autosar package, which can contain other packages or elements
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ArPackage(Element);
 abstraction_element!(ArPackage, ArPackage);
@@ -22,15 +22,14 @@ impl ArPackage {
     ///
     /// # Errors
     ///
-    /// - [`AutosarAbstractionError::InvalidPath`] The value in package_path was not an Autosar path
+    /// - [`AutosarAbstractionError::InvalidPath`] The value in `package_path` was not an Autosar path
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
     pub fn get_or_create(model: &AutosarModel, package_path: &str) -> Result<Self, AutosarAbstractionError> {
         if let Some(pkg_elem) = model.get_element_by_path(package_path) {
             pkg_elem.try_into()
         } else {
             let mut parts_iter = package_path.split('/');
-            let first_part = parts_iter.next();
-            if first_part.is_none() || first_part.unwrap() != "" {
+            if parts_iter.next().unwrap_or("-") != "" {
                 return Err(AutosarAbstractionError::InvalidPath(package_path.to_string()));
             }
             let mut pkg_elem = model.root_element();

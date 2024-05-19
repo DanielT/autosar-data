@@ -1,4 +1,4 @@
-use crate::{abstraction_element, AbstactionElement, ArPackage, AutosarAbstractionError, EcuInstance};
+use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
 use autosar_data::{
     AutosarDataError, AutosarModel, CharacterData, Element, ElementName, ElementsIterator, EnumItem, WeakElement,
 };
@@ -801,6 +801,7 @@ impl FlexrayCommunicationController {
     /// # Errors
     ///
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
+    #[must_use]
     pub fn connected_channels(&self) -> FlexrayCtrlChannelsIterator {
         if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element()) {
             FlexrayCtrlChannelsIterator::new(self, &ecu)
@@ -840,7 +841,7 @@ impl FlexrayCommunicationController {
         EcuInstance::try_from(ecu)
     }
 
-    /// Connect this [`FlexrayCommunicationController`] inside an [`EcuInstance`] to a [`FlexrayPhysicalChannel`] in the [crate::System]
+    /// Connect this [`FlexrayCommunicationController`] inside an [`EcuInstance`] to a [`FlexrayPhysicalChannel`] in the [`crate::System`]
     ///
     /// Creates a FlexrayCommunicationConnector in the [`EcuInstance`] that contains this [`FlexrayCommunicationController`].
     ///

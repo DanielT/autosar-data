@@ -1,7 +1,7 @@
 use std::iter::FusedIterator;
 
 use crate::{
-    abstraction_element, can::CanClusterSettings, flexray::FlexrayClusterSettings, AbstactionElement, ArPackage,
+    abstraction_element, can::CanClusterSettings, flexray::FlexrayClusterSettings, AbstractionElement, ArPackage,
     AutosarAbstractionError, CanCluster, EcuInstance, EthernetCluster, FlexrayCluster,
 };
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, WeakElement};
@@ -286,15 +286,24 @@ impl System {
 
 //#########################################################
 
+/// The category of a System
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SystemCategory {
+    /// The `System` is used to describe system constraints
     SystemConstraints,
+    /// The `System` is used to describe the system configuration of a complete AUTOSAR system
     SystemDescription,
+    /// The `System` is used to describe a subsystem specific view on the complete system description
     SystemExtract,
+    /// The `System` is used to describe the ECU specific view on the complete system description
     EcuExtract,
+    /// The `System` is used to describe a functional (solution-independent/abstract) system design
     AbstractSystemDescription,
+    /// The `System` is used to describe the closed view on one ECU
     EcuSystemDescription,
+    /// The `System` describes the content of one CpSoftwareCluster
     SwClusterSystemDescription,
+    /// `System` which describes the rapid prototyping algorithm in the format of AUTOSAR Software Components
     RptSystem,
 }
 
@@ -428,7 +437,7 @@ impl FusedIterator for ClusterIterator {}
 #[cfg(test)]
 mod test {
     use crate::{
-        can::CanClusterSettings, flexray::FlexrayClusterSettings, system::SystemCategory, AbstactionElement, ArPackage,
+        can::CanClusterSettings, flexray::FlexrayClusterSettings, system::SystemCategory, AbstractionElement, ArPackage,
         System,
     };
     use autosar_data::{AutosarModel, AutosarVersion, ElementName};
@@ -568,7 +577,7 @@ mod test {
 
         system.create_ethernet_cluster("EthernetCluster", &package_2).unwrap();
 
-        // the ecu-instance is a fouth item in the FIBEX-ELEMENTS of the system, which should not be picked up by the iterator
+        // the ecu-instance is a fourth item in the FIBEX-ELEMENTS of the system, which should not be picked up by the iterator
         let package_3 = ArPackage::get_or_create(&model, "/ECU").unwrap();
         system.create_ecu_instance("Ecu_1", &package_3).unwrap();
 
