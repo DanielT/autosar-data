@@ -479,7 +479,7 @@ impl ElementRaw {
 
         // Arc overrides clone() so that it only manipulates the reference count, so a separate deep_copy operation is needed here.
         // Additionally, implementing this manually provides the opportunity to filter out
-        // elements that ae not compatible with the version of the current file.
+        // elements that are not compatible with the version of the current file.
         let newelem = other.0.read().deep_copy(version)?;
         let path = self.path_unchecked()?;
 

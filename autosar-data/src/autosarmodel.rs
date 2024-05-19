@@ -82,7 +82,6 @@ impl AutosarModel {
     /// # Errors
     ///
     ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
-    ///  - [`AutosarDataError::VersionMismatch`]: The new file cannot be creatd with a version that differs from the version of existing data
     ///
     pub fn create_file<P: AsRef<Path>>(
         &self,
@@ -643,6 +642,68 @@ impl AutosarModel {
     pub fn get_element_by_path(&self, path: &str) -> Option<Element> {
         let model = self.0.read();
         model.identifiables.get(path).and_then(WeakElement::upgrade)
+    }
+
+    /// Duplicate the model
+    ///
+    /// This creates a second, fully independent model.
+    /// The original model and the duplicate are not linked in any way and can be modified independently.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// let model = AutosarModel::new();
+    /// // [...]
+    /// let model_copy = model.duplicate()?;
+    /// assert!(model != model_copy);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [`AutosarDataError::IncorrectContentType`]: A sub element may not be created in an element with content type `CharacterData`.
+    ///  - [`AutosarDataError::ElementInsertionConflict`]: The requested sub element cannot be created because it conflicts with an existing sub element.
+    ///  - [`AutosarDataError::InvalidSubElement`]: The `ElementName` is not a valid sub element according to the specification.
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
+    pub fn duplicate(&self) -> Result<AutosarModel, AutosarDataError> {
+        let copy = Self::new();
+        let mut filemap = HashMap::new();
+
+        for orig_file in self.files() {
+            let filename = orig_file.filename();
+            let new_file = copy.create_file(filename.clone(), orig_file.version())?;
+            new_file.0.write().xml_standalone = orig_file.0.read().xml_standalone;
+            filemap.insert(filename, new_file.downgrade());
+        }
+
+        // by inserting copies of the sub elements of <AUTOSAR>, we automatically
+        // get up-to-date identifiables and reference_origins
+        for element in self.root_element().sub_elements() {
+            copy.root_element().create_copied_sub_element(&element)?;
+        }
+
+        // `create_copied_sub_element` does not transfer information about file membership
+        // this needs to be added back
+        let orig_iter = self.elements_dfs();
+        let copy_iter = copy.elements_dfs();
+        let combined = std::iter::zip(orig_iter, copy_iter);
+        for ((_, orig_elem), (_, copy_elem)) in combined {
+            let mut locked_copy = copy_elem.0.try_write().ok_or(AutosarDataError::ParentElementLocked)?;
+            locked_copy.file_membership.clear();
+
+            for orig_file in orig_elem.0.read().file_membership.iter().filter_map(|w| w.upgrade()) {
+                if let Some(copy_file) = filemap.get(&orig_file.filename()) {
+                    locked_copy.file_membership.insert(copy_file.clone());
+                }
+            }
+        }
+
+        Ok(copy)
     }
 
     /// create a depth-first iterator over all [Element]s in the model
@@ -1312,6 +1373,38 @@ mod test {
             result.get(&PathBuf::from("filename2")).unwrap(),
             &file2.serialize().unwrap()
         );
+    }
+
+    #[test]
+    fn duplicate() {
+        let model = AutosarModel::new();
+        let file1 = model.create_file("filename1", AutosarVersion::Autosar_00042).unwrap();
+        let file2 = model.create_file("filename2", AutosarVersion::Autosar_00042).unwrap();
+        let el_ar_packages = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
+        let el_pkg1 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "pkg1").unwrap();
+        let el_pkg2 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "pkg2").unwrap();
+
+        assert_eq!(el_ar_packages.file_membership().unwrap().1.len(), 2);
+        el_pkg1.remove_from_file(&file2).unwrap();
+        assert_eq!(el_pkg1.file_membership().unwrap().1.len(), 1);
+        el_pkg2.remove_from_file(&file1).unwrap();
+        assert_eq!(el_pkg2.file_membership().unwrap().1.len(), 1);
+
+        let model2 = model.duplicate().unwrap();
+        assert_eq!(model2.files().count(), 2);
+        let mut files_iter = model2.files();
+        // get the files out of model 2
+        let mut model2_file1 = files_iter.next().unwrap();
+        let mut model2_file2 = files_iter.next().unwrap();
+        // the iterator could return the files in any order - make sure that model2_file1 corresponds to file1
+        if model2_file1.filename() != file1.filename() {
+            std::mem::swap(&mut model2_file1, &mut model2_file2);
+        }
+
+        assert_eq!(file1.filename(), model2_file1.filename());
+        assert_eq!(file2.filename(), model2_file2.filename());
+        assert_eq!(file1.serialize().unwrap(), model2_file1.serialize().unwrap());
+        assert_eq!(file2.serialize().unwrap(), model2_file2.serialize().unwrap());
     }
 
     #[test]
