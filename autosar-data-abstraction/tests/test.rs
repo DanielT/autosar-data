@@ -2,8 +2,7 @@
 mod test {
     use autosar_data::{AutosarModel, AutosarVersion, ElementName};
     use autosar_data_abstraction::{
-        AbstactionElement, ArPackage, CanClusterSettings, EthernetVlanInfo, FlexrayChannelName, FlexrayClusterSettings,
-        System, SystemCategory,
+        AbstractionElement, ArPackage, CanClusterSettings, EthernetVlanInfo, FlexrayChannelName, FlexrayClusterSettings, IPv4AddressSource, NetworkEndpointAddress, System, SystemCategory
     };
 
     #[test]
@@ -68,6 +67,14 @@ mod test {
             .unwrap();
         let channels_iter = ethctrl.connected_channels();
         assert_eq!(channels_iter.count(), 1);
+
+        let address = NetworkEndpointAddress::IPv4 {
+            address: Some("192.168.0.1".to_string()),
+            address_source: Some(IPv4AddressSource::Fixed),
+            default_gateway: Some("192.168.0.200".to_string()),
+            network_mask: Some("255.255.255.0".to_string()),
+        };
+        eth_channel.create_network_endpoint("local_endpoint", address, None).unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
     }
