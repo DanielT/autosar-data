@@ -2,7 +2,7 @@
 mod test {
     use autosar_data::{AutosarModel, AutosarVersion, ElementName};
     use autosar_data_abstraction::{
-        AbstractionElement, ArPackage, CanClusterSettings, EthernetVlanInfo, FlexrayChannelName, FlexrayClusterSettings, IPv4AddressSource, NetworkEndpointAddress, System, SystemCategory
+        AbstractionElement, ArPackage, CanClusterSettings, EthernetVlanInfo, FlexrayChannelName, FlexrayClusterSettings, IPv4AddressSource, NetworkEndpointAddress, SocketAddressType, System, SystemCategory, TpConfig
     };
 
     #[test]
@@ -74,7 +74,21 @@ mod test {
             default_gateway: Some("192.168.0.200".to_string()),
             network_mask: Some("255.255.255.0".to_string()),
         };
-        eth_channel.create_network_endpoint("local_endpoint", address, None).unwrap();
+        let network_endpoint = eth_channel
+            .create_network_endpoint("local_endpoint", address, None)
+            .unwrap();
+        let tcp_port = TpConfig::TcpTp {
+            port_number: Some(1234),
+            port_dynamically_assigned: None,
+        };
+        let socket_type = SocketAddressType::Unicast(Some(ecu_instance));
+        let socket_address = eth_channel
+            .create_socket_address("SocketName", &network_endpoint, &tcp_port, socket_type)
+            .unwrap();
+        let tcp_port_2 = socket_address.get_tp_config().unwrap();
+        assert_eq!(tcp_port, tcp_port_2);
+        let socket_type = socket_address.get_type().unwrap();
+        assert!(matches!(socket_type, SocketAddressType::Unicast(_)));
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
     }

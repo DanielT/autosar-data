@@ -278,7 +278,7 @@ impl CanCommunicationController {
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
     #[must_use]
     pub fn connected_channels(&self) -> CanCtrlChannelsIterator {
-        if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element()) {
+        if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element().clone()) {
             CanCtrlChannelsIterator::new(self, &ecu)
         } else {
             CanCtrlChannelsIterator {
@@ -395,7 +395,7 @@ pub struct CanCtrlChannelsIterator {
 impl CanCtrlChannelsIterator {
     fn new(controller: &CanCommunicationController, ecu: &Element) -> Self {
         let iter = ecu.get_sub_element(ElementName::Connectors).map(|c| c.sub_elements());
-        let comm_controller = controller.element();
+        let comm_controller = controller.element().clone();
         let model = comm_controller.model();
         Self {
             connector_iter: iter,

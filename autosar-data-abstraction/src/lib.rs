@@ -49,7 +49,7 @@ impl From<AutosarDataError> for AutosarAbstractionError {
 
 pub trait AbstractionElement {
     #[must_use]
-    fn element(&self) -> Element;
+    fn element(&self) -> &Element;
 
     #[must_use]
     fn name(&self) -> String {
@@ -75,8 +75,8 @@ macro_rules! abstraction_element {
         }
 
         impl AbstractionElement for $name {
-            fn element(&self) -> Element {
-                self.0.clone()
+            fn element(&self) -> &Element {
+                &self.0
             }
         }
 
