@@ -231,22 +231,10 @@ impl EthernetPhysicalChannel {
         if let Some(ecu_instance) = ecu {
             let version = self.0.min_version()?;
             if version <= AutosarVersion::Autosar_00046 {
-                let ne_element = network_endpoint.element();
+                let ne_element = network_endpoint.element().clone();
 
                 // get a connector referenced by this physical channel which is contained in the ecu_instance
-                if let Some(connector) = self.0.get_sub_element(ElementName::CommConnectors).and_then(|cc| {
-                    cc.sub_elements().find(|ccrc| {
-                        ccrc.get_sub_element(ElementName::CommunicationConnectorRef)
-                            .and_then(|ccr| {
-                                ccr.get_reference_target()
-                                    .and_then(|r| r.named_parent())
-                                    .ok()
-                                    .flatten()
-                                    .map(|p| p == ecu_instance.element())
-                            })
-                            .unwrap_or(false)
-                    })
-                }) {
+                if let Some(connector) = self.get_ecu_connector(ecu_instance) {
                     let _ = connector
                         .get_or_create_sub_element(ElementName::NetworkEndpointRefs)
                         .and_then(|ner| ner.create_sub_element(ElementName::NetworkEndpointRef))
@@ -263,7 +251,7 @@ impl EthernetPhysicalChannel {
         Ok(network_endpoint)
     }
 
-    /// create an iterator over all `NetworkEnpoint`s in this channel
+    /// create an iterator over all [`NetworkEndpoint`]s in this channel
     ///
     /// # Example
     ///
@@ -291,6 +279,110 @@ impl EthernetPhysicalChannel {
     #[must_use]
     pub fn network_endpoints(&self) -> NetworkEndpointIterator {
         NetworkEndpointIterator::new(self)
+    }
+
+    /// create a socket address in the ethernet channel
+    ///
+    /// It contains the settings of the TCP/UDP port and links to a [`NetworkEndpoint`] which contains the IP address.
+    /// The socket address can either be a unicast adress which is associated with a single ECU, or a multicast address
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let ecu_instance = system.create_ecu_instance("Ecu", &package).unwrap();
+    /// # let controller = ecu_instance.create_ethernet_communication_controller("EthCtrl", None).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # controller.connect_physical_channel("connection", &channel).unwrap();
+    /// # let endpoint_address = NetworkEndpointAddress::IPv4 {
+    /// #     address: Some("192.168.0.1".to_string()),
+    /// #     address_source: Some(IPv4AddressSource::Fixed),
+    /// #     default_gateway: Some("192.168.0.2".to_string()),
+    /// #     network_mask: Some("255.255.255.0".to_string()),
+    /// # };
+    /// # let network_endpoint = channel.create_network_endpoint("Address", endpoint_address, None).unwrap();
+    /// let tcp_port = TpConfig::TcpTp {
+    ///     port_number: Some(1234),
+    ///     port_dynamically_assigned: None,
+    /// };
+    /// let socket_type = SocketAddressType::Unicast(Some(ecu_instance));
+    /// channel.create_socket_address("SocketName", &network_endpoint, &tcp_port, socket_type).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::InvalidParameter`] `sa_type` contains a reference to an EcuInstance which is not connected to this channel
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
+    pub fn create_socket_address(
+        &self,
+        name: &str,
+        network_endpoint: &NetworkEndpoint,
+        tp_config: &TpConfig,
+        sa_type: SocketAddressType,
+    ) -> Result<SocketAddress, AutosarAbstractionError> {
+        SocketAddress::new(name, self, network_endpoint, tp_config, sa_type)
+    }
+
+    /// create an iterator over all [`SocketAddress`]es in this channel
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let ecu_instance = system.create_ecu_instance("Ecu", &package).unwrap();
+    /// # let controller = ecu_instance.create_ethernet_communication_controller("EthCtrl", None).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # controller.connect_physical_channel("connection", &channel).unwrap();
+    /// # let endpoint_address = NetworkEndpointAddress::IPv4 {
+    /// #     address: Some("192.168.0.1".to_string()),
+    /// #     address_source: Some(IPv4AddressSource::Fixed),
+    /// #     default_gateway: Some("192.168.0.2".to_string()),
+    /// #     network_mask: Some("255.255.255.0".to_string()),
+    /// # };
+    /// # let network_endpoint = channel.create_network_endpoint("Address", endpoint_address, None).unwrap();
+    /// let tcp_port = TpConfig::TcpTp {
+    ///     port_number: Some(1234),
+    ///     port_dynamically_assigned: None,
+    /// };
+    /// let socket_type = SocketAddressType::Unicast(Some(ecu_instance));
+    /// channel.create_socket_address("SocketName", &network_endpoint, &tcp_port, socket_type).unwrap();
+    /// ```
+    pub fn socket_addresses(&self) -> SocketAddressIterator {
+        SocketAddressIterator::new(self)
+    }
+
+    // get the connector element between this channel and an ecu
+    pub(crate) fn get_ecu_connector(&self, ecu_instance: &EcuInstance) -> Option<Element> {
+        // get a connector referenced by this physical channel which is contained in the ecu_instance
+        self.0
+            .get_sub_element(ElementName::CommConnectors)
+            .and_then(|cc| {
+                cc.sub_elements().find(|ccrc| {
+                    ccrc.get_sub_element(ElementName::CommunicationConnectorRef)
+                        .and_then(|ccr| {
+                            ccr.get_reference_target()
+                                .and_then(|r| r.named_parent())
+                                .ok()
+                                .flatten()
+                                .map(|p| &p == ecu_instance.element())
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .and_then(|ccrc| ccrc.get_sub_element(ElementName::CommunicationConnectorRef))
+            .and_then(|ccr| ccr.get_reference_target().ok())
     }
 }
 
@@ -357,7 +449,7 @@ impl EthernetCommunicationController {
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
     #[must_use]
     pub fn connected_channels(&self) -> EthernetCtrlChannelsIterator {
-        if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element()) {
+        if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element().clone()) {
             EthernetCtrlChannelsIterator::new(self, &ecu)
         } else {
             EthernetCtrlChannelsIterator {
@@ -772,6 +864,204 @@ impl IPv6AddressSource {
 
 //##################################################################
 
+/// A socket address estapblishes the link between one or more ECUs and a NetworkEndpoint.
+/// It contains all settings that are relevant for this combination.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SocketAddress(Element);
+abstraction_element!(SocketAddress, SocketAddress);
+
+impl SocketAddress {
+    fn new(
+        name: &str,
+        channel: &EthernetPhysicalChannel,
+        network_endpoint: &NetworkEndpoint,
+        tp_config: &TpConfig,
+        sa_type: SocketAddressType,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let channel_elem = channel.element();
+        let (unicast, ecu_instances) = match sa_type {
+            SocketAddressType::Unicast(Some(ecu_instance)) => (true, vec![ecu_instance]),
+            SocketAddressType::Unicast(None) => (true, vec![]),
+            SocketAddressType::Multicast(ecu_instances) => (false, ecu_instances),
+        };
+
+        // get the connector for each ECU in advance, so that nothing needs to be cleaned up if there is a problem here
+        let connectors = ecu_instances
+            .iter()
+            .filter_map(|ecu_instance| channel.get_ecu_connector(ecu_instance))
+            .collect::<Vec<_>>();
+        if connectors.len() != ecu_instances.len() {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "All EcuInstances must be connected to the EthernetPhysicalChannel".to_string(),
+            ));
+        }
+
+        let elem = channel_elem
+            .get_or_create_sub_element(ElementName::SoAdConfig)?
+            .get_or_create_sub_element(ElementName::SocketAddresss)?
+            .create_named_sub_element(ElementName::SocketAddress, name)?;
+
+        if unicast {
+            elem.create_sub_element(ElementName::ConnectorRef)
+                .unwrap()
+                .set_reference_target(&connectors[0])
+                .unwrap();
+        } else {
+            let mc_connectors = elem.create_sub_element(ElementName::MulticastConnectorRefs)?;
+            for conn in &connectors {
+                mc_connectors
+                    .create_sub_element(ElementName::MulticastConnectorRef)?
+                    .set_reference_target(conn)?;
+            }
+        }
+
+        let ae_name = format!("{name}_AE");
+        let ae = elem.create_named_sub_element(ElementName::ApplicationEndpoint, &ae_name)?;
+        ae.create_sub_element(ElementName::NetworkEndpointRef)?
+            .set_reference_target(&network_endpoint.element())?;
+        let tp_configuration = ae.create_sub_element(ElementName::TpConfiguration)?;
+        match tp_config {
+            TpConfig::TcpTp {
+                port_number,
+                port_dynamically_assigned,
+            } => {
+                let tcptp = tp_configuration.create_sub_element(ElementName::TcpTp)?;
+                let tcptp_port = tcptp.create_sub_element(ElementName::TcpTpPort)?;
+                if let Some(portnum) = port_number {
+                    tcptp_port
+                        .create_sub_element(ElementName::PortNumber)?
+                        .set_character_data(CharacterData::String(portnum.to_string()))?;
+                }
+                if let Some(dyn_assign) = port_dynamically_assigned {
+                    let boolstr = if *dyn_assign {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    };
+                    tcptp_port
+                        .create_sub_element(ElementName::DynamicallyAssigned)?
+                        .set_character_data(CharacterData::String(boolstr))?;
+                }
+            }
+            TpConfig::UdpTp {
+                port_number,
+                port_dynamically_assigned,
+            } => {
+                let udptp_port = tp_configuration
+                    .create_sub_element(ElementName::UdpTp)?
+                    .create_sub_element(ElementName::UdpTpPort)?;
+                if let Some(portnum) = port_number {
+                    udptp_port
+                        .create_sub_element(ElementName::PortNumber)?
+                        .set_character_data(CharacterData::String(portnum.to_string()))?;
+                }
+                if let Some(dyn_assign) = port_dynamically_assigned {
+                    let boolstr = if *dyn_assign {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    };
+                    udptp_port
+                        .create_sub_element(ElementName::DynamicallyAssigned)?
+                        .set_character_data(CharacterData::String(boolstr))?;
+                }
+            }
+        }
+
+        Ok(Self(elem))
+    }
+
+    /// get the socket address type: unicast / multicast, as well as the connected ecus
+    pub fn get_type(&self) -> Option<SocketAddressType> {
+        if let Some(connector_ref) = self.0.get_sub_element(ElementName::ConnectorRef) {
+            let ecu = EcuInstance::try_from(connector_ref.get_reference_target().ok()?.named_parent().ok()??).ok()?;
+            Some(SocketAddressType::Unicast(Some(ecu)))
+        } else if let Some(mcr) = self.0.get_sub_element(ElementName::MulticastConnectorRefs) {
+            let ecus = mcr
+                .sub_elements()
+                .filter_map(|cr| {
+                    cr.get_reference_target()
+                        .ok()
+                        .and_then(|conn| conn.named_parent().ok().flatten())
+                })
+                .filter_map(|ecu_elem| EcuInstance::try_from(ecu_elem).ok())
+                .collect::<Vec<_>>();
+            Some(SocketAddressType::Multicast(ecus))
+        } else {
+            None
+        }
+    }
+
+    /// get the transport protocol settings for this `SocketAddress`
+    pub fn get_tp_config(&self) -> Option<TpConfig> {
+        let tp = self
+            .0
+            .get_sub_element(ElementName::ApplicationEndpoint)?
+            .get_sub_element(ElementName::TpConfiguration)?;
+
+        if let Some(tcp_tp) = tp.get_sub_element(ElementName::TcpTp) {
+            let port = tcp_tp.get_sub_element(ElementName::TcpTpPort)?;
+            let (port_number, port_dynamically_assigned) = Self::get_port_config(&port);
+            Some(TpConfig::TcpTp {
+                port_number,
+                port_dynamically_assigned,
+            })
+        } else if let Some(udp_tp) = tp.get_sub_element(ElementName::UdpTp) {
+            let port = udp_tp.get_sub_element(ElementName::UdpTpPort)?;
+            let (port_number, port_dynamically_assigned) = Self::get_port_config(&port);
+            Some(TpConfig::UdpTp {
+                port_number,
+                port_dynamically_assigned,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn get_port_config(port_element: &Element) -> (Option<u16>, Option<bool>) {
+        let port_number = port_element
+            .get_sub_element(ElementName::PortNumber)
+            .and_then(|pn| pn.character_data())
+            .and_then(|cdata| cdata.parse_integer());
+        let port_dynamically_assigned = port_element
+            .get_sub_element(ElementName::DynamicallyAssigned)
+            .and_then(|da| da.character_data())
+            .and_then(|cdata| cdata.string_value())
+            .map(|val| val == "true" || val == "1");
+        (port_number, port_dynamically_assigned)
+    }
+}
+
+//##################################################################
+
+/// transport protocol settings of a [`SocketAddress`]
+#[derive(Debug, Clone, PartialEq)]
+pub enum TpConfig {
+    /// The socket uses TCP
+    TcpTp {
+        port_number: Option<u16>,
+        port_dynamically_assigned: Option<bool>,
+        // additional TCP options: currently not supported
+    },
+    // The socket uses UDP
+    UdpTp {
+        port_number: Option<u16>,
+        port_dynamically_assigned: Option<bool>,
+    },
+    // RtpTp, Ieee1722Tp, HttpTp: currently not supported
+}
+
+//##################################################################
+
+/// Describes if a [`SocketAddress`] is used for unicast or multicast
+#[derive(Debug, Clone, PartialEq)]
+pub enum SocketAddressType {
+    Unicast(Option<EcuInstance>),
+    Multicast(Vec<EcuInstance>),
+}
+
+//##################################################################
+
 #[doc(hidden)]
 pub struct EthernetCtrlChannelsIterator {
     connector_iter: Option<ElementsIterator>,
@@ -782,7 +1072,7 @@ pub struct EthernetCtrlChannelsIterator {
 impl EthernetCtrlChannelsIterator {
     fn new(controller: &EthernetCommunicationController, ecu: &Element) -> Self {
         let iter = ecu.get_sub_element(ElementName::Connectors).map(|c| c.sub_elements());
-        let comm_controller = controller.element();
+        let comm_controller = controller.element().clone();
         let model = comm_controller.model();
         Self {
             connector_iter: iter,
@@ -914,9 +1204,41 @@ impl Iterator for NetworkEndpointAddressIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         let elements_iter = self.elements_iter.as_mut()?;
-        for channel in elements_iter.by_ref() {
-            if let Ok(network_endpoint_address) = NetworkEndpointAddress::try_from(channel) {
+        for endpoint_address in elements_iter.by_ref() {
+            if let Ok(network_endpoint_address) = NetworkEndpointAddress::try_from(endpoint_address) {
                 return Some(network_endpoint_address);
+            }
+        }
+        None
+    }
+}
+//##################################################################
+
+#[doc(hidden)]
+pub struct SocketAddressIterator {
+    elements_iter: Option<ElementsIterator>,
+}
+
+impl SocketAddressIterator {
+    fn new(channel: &EthernetPhysicalChannel) -> Self {
+        let elements_iter = channel
+            .0
+            .get_sub_element(ElementName::SoAdConfig)
+            .and_then(|sc| sc.get_sub_element(ElementName::SocketAddresss))
+            .map(|nea| nea.sub_elements());
+
+        Self { elements_iter }
+    }
+}
+
+impl Iterator for SocketAddressIterator {
+    type Item = SocketAddress;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let elements_iter = self.elements_iter.as_mut()?;
+        for raw_socket_address in elements_iter.by_ref() {
+            if let Ok(socket_address) = SocketAddress::try_from(raw_socket_address) {
+                return Some(socket_address);
             }
         }
         None
@@ -1067,5 +1389,38 @@ mod test {
         ctrl_parent.remove_sub_element(controller.0.clone()).unwrap();
         let count = controller.connected_channels().count();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn socket_address() {
+        let model = AutosarModel::new();
+        model.create_file("filename", AutosarVersion::Autosar_4_3_0).unwrap();
+        let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+        let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+        let ecu_instance = system.create_ecu_instance("Ecu", &package).unwrap();
+        let controller = ecu_instance
+            .create_ethernet_communication_controller("EthCtrl", None)
+            .unwrap();
+        let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+        let channel = cluster.create_physical_channel("Channel", None).unwrap();
+        controller.connect_physical_channel("connection", &channel).unwrap();
+        let endpoint_address = NetworkEndpointAddress::IPv4 {
+            address: Some("192.168.0.1".to_string()),
+            address_source: Some(IPv4AddressSource::Fixed),
+            default_gateway: Some("192.168.0.2".to_string()),
+            network_mask: Some("255.255.255.0".to_string()),
+        };
+        let network_endpoint = channel
+            .create_network_endpoint("Address", endpoint_address, Some(&ecu_instance))
+            .unwrap();
+        let tcp_port = TpConfig::TcpTp {
+            port_number: Some(1234),
+            port_dynamically_assigned: None,
+        };
+        let socket_type = SocketAddressType::Unicast(Some(ecu_instance));
+        channel
+            .create_socket_address("SocketName", &network_endpoint, &tcp_port, socket_type)
+            .unwrap();
+        assert_eq!(channel.socket_addresses().count(), 1);
     }
 }
