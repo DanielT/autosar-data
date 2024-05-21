@@ -546,13 +546,13 @@ mod test {
         let mut iter = system.ecu_instances();
         let item = iter.next().unwrap();
         assert_eq!(item.name(), "Ecu_1");
-        assert_eq!(model.get_element_by_path("/ECU/Ecu_1").unwrap(), item.element());
+        assert_eq!(model.get_element_by_path("/ECU/Ecu_1").unwrap(), *item.element());
         let item = iter.next().unwrap();
         assert_eq!(item.name(), "Ecu_2");
-        assert_eq!(model.get_element_by_path("/ECU/Ecu_2").unwrap(), item.element());
+        assert_eq!(model.get_element_by_path("/ECU/Ecu_2").unwrap(), *item.element());
         let item = iter.next().unwrap();
         assert_eq!(item.name(), "Ecu_3");
-        assert_eq!(model.get_element_by_path("/ECU/Ecu_3").unwrap(), item.element());
+        assert_eq!(model.get_element_by_path("/ECU/Ecu_3").unwrap(), *item.element());
 
         assert!(iter.next().is_none());
         // after returning none the iterator continues to return none
