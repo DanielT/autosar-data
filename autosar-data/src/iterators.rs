@@ -270,11 +270,22 @@ mod test {
     fn elements_iterator() {
         let model = AutosarModel::new();
         model.create_file("filename", AutosarVersion::LATEST).unwrap();
-        let element = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
-        element.create_named_sub_element(ElementName::ArPackage, "pkg1").unwrap();
-        element.create_named_sub_element(ElementName::ArPackage, "pkg2").unwrap();
-        element.create_named_sub_element(ElementName::ArPackage, "pkg3").unwrap();
-        element.create_named_sub_element(ElementName::ArPackage, "pkg4").unwrap();
+        let element = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        element
+            .create_named_sub_element(ElementName::ArPackage, "pkg1")
+            .unwrap();
+        element
+            .create_named_sub_element(ElementName::ArPackage, "pkg2")
+            .unwrap();
+        element
+            .create_named_sub_element(ElementName::ArPackage, "pkg3")
+            .unwrap();
+        element
+            .create_named_sub_element(ElementName::ArPackage, "pkg4")
+            .unwrap();
 
         // verify that all elements are returned by the iterator
         assert_eq!(element.sub_elements().count(), 4);

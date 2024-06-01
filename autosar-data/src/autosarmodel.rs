@@ -1339,9 +1339,7 @@ mod test {
             .create_sub_element(ElementName::FibexElementRefConditional)
             .and_then(|ferc| ferc.create_sub_element(ElementName::FibexElementRef))
             .unwrap();
-        el_fibex_element_ref
-            .set_character_data(CharacterData::String("/Pkg/System".to_string()))
-            .unwrap();
+        el_fibex_element_ref.set_character_data("/Pkg/System").unwrap();
         let invalid_refs = model.check_references();
         assert_eq!(invalid_refs.len(), 3);
         let ref0 = invalid_refs[0].upgrade().unwrap();
@@ -1380,9 +1378,16 @@ mod test {
         let model = AutosarModel::new();
         let file1 = model.create_file("filename1", AutosarVersion::Autosar_00042).unwrap();
         let file2 = model.create_file("filename2", AutosarVersion::Autosar_00042).unwrap();
-        let el_ar_packages = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
-        let el_pkg1 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "pkg1").unwrap();
-        let el_pkg2 = el_ar_packages.create_named_sub_element(ElementName::ArPackage, "pkg2").unwrap();
+        let el_ar_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let el_pkg1 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "pkg1")
+            .unwrap();
+        let el_pkg2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "pkg2")
+            .unwrap();
 
         assert_eq!(el_ar_packages.file_membership().unwrap().1.len(), 2);
         el_pkg1.remove_from_file(&file2).unwrap();

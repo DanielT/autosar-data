@@ -204,6 +204,36 @@ impl CharacterData {
     }
 }
 
+impl From<String> for CharacterData {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<&str> for CharacterData {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
+impl From<EnumItem> for CharacterData {
+    fn from(value: EnumItem) -> Self {
+        Self::Enum(value)
+    }
+}
+
+impl From<u64> for CharacterData {
+    fn from(value: u64) -> Self {
+        Self::UnsignedInteger(value)
+    }
+}
+
+impl From<f64> for CharacterData {
+    fn from(value: f64) -> Self {
+        Self::Double(value)
+    }
+}
+
 impl Display for CharacterData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -493,5 +523,23 @@ mod test {
         let data = CharacterData::String("-55".to_string());
         let result = data.decode_integer::<i32>().unwrap();
         assert_eq!(result, -55);
+    }
+
+    #[test]
+    fn cdata_conversion() {
+        let cdata: CharacterData = 0.into();
+        assert_eq!(cdata, CharacterData::UnsignedInteger(0));
+
+        let cdata: CharacterData = (1.0).into();
+        assert_eq!(cdata, CharacterData::Double(1.0));
+
+        let cdata: CharacterData = "text".into();
+        assert_eq!(cdata, CharacterData::String("text".to_string()));
+
+        let cdata: CharacterData = String::from("text").into();
+        assert_eq!(cdata, CharacterData::String("text".to_string()));
+
+        let cdata: CharacterData = EnumItem::Abstract.into();
+        assert_eq!(cdata, CharacterData::Enum(EnumItem::Abstract));
     }
 }

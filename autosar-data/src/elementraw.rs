@@ -102,7 +102,7 @@ impl ElementRaw {
             if let Some(ElementContent::Element(subelem_wrapped)) = self.content.first() {
                 let mut subelem = subelem_wrapped.0.write();
                 if subelem.element_name() == ElementName::ShortName {
-                    subelem.set_character_data(CharacterData::String(new_name.to_owned()), version)?;
+                    subelem.set_character_data(new_name.to_owned(), version)?;
                     model.fix_identifiables(&old_path, &new_path);
                     let new_prefix = new_path;
                     let mut model_locked = model.0.write();
@@ -831,10 +831,7 @@ impl ElementRaw {
                     let refstr = format!("{dest_path}{suffix}");
                     for ref_element_weak in &ref_elements {
                         if let Some(ref_element) = ref_element_weak.upgrade() {
-                            ref_element
-                                .0
-                                .write()
-                                .set_character_data(CharacterData::String(refstr.clone()), version)?;
+                            ref_element.0.write().set_character_data(refstr.clone(), version)?;
                         }
                     }
                     model_locked.reference_origins.insert(refstr, ref_elements);
@@ -940,10 +937,7 @@ impl ElementRaw {
                 let mut refstr = old_ref.clone();
                 if let Some(suffix) = old_ref.strip_prefix(&src_path_prefix) {
                     refstr = format!("{dest_path}{suffix}");
-                    ref_element
-                        .0
-                        .write()
-                        .set_character_data(CharacterData::String(refstr.clone()), version)?;
+                    ref_element.0.write().set_character_data(refstr.clone(), version)?;
                 }
                 model.add_reference_origin(&refstr, ref_element.downgrade());
             }
@@ -1060,7 +1054,7 @@ impl ElementRaw {
     ) -> Result<(), AutosarDataError> {
         let path = Cow::from(self.path_unchecked()?);
         let mut sub_element_locked = sub_element.0.write();
-        // find the position of sub_element in the parent element first to verify that sub_element actuall *is* a sub element
+        // find the position of sub_element in the parent element first to verify that sub_element actually *is* a sub element
         let pos = self
             .content
             .iter()
@@ -1116,11 +1110,12 @@ impl ElementRaw {
     ///
     /// This method only applies to elements which contain character data, i.e. `element.content_type` == `CharacterData`,
     /// or elements with `element.content_type` == Mixed, but which only contain a single `CharacterData` item
-    pub(crate) fn set_character_data(
+    pub(crate) fn set_character_data<T: Into<CharacterData>>(
         &mut self,
-        chardata: CharacterData,
+        value: T,
         version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
+        let chardata: CharacterData = value.into();
         if self.elemtype.content_mode() == ContentMode::Characters
             || (self.elemtype.content_mode() == ContentMode::Mixed && self.content.len() <= 1)
         {

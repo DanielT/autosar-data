@@ -163,7 +163,7 @@ impl Element {
     /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// # let element = model.root_element().create_sub_element(ElementName::ArPackages).and_then(|pkgs| pkgs.create_named_sub_element(ElementName::ArPackage, "name")).unwrap();
     /// if let Some(short_name) = element.get_sub_element(ElementName::ShortName) {
-    ///     short_name.set_character_data(CharacterData::String("the_new_name".to_string()));
+    ///     short_name.set_character_data("the_new_name");
     /// }
     /// ```
     ///
@@ -874,7 +874,7 @@ impl Element {
     /// # let element = model.root_element().create_sub_element(ElementName::ArPackages)
     /// #   .and_then(|e| e.create_named_sub_element(ElementName::ArPackage, "Pkg"))?
     /// #   .get_sub_element(ElementName::ShortName).unwrap();
-    /// element.set_character_data(CharacterData::String("value".to_string()))?;
+    /// element.set_character_data("value")?;
     /// # Ok(())
     /// # }
     /// ```
@@ -885,13 +885,27 @@ impl Element {
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///  - [`AutosarDataError::IncorrectContentType`]: Cannot set character data on an element which does not contain character data
-    pub fn set_character_data(&self, chardata: CharacterData) -> Result<(), AutosarDataError> {
+    pub fn set_character_data<T: Into<CharacterData>>(
+        &self,
+        value: T,
+    ) -> Result<(), AutosarDataError> {
+        let mut chardata: CharacterData = value.into();
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed {
             if let Some(cdata_spec) = elemtype.chardata_spec() {
                 let model = self.model()?;
                 let version = self.min_version()?;
-                if CharacterData::check_value(&chardata, cdata_spec, version) {
+                let mut compatible_value = CharacterData::check_value(&chardata, cdata_spec, version);
+                if !compatible_value
+                    && matches!(
+                        cdata_spec,
+                        CharacterDataSpec::Pattern { .. } | CharacterDataSpec::String { .. }
+                    )
+                {
+                    chardata = CharacterData::String(chardata.to_string());
+                    compatible_value = CharacterData::check_value(&chardata, cdata_spec, version);
+                }
+                if compatible_value {
                     // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
                     let mut prev_path = None;
                     if self.element_name() == ElementName::ShortName {
@@ -2648,7 +2662,7 @@ mod test {
             .and_then(|el| el.create_sub_element(ElementName::FibexElements))
             .and_then(|el| el.create_sub_element(ElementName::FibexElementRefConditional))
             .and_then(|el| el.create_sub_element(ElementName::FibexElementRef))
-            .and_then(|el| el.set_character_data(CharacterData::String("/invalid".to_string())))
+            .and_then(|el| el.set_character_data("/invalid"))
             .unwrap();
 
         let project2 = AutosarModel::new();
@@ -2732,7 +2746,7 @@ mod test {
             .and_then(|el| el.create_sub_element(ElementName::FibexElements))
             .and_then(|el| el.create_sub_element(ElementName::FibexElementRefConditional))
             .and_then(|el| el.create_sub_element(ElementName::FibexElementRef))
-            .and_then(|el| el.set_character_data(CharacterData::String("/invalid".to_string())))
+            .and_then(|el| el.set_character_data("/invalid"))
             .unwrap();
 
         // removing the SHORT-NAME of an identifiable element is forbidden
@@ -3189,14 +3203,10 @@ mod test {
         el_fibex_element_ref
             .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::EcuInstance))
             .unwrap();
-        el_fibex_element_ref
-            .set_character_data(CharacterData::String("/does/not/exist".to_string()))
-            .unwrap();
+        el_fibex_element_ref.set_character_data("/does/not/exist").unwrap();
         assert!(el_fibex_element_ref.get_reference_target().is_err());
         // invalid reference: refers to the wrong type of element
-        el_fibex_element_ref
-            .set_character_data(CharacterData::String("/Package".to_string()))
-            .unwrap();
+        el_fibex_element_ref.set_character_data("/Package").unwrap();
         assert!(el_fibex_element_ref.get_reference_target().is_err());
         // invalid reference: no reference string
         el_fibex_element_ref.remove_character_data().unwrap();
@@ -3233,7 +3243,10 @@ mod test {
         // set character data on an "ordinary" element that has no special handling
         assert!(el_pnc_vector_length
             .set_character_data(CharacterData::String("2".to_string()))
-            .is_ok());
+            .is_ok()); // "native" type is String, without automatic wrapping
+        assert!(el_pnc_vector_length.set_character_data("2".to_string()).is_ok()); // "native" type is String
+        assert!(el_pnc_vector_length.set_character_data("2").is_ok()); // automatic conversion: &str -> String
+        assert!(el_pnc_vector_length.set_character_data(2).is_ok()); // automatic conversion: u64 -> String
 
         // set a new SHORT-NAME, this also updates path cache
         assert!(el_short_name
@@ -3247,7 +3260,7 @@ mod test {
 
         // set a new reference target, which creates an entry in the reference origin cache
         assert!(el_fibex_element_ref
-            .set_character_data(CharacterData::String("/PackageRenamed/EcuInstance1".to_string()))
+            .set_character_data("/PackageRenamed/EcuInstance1")
             .is_ok());
         model
             .0
@@ -3258,7 +3271,7 @@ mod test {
 
         // modify the reference target, which updates the entry in the reference origin cache
         assert!(el_fibex_element_ref
-            .set_character_data(CharacterData::String("/PackageRenamed/EcuInstance2".to_string()))
+            .set_character_data("/PackageRenamed/EcuInstance2")
             .is_ok());
         model
             .0
@@ -3274,14 +3287,11 @@ mod test {
             .is_none());
 
         // can only set character data that are specified with ContentMode::Characters
-        assert!(el_autosar
-            .set_character_data(CharacterData::String("text".to_string()))
-            .is_err());
+        assert!(el_autosar.set_character_data("text").is_err());
 
         // can't set a value that doesn't match the target spec
-        assert!(el_short_name
-            .set_character_data(CharacterData::UnsignedInteger(0))
-            .is_err());
+        assert!(el_short_name.set_character_data(0).is_err());
+        assert!(el_short_name.set_character_data("").is_err());
 
         // remove character data
         assert!(el_pnc_vector_length.remove_character_data().is_ok());
@@ -3308,21 +3318,21 @@ mod test {
         assert!(el_autosar
             .0
             .write()
-            .set_character_data(CharacterData::UnsignedInteger(0), AutosarVersion::Autosar_00050)
+            .set_character_data(0, AutosarVersion::Autosar_00050)
             .is_err());
         assert!(el_fibex_element_ref
             .0
             .write()
-            .set_character_data(CharacterData::UnsignedInteger(0), AutosarVersion::Autosar_00050)
+            .set_character_data(0, AutosarVersion::Autosar_00050)
             .is_err());
 
         // operation fails if the model is needed (e.g. reference or short name update), but the model has been deleted
         el_fibex_element_ref
-            .set_character_data(CharacterData::String("/PackageRenamed/EcuInstance2".to_string()))
+            .set_character_data("/PackageRenamed/EcuInstance2")
             .unwrap();
         drop(model);
         assert!(el_fibex_element_ref
-            .set_character_data(CharacterData::String("/PackageRenamed/EcuInstance1".to_string()))
+            .set_character_data("/PackageRenamed/EcuInstance1")
             .is_err());
         assert!(el_fibex_element_ref.remove_character_data().is_err());
     }
@@ -3575,9 +3585,7 @@ mod test {
         el_defref1
             .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::EcucBooleanParamDef))
             .unwrap();
-        el_defref1
-            .set_character_data(CharacterData::String("/DefRef_999".to_string()))
-            .unwrap();
+        el_defref1.set_character_data("/DefRef_999").unwrap();
         // second bsw value
         let el_value2 = el_paramvalues
             .create_sub_element(ElementName::EcucNumericalParamValue)
@@ -3586,9 +3594,7 @@ mod test {
         el_defref2
             .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::EcucBooleanParamDef))
             .unwrap();
-        el_defref2
-            .set_character_data(CharacterData::String("/DefRef_111".to_string()))
-            .unwrap();
+        el_defref2.set_character_data("/DefRef_111").unwrap();
         // Create some misc value sto sort inside el_ar_package2 "A"
         let el_elements2 = el_ar_package2.create_sub_element(ElementName::Elements).unwrap();
         let el_system = el_elements2
@@ -3604,9 +3610,7 @@ mod test {
         el_fibex_element_ref1
             .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::ISignal))
             .unwrap();
-        el_fibex_element_ref1
-            .set_character_data(CharacterData::String("/ZZZZZ".to_string()))
-            .unwrap();
+        el_fibex_element_ref1.set_character_data("/ZZZZZ").unwrap();
         let el_fibex_element2 = el_fibex_elements
             .create_sub_element(ElementName::FibexElementRefConditional)
             .unwrap();
@@ -3616,9 +3620,7 @@ mod test {
         el_fibex_element_ref2
             .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::ISignal))
             .unwrap();
-        el_fibex_element_ref2
-            .set_character_data(CharacterData::String("/AAAAA".to_string()))
-            .unwrap();
+        el_fibex_element_ref2.set_character_data("/AAAAA").unwrap();
 
         model.sort();
         // validate that identifiable elements have been sorted
@@ -3650,7 +3652,7 @@ mod test {
     ) -> Result<Element, AutosarDataError> {
         let e = el_subcontainers.create_named_sub_element(ElementName::EcucContainerValue, short_name)?;
         let defrefelem = e.create_sub_element(ElementName::DefinitionRef)?;
-        defrefelem.set_character_data(CharacterData::String(defref.to_string()))?;
+        defrefelem.set_character_data(defref)?;
         Ok(e)
     }
 
@@ -3662,7 +3664,7 @@ mod test {
     ) -> Result<Element, AutosarDataError> {
         let e = helper_create_bsw_subelem(el_subcontainers, short_name, defref)?;
         let indexelem = e.create_sub_element(ElementName::Index)?;
-        indexelem.set_character_data(CharacterData::String(indexstr.to_string()))?;
+        indexelem.set_character_data(indexstr)?;
         Ok(e)
     }
 
