@@ -194,24 +194,24 @@ pub enum AutosarDataError {
     VersionIncompatibleData { version: AutosarVersion },
 
     /// A function that only applies to identifiable elements was called on an element which is not identifiable
-    #[error("The Element at {} is not identifiable", .xmlpath)]
+    #[error("The element at {} is not identifiable", .xmlpath)]
     ElementNotIdentifiable { xmlpath: String },
 
     /// An item name is required to perform this action
-    #[error("An item name is required")]
-    ItemNameRequired,
+    #[error("An item name is required for element {}", .element)]
+    ItemNameRequired { element: ElementName },
 
     /// The element has the wrong content type for the requested operation, e.g. inserting elements when the content type only allows character data
-    #[error("Incorrect content type")]
-    IncorrectContentType,
+    #[error("Incorrect content type for element {}", .element)]
+    IncorrectContentType { element: ElementName },
 
     /// Could not insert a sub element, because it conflicts with an existing sub element
     #[error("Element insertion conflict")]
     ElementInsertionConflict,
 
     /// The `ElementName` is not a valid sub element according to the specification.
-    #[error("Invalid sub element")]
-    InvalidSubElement,
+    #[error("Invalid sub element: {}", .element)]
+    InvalidSubElement { element: ElementName },
 
     /// Remove operation failed: the given element is not a sub element of the element from which it was supposed to be removed
     #[error("element not found")]
@@ -231,7 +231,7 @@ pub enum AutosarDataError {
 
     /// An element could not be renamed, since this item name is already used by a different element
     #[error("Duplicate item name")]
-    DuplicateItemName,
+    DuplicateItemName { element: ElementName, item_name: String },
 
     /// Cannot move an element into its own sub element
     #[error("Cannot move an element into its own sub element")]

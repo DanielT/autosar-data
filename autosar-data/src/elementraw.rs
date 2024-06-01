@@ -92,7 +92,10 @@ impl ElementRaw {
             let old_path = self.path()?;
             let new_path = format!("{}{new_name}", old_path.strip_suffix(&current_name).unwrap());
             if model.get_element_by_path(&new_path).is_some() {
-                return Err(AutosarDataError::DuplicateItemName);
+                return Err(AutosarDataError::DuplicateItemName {
+                    element: self.element_name(),
+                    item_name: new_name.to_string(),
+                });
             }
 
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
@@ -295,9 +298,9 @@ impl ElementRaw {
         let (elemtype, _) = self
             .elemtype
             .find_sub_element(element_name, version as u32)
-            .ok_or(AutosarDataError::InvalidSubElement)?;
+            .ok_or(AutosarDataError::InvalidSubElement { element: element_name })?;
         if elemtype.is_named_in_version(version) {
-            Err(AutosarDataError::ItemNameRequired)
+            Err(AutosarDataError::ItemNameRequired { element: element_name })
         } else {
             let sub_element = ElementRaw {
                 parent: ElementOrModel::Element(self_weak),
@@ -364,14 +367,14 @@ impl ElementRaw {
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
         if item_name.is_empty() {
-            return Err(AutosarDataError::ItemNameRequired);
+            return Err(AutosarDataError::ItemNameRequired { element: element_name });
         }
         let item_name_cdata = CharacterData::String(item_name.to_owned());
 
         let (elemtype, _) = self
             .elemtype
             .find_sub_element(element_name, version as u32)
-            .ok_or(AutosarDataError::InvalidSubElement)?;
+            .ok_or(AutosarDataError::InvalidSubElement { element: element_name })?;
 
         if elemtype.is_named_in_version(version) {
             // verify that the given item_name is actually a valid name
@@ -380,14 +383,19 @@ impl ElementRaw {
                 .and_then(|(se_type, _)| se_type.chardata_spec())
                 .is_some_and(|cdata_spec| CharacterData::check_value(&item_name_cdata, cdata_spec, version))
             {
-                return Err(AutosarDataError::IncorrectContentType);
+                return Err(AutosarDataError::IncorrectContentType {
+                    element: ElementName::ShortName,
+                });
             }
 
             let parent_path = self.path_unchecked()?;
             let path = format!("{parent_path}/{item_name}");
             // verify that the name is unique: there must be no existing element that already has this autosar path
             if model.get_element_by_path(&path).is_some() {
-                return Err(AutosarDataError::DuplicateItemName);
+                return Err(AutosarDataError::DuplicateItemName {
+                    element: element_name,
+                    item_name: item_name.to_string(),
+                });
             }
 
             // create the new element
@@ -640,7 +648,9 @@ impl ElementRaw {
         let (_, end_pos) = self.calc_element_insert_range(move_element_name, version)?;
 
         if model == model_src {
-            let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
+            let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+                element: move_element_name,
+            })?;
             if src_parent.downgrade() == self_weak {
                 Ok(move_element.clone())
             } else {
@@ -674,7 +684,9 @@ impl ElementRaw {
 
         if start_pos <= position && position <= end_pos {
             if model == model_src {
-                let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
+                let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+                    element: move_element_name,
+                })?;
                 if src_parent.downgrade() == self_weak {
                     // move new_element to a different position within the current element
                     self.move_element_position(move_element, position)
@@ -744,7 +756,9 @@ impl ElementRaw {
             wrapped_parent = parent.0.read().parent.clone();
         }
 
-        let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
+        let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+            element: move_element.element_name(),
+        })?;
 
         // collect the paths of all identifiable elements under new_element before moving it
         let original_paths: Vec<String> = move_element
@@ -849,7 +863,9 @@ impl ElementRaw {
     ) -> Result<Element, AutosarDataError> {
         let src_path_prefix = move_element.0.read().path_unchecked()?;
         let dest_path_prefix = self.path_unchecked()?;
-        let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement)?;
+        let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+            element: move_element.element_name(),
+        })?;
 
         // collect the paths of all identifiable elements under move_element before moving it
         let original_paths: FxHashMap<String, Element> = move_element
@@ -949,7 +965,9 @@ impl ElementRaw {
         let elemtype = self.elemtype;
         if self.elemtype.content_mode() == ContentMode::Characters {
             // cant't insert at all, only character data is permitted
-            return Err(AutosarDataError::IncorrectContentType);
+            return Err(AutosarDataError::IncorrectContentType {
+                element: self.element_name(),
+            });
         }
 
         if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
@@ -1027,7 +1045,7 @@ impl ElementRaw {
 
             Ok((start_pos, end_pos))
         } else {
-            Err(AutosarDataError::InvalidSubElement)
+            Err(AutosarDataError::InvalidSubElement { element: element_name })
         }
     }
 
@@ -1118,7 +1136,9 @@ impl ElementRaw {
                 }
             }
         }
-        Err(AutosarDataError::IncorrectContentType)
+        Err(AutosarDataError::IncorrectContentType {
+            element: self.element_name(),
+        })
     }
 
     /// get the character content of the element

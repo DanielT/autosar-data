@@ -177,7 +177,9 @@ impl Element {
     pub fn set_item_name(&self, new_name: &str) -> Result<(), AutosarDataError> {
         // a new name is required
         if new_name.is_empty() {
-            return Err(AutosarDataError::ItemNameRequired);
+            return Err(AutosarDataError::ItemNameRequired {
+                element: self.element_name(),
+            });
         }
         let model = self.model()?;
         let version = self.min_version()?;
@@ -520,7 +522,9 @@ impl Element {
     pub fn create_copied_sub_element(&self, other: &Element) -> Result<Element, AutosarDataError> {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
-            return Err(AutosarDataError::InvalidSubElement);
+            return Err(AutosarDataError::InvalidSubElement {
+                element: self.element_name(),
+            });
         }
         let model = self.model()?;
         let version = self.min_version()?;
@@ -572,7 +576,9 @@ impl Element {
     pub fn create_copied_sub_element_at(&self, other: &Element, position: usize) -> Result<Element, AutosarDataError> {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
-            return Err(AutosarDataError::InvalidSubElement);
+            return Err(AutosarDataError::InvalidSubElement {
+                element: self.element_name(),
+            });
         }
         let model = self.model()?;
         let version = self.min_version()?;
@@ -934,7 +940,9 @@ impl Element {
                 }
             }
         }
-        Err(AutosarDataError::IncorrectContentType)
+        Err(AutosarDataError::IncorrectContentType {
+            element: self.element_name(),
+        })
     }
 
     /// Remove the character data of this element
@@ -984,7 +992,9 @@ impl Element {
                 Ok(())
             }
         } else {
-            Err(AutosarDataError::IncorrectContentType)
+            Err(AutosarDataError::IncorrectContentType {
+                element: self.element_name(),
+            })
         }
     }
 
@@ -1027,7 +1037,9 @@ impl Element {
                 Err(AutosarDataError::InvalidPosition)
             }
         } else {
-            Err(AutosarDataError::IncorrectContentType)
+            Err(AutosarDataError::IncorrectContentType {
+                element: element.element_name(),
+            })
         }
     }
 
@@ -1067,7 +1079,9 @@ impl Element {
             }
             Err(AutosarDataError::InvalidPosition)
         } else {
-            Err(AutosarDataError::IncorrectContentType)
+            Err(AutosarDataError::IncorrectContentType {
+                element: element.element_name(),
+            })
         }
     }
 
