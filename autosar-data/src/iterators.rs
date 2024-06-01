@@ -32,11 +32,16 @@ impl Iterator for ArxmlFileIterator {
 pub struct ElementsIterator {
     element: Element,
     index: usize,
+    last_output: Option<Element>,
 }
 
 impl ElementsIterator {
     pub(crate) fn new(element: Element) -> Self {
-        Self { element, index: 0 }
+        Self {
+            element,
+            index: 0,
+            last_output: None,
+        }
     }
 }
 
@@ -47,14 +52,34 @@ impl Iterator for ElementsIterator {
         let element = self.element.0.read();
         while self.index < element.content.len() {
             let ec = &element.content[self.index];
-            self.index += 1;
             if let ElementContent::Element(sub_element) = ec {
-                return Some(sub_element.clone());
+                if let Some(prev_sub_element) = &self.last_output {
+                    if prev_sub_element != sub_element {
+                        // self.index does not point to the previously seen element
+                        // either self.index was already incremented in this loop, OR
+                        // an element was deleted from element.content since the last call to next()
+                        self.last_output = Some(sub_element.clone());
+                        return self.last_output.clone();
+                    } else {
+                        // self.index still points to the element that was returned by the previous call
+                        self.index += 1;
+                    }
+                } else {
+                    // return the first entry in element.content
+                    self.last_output = Some(sub_element.clone());
+                    return self.last_output.clone();
+                }
+            } else {
+                // skip character content
+                self.index += 1;
             }
         }
+        self.index = usize::MAX; // fused
         None
     }
 }
+
+impl FusedIterator for ElementsIterator {}
 
 #[doc(hidden)]
 pub struct ElementContentIterator {
@@ -240,6 +265,34 @@ impl FusedIterator for IdentifiablesIterator {}
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn elements_iterator() {
+        let model = AutosarModel::new();
+        model.create_file("filename", AutosarVersion::LATEST).unwrap();
+        let element = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
+        element.create_named_sub_element(ElementName::ArPackage, "pkg1").unwrap();
+        element.create_named_sub_element(ElementName::ArPackage, "pkg2").unwrap();
+        element.create_named_sub_element(ElementName::ArPackage, "pkg3").unwrap();
+        element.create_named_sub_element(ElementName::ArPackage, "pkg4").unwrap();
+
+        // verify that all elements are returned by the iterator
+        assert_eq!(element.sub_elements().count(), 4);
+        let mut iter = element.sub_elements();
+        assert_eq!(iter.next().unwrap().item_name().unwrap(), "pkg1");
+        assert_eq!(iter.next().unwrap().item_name().unwrap(), "pkg2");
+        assert_eq!(iter.next().unwrap().item_name().unwrap(), "pkg3");
+        assert_eq!(iter.next().unwrap().item_name().unwrap(), "pkg4");
+
+        // delete elements from the list while iterating
+        let mut steps = 0;
+        for se in element.sub_elements() {
+            element.remove_sub_element(se).unwrap();
+            steps += 1;
+        }
+        assert_eq!(steps, 4);
+        assert_eq!(element.sub_elements().count(), 0);
+    }
 
     #[test]
     fn elements_dfs_iterator() {
