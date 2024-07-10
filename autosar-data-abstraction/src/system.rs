@@ -1,9 +1,9 @@
 use std::iter::FusedIterator;
 
-use crate::{
-    abstraction_element, can::CanClusterSettings, flexray::FlexrayClusterSettings, AbstractionElement, ArPackage,
-    AutosarAbstractionError, CanCluster, EcuInstance, EthernetCluster, FlexrayCluster,
+use crate::communication::{
+    CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, FlexrayCluster, FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposePdu, ISignal, ISignalGroup, ISignalIPdu, MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, SystemSignal, SystemSignalGroup
 };
+use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, WeakElement};
 
 /// The System is the top level of a system template
@@ -63,7 +63,7 @@ impl System {
         let system_elem = pkg_elem_elements.create_named_sub_element(ElementName::System, name)?;
         system_elem
             .create_sub_element(ElementName::Category)
-            .and_then(|cat| cat.set_character_data(autosar_data::CharacterData::String(category.to_string())))?;
+            .and_then(|cat| cat.set_character_data(category.to_string()))?;
 
         Ok(System(system_elem))
     }
@@ -128,6 +128,7 @@ impl System {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -161,6 +162,7 @@ impl System {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -196,6 +198,7 @@ impl System {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -219,6 +222,384 @@ impl System {
         Ok(cluster)
     }
 
+    /// create a new [`CanFrame`]
+    ///
+    /// This new frame needs to be linked to a `CanPhysicalChannel`
+    pub fn create_can_frame(
+        &self,
+        name: &str,
+        byte_length: u64,
+        package: &ArPackage,
+    ) -> Result<CanFrame, AutosarAbstractionError> {
+        let can_frame = CanFrame::new(name, byte_length, package)?;
+        self.create_fibex_element_ref_unchecked(can_frame.element())?;
+
+        Ok(can_frame)
+    }
+
+    /// create a new [`FlexrayFrame`]
+    ///
+    /// This new frame needs to be linked to a `FlexrayPhysicalChannel`
+    pub fn create_flexray_frame(
+        &self,
+        name: &str,
+        byte_length: u64,
+        package: &ArPackage,
+    ) -> Result<FlexrayFrame, AutosarAbstractionError> {
+        let flexray_frame = FlexrayFrame::new(name, byte_length, package)?;
+        self.create_fibex_element_ref_unchecked(flexray_frame.element())?;
+
+        Ok(flexray_frame)
+    }
+
+    /// create a new isignal in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let sig_package = ArPackage::get_or_create(&model, "/ISignals").unwrap();
+    /// let sys_package = ArPackage::get_or_create(&model, "/SystemSignals").unwrap();
+    /// let system_signal = SystemSignal::new("signal1", &sys_package).unwrap();
+    /// system.create_isignal("signal1", 32, &system_signal, &sig_package).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::InvalidParameter`] sig_package and sys_package may not be identical
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_isignal(
+        &self,
+        name: &str,
+        bit_length: u64,
+        syssignal: &SystemSignal,
+        package: &ArPackage,
+    ) -> Result<ISignal, AutosarAbstractionError> {
+        let i_signal = ISignal::new(name, bit_length, syssignal, package)?;
+
+        self.create_fibex_element_ref_unchecked(i_signal.element())?;
+
+        Ok(i_signal)
+    }
+
+    /// create a new signal group in the [`System`]
+    ///
+    /// `I-SIGNAL-GROUP` and `SYSTEM-SIGNAL-GROUP` are created using the same name; therefore they must be placed in
+    /// different packages: sig_package and sys_package may not be identical.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let sig_package = ArPackage::get_or_create(&model, "/ISignals").unwrap();
+    /// let sys_package = ArPackage::get_or_create(&model, "/SystemSignals").unwrap();
+    /// let system_signal_group = SystemSignalGroup::new("signalgroup", &sys_package).unwrap();
+    /// system.create_i_signal_group("signal_group", &system_signal_group, &sig_package).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::InvalidParameter`] sig_package and sys_package may not be identical
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_i_signal_group(
+        &self,
+        name: &str,
+        system_signal_group: &SystemSignalGroup,
+        package: &ArPackage,
+    ) -> Result<ISignalGroup, AutosarAbstractionError> {
+        let i_signal_group = ISignalGroup::new(name, system_signal_group, package)?;
+
+        self.create_fibex_element_ref_unchecked(i_signal_group.element())?;
+
+        Ok(i_signal_group)
+    }
+
+    /// create an [`ISignalIPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_isignal_ipdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_isignal_ipdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<ISignalIPdu, AutosarAbstractionError> {
+        let pdu = ISignalIPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create an [`NmPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_nm_pdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_nm_pdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<NmPdu, AutosarAbstractionError> {
+        let pdu = NmPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create an [`NPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_n_pdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_n_pdu(&self, name: &str, package: &ArPackage, length: u32) -> Result<NPdu, AutosarAbstractionError> {
+        let pdu = NPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create a [`DcmIPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_dcm_ipdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_dcm_ipdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<DcmIPdu, AutosarAbstractionError> {
+        let pdu = DcmIPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create a [`GeneralPurposePdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_general_purpose_pdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_general_purpose_pdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<GeneralPurposePdu, AutosarAbstractionError> {
+        let pdu = GeneralPurposePdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create a [`GeneralPurposeIPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_general_purpose_ipdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_general_purpose_ipdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<GeneralPurposeIPdu, AutosarAbstractionError> {
+        let pdu = GeneralPurposeIPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create a [`ContainerIPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_container_ipdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_container_ipdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<ContainerIPdu, AutosarAbstractionError> {
+        let pdu = ContainerIPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create a [`SecuredIPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_secured_ipdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_secured_ipdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<SecuredIPdu, AutosarAbstractionError> {
+        let pdu = SecuredIPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
+    /// create a [`MultiplexedIPdu`] in the [`System`]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
+    /// system.create_multiplexed_ipdu("pdu", &package, 42).unwrap();
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create elements
+    pub fn create_multiplexed_ipdu(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+    ) -> Result<MultiplexedIPdu, AutosarAbstractionError> {
+        let pdu = MultiplexedIPdu::new(name, package, length)?;
+        self.create_fibex_element_ref_unchecked(pdu.element())?;
+
+        Ok(pdu)
+    }
+
     /// Create an iterator over all clusters connected to the SYSTEM
     ///
     /// # Example
@@ -226,6 +607,7 @@ impl System {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -251,6 +633,7 @@ impl System {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -371,16 +754,6 @@ pub struct ClusterIterator {
     position: usize,
 }
 
-/// An `AbstractCluster` is returned by [`System::clusters`].
-/// It can contain any supported communication cluster.
-#[non_exhaustive]
-pub enum AbstractCluster {
-    Can(CanCluster),
-    Ethernet(EthernetCluster),
-    FlexRay(FlexrayCluster),
-    // missing: Lin, TTCAN, J1939, CDD (aka user defined)
-}
-
 impl ClusterIterator {
     pub(crate) fn new(system: &System) -> Self {
         let fibex_elements = system.0.get_sub_element(ElementName::FibexElements);
@@ -393,7 +766,7 @@ impl ClusterIterator {
 }
 
 impl Iterator for ClusterIterator {
-    type Item = AbstractCluster;
+    type Item = Cluster;
 
     fn next(&mut self) -> Option<Self::Item> {
         let fibelem = self.fibex_elements.as_ref()?;
@@ -407,17 +780,17 @@ impl Iterator for ClusterIterator {
                 match ref_element.element_name() {
                     ElementName::CanCluster => {
                         if let Ok(can_cluster) = CanCluster::try_from(ref_element) {
-                            return Some(AbstractCluster::Can(can_cluster));
+                            return Some(Cluster::Can(can_cluster));
                         }
                     }
                     ElementName::EthernetCluster => {
                         if let Ok(can_cluster) = EthernetCluster::try_from(ref_element) {
-                            return Some(AbstractCluster::Ethernet(can_cluster));
+                            return Some(Cluster::Ethernet(can_cluster));
                         }
                     }
                     ElementName::FlexrayCluster => {
                         if let Ok(can_cluster) = FlexrayCluster::try_from(ref_element) {
-                            return Some(AbstractCluster::FlexRay(can_cluster));
+                            return Some(Cluster::FlexRay(can_cluster));
                         }
                     }
                     // missing: LIN, TTCAN, J1939
@@ -437,8 +810,8 @@ impl FusedIterator for ClusterIterator {}
 #[cfg(test)]
 mod test {
     use crate::{
-        can::CanClusterSettings, flexray::FlexrayClusterSettings, system::SystemCategory, AbstractionElement, ArPackage,
-        System,
+        communication::CanClusterSettings, communication::FlexrayClusterSettings, system::SystemCategory,
+        AbstractionElement, ArPackage, System,
     };
     use autosar_data::{AutosarModel, AutosarVersion, ElementName};
 
@@ -545,13 +918,13 @@ mod test {
 
         let mut iter = system.ecu_instances();
         let item = iter.next().unwrap();
-        assert_eq!(item.name(), "Ecu_1");
+        assert_eq!(item.name().unwrap(), "Ecu_1");
         assert_eq!(model.get_element_by_path("/ECU/Ecu_1").unwrap(), *item.element());
         let item = iter.next().unwrap();
-        assert_eq!(item.name(), "Ecu_2");
+        assert_eq!(item.name().unwrap(), "Ecu_2");
         assert_eq!(model.get_element_by_path("/ECU/Ecu_2").unwrap(), *item.element());
         let item = iter.next().unwrap();
-        assert_eq!(item.name(), "Ecu_3");
+        assert_eq!(item.name().unwrap(), "Ecu_3");
         assert_eq!(model.get_element_by_path("/ECU/Ecu_3").unwrap(), *item.element());
 
         assert!(iter.next().is_none());

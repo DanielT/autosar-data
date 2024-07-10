@@ -1,7 +1,8 @@
-use crate::{
-    abstraction_element, can::CanCommunicationController, ethernet::EthernetCommunicationController,
-    flexray::FlexrayCommunicationController, AbstractionElement, ArPackage, AutosarAbstractionError,
+use crate::communication::{
+    CanCommunicationController, CommunicationController, EthernetCommunicationController,
+    FlexrayCommunicationController,
 };
+use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError};
 use autosar_data::{Element, ElementName, ElementsIterator};
 
 /// The `EcuInstance` represents one ECU in a `System`
@@ -181,15 +182,6 @@ impl Iterator for EcuInstanceControllersIterator {
         }
         None
     }
-}
-
-//##################################################################
-
-/// wraps all different kinds of communication controller
-pub enum CommunicationController {
-    Can(CanCommunicationController),
-    Ethernet(EthernetCommunicationController),
-    Flexray(FlexrayCommunicationController),
 }
 
 //##################################################################
