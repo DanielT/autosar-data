@@ -63,7 +63,7 @@ mod test {
         let result = ArPackage::get_or_create(&model, "/pkg1");
         assert!(result.is_ok());
         let package = result.unwrap();
-        assert_eq!(package.name(), "pkg1");
+        assert_eq!(package.name().unwrap(), "pkg1");
         // get the existing package
         let result = ArPackage::get_or_create(&model, "/pkg1");
         assert!(result.is_ok());
@@ -71,7 +71,7 @@ mod test {
         let result = ArPackage::get_or_create(&model, "/level1/level2/level3");
         assert!(result.is_ok());
         let package = result.unwrap();
-        assert_eq!(package.name(), "level3");
+        assert_eq!(package.name().unwrap(), "level3");
 
         // can't create a package due to an element name conflict
         let pkg = ArPackage::get_or_create(&model, "/test").unwrap();
