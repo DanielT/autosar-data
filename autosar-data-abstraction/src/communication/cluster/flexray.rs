@@ -1,113 +1,9 @@
-use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
-use autosar_data::{
-    AutosarDataError, AutosarModel, CharacterData, Element, ElementName, ElementsIterator, EnumItem, WeakElement,
+use crate::{
+    abstraction_element,
+    communication::{AbstractCluster, FlexrayChannelName, FlexrayPhysicalChannel},
+    AbstractionElement, ArPackage, AutosarAbstractionError,
 };
-
-/// Configuration settings of the Flexray cluster.
-///
-/// Refer to `AUTOSAR_TPS_SystemTemplate.pdf`, chapter 3.3.4 and Flexay 2.1 standard, appendix A + B
-/// for the meanings and ranges of these parameters.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FlexrayClusterSettings {
-    /// baud rate of the Flexray cluster: one of 10000000 (10Mbit/s), 5000000 (5Mbit/s), 2500000 (2.5Mbit/s)
-    pub baudrate: u32,
-    /// gdActionPointOffset: Number of macroticks the action point is offset from the
-    /// beginning of a static slot or symbol window: in the range 1 - 63 MT
-    pub action_point_offset: u8,
-    /// gdBit: Nominal bit time; inverse of the baudrate: 0.1µs, 0.2µs, or 0.4µs
-    pub bit: f64,
-    /// gdCASRxLowMax: Upper limit of the CAS acceptance window. Range 67 - 99 gdBit
-    pub cas_rx_low_max: u8,
-    /// gColdStartAttempts: Maximum number of times a node in the cluster is permitted to attempt to start the cluster.
-    /// Range: 2 - 31
-    pub cold_start_attempts: u8,
-    /// gdCycle: Length of the cycle in seconds. Range: 10µs - 16000µs; typically 0.005s
-    pub cycle: f64,
-    /// cCycleCountMax. Must be 63 to conform with Flexray 2.1
-    pub cycle_count_max: u8,
-    /// Indicates whether network idle time (NIT) error status should be detected
-    pub detect_nit_error: bool,
-    /// gdDynamicSlotIdlePhase: Duration of the idle phase within a dynamic slot. Range 0 - 2
-    pub dynamic_slot_idle_phase: u8,
-    /// Duration for which the bitstrobing is paused after transmission
-    pub ignore_after_tx: u16,
-    /// gListenNoise: Upper limit for the startup listen timeout and wakeup listen timeout in the presence of noise.
-    /// Range 2 - 16
-    pub listen_noise: u8,
-    /// gMacroPerCycle: Number of macroticks in a communication cycle. Range: 10 - 16000 MT
-    pub macro_per_cycle: u16,
-    /// macrotick_duration \[s\] = cycle \[s\] / macro_per_cycle
-    pub macrotick_duration: f64,
-    /// gMaxWithoutClockCorrectionFatal: Threshold used for testing the vClockCorrectionFailed counter.
-    /// Range: <max_without_clock_correction_passive> - 15 even/odd cycle pairs
-    pub max_without_clock_correction_fatal: u8,
-    /// gMaxWithoutClockCorrectionPassive: Threshold used for testing the vClockCorrectionFailed counter.
-    /// Range: 1 - 15 even/odd cycle pairs
-    pub max_without_clock_correction_passive: u8,
-    /// gdMinislotActionPointOffset: Number of macroticks the minislot action point is offset from the beginning of a minislot. Range: 1 - 31 MT
-    pub minislot_action_point_offset: u8,
-    /// gdMinislot: Duration of a minislot. Range: 2 - 63 MT
-    pub minislot_duration: u8,
-    /// gdNIT: Duration of the Network Idle Time. 2 - 805 MT
-    pub network_idle_time: u16,
-    /// gNetworkManagementVectorLength: Length of the Network Management vector in a cluster. Range: 0 - 12 bytes
-    pub network_management_vector_length: u8,
-    /// gNumberOfMinislots: Number of minislots in the dynamic segment. Range: 0 - 7986
-    pub number_of_minislots: u16,
-    /// gNumberOfStaticSlots: Number of static slots in the static segment. Range: 2 - 1023
-    pub number_of_static_slots: u16,
-    /// gOffsetCorrectionStart: Start of the offset correction phase within the NIT, as MT from the start of the cycle. Range: 9 - 15999 MT
-    pub offset_correction_start: u16,
-    /// gPayloadLengthStatic: Payload length of a static frame, in two byte words. Range: 0 - 127 words
-    pub payload_length_static: u16,
-    /// Additional timespan in macroticks which takes jitter into account
-    pub safety_margin: u16,
-    /// gdSampleClockPeriod: Sample clock period. One of [1.25e-8 s, 2.5e-8 s, 5e-8 s]
-    pub sample_clock_period: Option<f64>,
-    /// gdStaticSlot: Duration of a static slot. Range: 4 - 661 MT
-    pub static_slot_duration: u16,
-    /// gdSymbolWindow: Duration of the symbol window. Range: 0 - 142 MT
-    pub symbol_window: u8,
-    // according to the Flexray spec: "gdActionPointOffset parameter also specifies the action point in the symbol window"
-    // so this parameter is useless?
-    pub symbol_window_action_point_offset: Option<u8>,
-    /// gSyncNodeMax: Maximum number of nodes that may send frames with the sync frame indicator bit set to one. Range: 2 - 15
-    pub sync_frame_id_count_max: u8,
-    /// The duration of timer t_TrcvStdbyDelay in seconds.
-    pub transceiver_standby_delay: Option<f64>,
-    /// gdTSSTransmitter: Number of bits in the Transmission Start Sequence. Range: 3 - 15 gdBit
-    pub transmission_start_sequence_duration: u8,
-    /// gdWakeupSymbolRxIdle: Number of bits used by the node to test the duration
-    /// of the 'idle' portion of a received wakeup symbol. Range: 14 - 59 gdBit
-    pub wakeup_rx_idle: u16,
-    /// gdWakeupSymbolRxLow: Number of bits used by the node to test the LOW
-    /// portion of a received wakeup symbol. Range 11 - 59 gdBit
-    pub wakeup_rx_low: u8,
-    /// gdWakeupSymbolRxWindow: The size of the window used to detect wakeups. Range: 76 - 301 gdBit
-    pub wakeup_rx_window: u16,
-    /// gdWakeupSymbolTxLow: Number of bits used by the node to transmit the LOW part of a wakeup symbol. Range: 15 - 60 gdBit
-    pub wakeup_tx_active: u16,
-    /// gdWakeupSymbolTxIdle: Number of bits used by the node to transmit the 'idle' part of a wakeup symbol. Range: 45 - 180 gdBit
-    pub wakeup_tx_idle: u16,
-}
-
-/// Information about the flexray physical channels present inside a cluster
-#[derive(Debug, Clone, PartialEq)]
-pub struct FlexrayPhysicalChannelsInfo {
-    /// channel A - it contains FlexrayChannelName::A
-    pub channel_a: Option<FlexrayPhysicalChannel>,
-    /// channel B - it contains FlexrayChannelName::B
-    pub channel_b: Option<FlexrayPhysicalChannel>,
-}
-
-/// A flexray cluster may contain the channels A and/or B.
-///
-/// This enum is an abstraction over the \<CHANNEL-NAME\> element.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FlexrayChannelName {
-    A,
-    B,
-}
+use autosar_data::{Element, ElementName, EnumItem};
 
 /// A `FlexrayCluster` contains all configuration items associated with a Flexray network.
 /// The cluster connects multiple ECUs.
@@ -130,10 +26,10 @@ impl FlexrayCluster {
         {
             cluster_content
                 .create_sub_element(ElementName::ProtocolName)
-                .and_then(|pn| pn.set_character_data(CharacterData::String("FlexRay".to_string())))?;
+                .and_then(|pn| pn.set_character_data("FlexRay"))?;
             cluster_content
                 .create_sub_element(ElementName::ProtocolVersion)
-                .and_then(|pv| pv.set_character_data(CharacterData::String("2.1".to_string())))?;
+                .and_then(|pv| pv.set_character_data("2.1"))?;
 
             cluster_content.create_sub_element(ElementName::PhysicalChannels)?;
         }
@@ -159,6 +55,7 @@ impl FlexrayCluster {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -305,6 +202,7 @@ impl FlexrayCluster {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -623,6 +521,7 @@ impl FlexrayCluster {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -648,7 +547,10 @@ impl FlexrayCluster {
             .get_or_create_sub_element(ElementName::PhysicalChannels)?;
 
         for existing_channel in phys_channels.sub_elements() {
-            if let Some(existing_channel_name) = FlexrayPhysicalChannel(existing_channel).channel_name() {
+            if let Some(existing_channel_name) = FlexrayPhysicalChannel::try_from(existing_channel)
+                .ok()
+                .and_then(|channel| channel.channel_name())
+            {
                 if existing_channel_name == channel_name {
                     return Err(AutosarAbstractionError::ItemAlreadyExists);
                 }
@@ -666,7 +568,7 @@ impl FlexrayCluster {
             .create_sub_element(ElementName::ChannelName)
             .and_then(|cn| cn.set_character_data(cn_item));
 
-        Ok(FlexrayPhysicalChannel(channel))
+        FlexrayPhysicalChannel::try_from(channel)
     }
 
     /// get the physical channels of this cluster
@@ -676,6 +578,7 @@ impl FlexrayCluster {
     /// ```
     /// # use autosar_data::*;
     /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// # let model = AutosarModel::new();
     /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
@@ -709,254 +612,108 @@ impl FlexrayCluster {
     }
 }
 
+impl AbstractCluster for FlexrayCluster {}
+
 //##################################################################
 
-/// the `FlexrayPhysicalChannel` represents either channel A or B of Flexray cluster
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FlexrayPhysicalChannel(Element);
-abstraction_element!(FlexrayPhysicalChannel, FlexrayPhysicalChannel);
-
-impl FlexrayPhysicalChannel {
-    /// get the channel name of a `FlexrayPhysicalChannel`
-    #[must_use]
-    pub fn channel_name(&self) -> Option<FlexrayChannelName> {
-        let cn = self
-            .0
-            .get_sub_element(ElementName::ChannelName)?
-            .character_data()?
-            .enum_value()?;
-        match cn {
-            EnumItem::ChannelA => Some(FlexrayChannelName::A),
-            EnumItem::ChannelB => Some(FlexrayChannelName::B),
-            _ => None,
-        }
-    }
-
-    /// get the cluster containing this physical channel
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # use autosar_data_abstraction::*;
-    /// # let model = AutosarModel::new();
-    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
-    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
-    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
-    /// # let cluster = system.create_can_cluster("Cluster", &package, &CanClusterSettings::default()).unwrap();
-    /// let channel = cluster.create_physical_channel("Channel").unwrap();
-    /// let cluster_2 = channel.cluster().unwrap();
-    /// assert_eq!(cluster, cluster_2);
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
-    pub fn cluster(&self) -> Result<FlexrayCluster, AutosarAbstractionError> {
-        let cluster_elem = self.0.named_parent()?.unwrap();
-        FlexrayCluster::try_from(cluster_elem)
-    }
+/// Information about the flexray physical channels present inside a cluster
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlexrayPhysicalChannelsInfo {
+    /// channel A - it contains FlexrayChannelName::A
+    pub channel_a: Option<FlexrayPhysicalChannel>,
+    /// channel B - it contains FlexrayChannelName::B
+    pub channel_b: Option<FlexrayPhysicalChannel>,
 }
 
 //##################################################################
 
-/// An `EcuInstance` needs a `FlexrayCommunicationController` in order to connect to a Flexray cluster.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FlexrayCommunicationController(Element);
-abstraction_element!(FlexrayCommunicationController, FlexrayCommunicationController);
-
-impl FlexrayCommunicationController {
-    // create a new FlexrayCommunicationController - called by EcuInstance::create_flexray_communication_controller
-    pub(crate) fn new(name: &str, ecu: &EcuInstance) -> Result<Self, AutosarAbstractionError> {
-        let commcontrollers = ecu.element().get_or_create_sub_element(ElementName::CommControllers)?;
-        let ctrl = commcontrollers.create_named_sub_element(ElementName::FlexrayCommunicationController, name)?;
-        let _flxccc = ctrl
-            .create_sub_element(ElementName::FlexrayCommunicationControllerVariants)?
-            .create_sub_element(ElementName::FlexrayCommunicationControllerConditional)?;
-
-        Ok(Self(ctrl))
-    }
-
-    /// return an iterator over the [`FlexrayPhysicalChannel`]s connected to this controller
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # use autosar_data_abstraction::*;
-    /// # let model = AutosarModel::new();
-    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
-    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
-    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
-    /// # let ecu_instance = system.create_ecu_instance("ecu_name", &package).unwrap();
-    /// let flexray_controller = ecu_instance.create_flexray_communication_controller("FRCtrl").unwrap();
-    /// # let cluster = system.create_flexray_cluster("Cluster", &package, &FlexrayClusterSettings::default()).unwrap();
-    /// # let physical_channel = cluster.create_physical_channel("Channel", FlexrayChannelName::A).unwrap();
-    /// flexray_controller.connect_physical_channel("connection", &physical_channel).unwrap();
-    /// for channel in flexray_controller.connected_channels() {
-    ///     // ...
-    /// }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
-    #[must_use]
-    pub fn connected_channels(&self) -> FlexrayCtrlChannelsIterator {
-        if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element().clone()) {
-            FlexrayCtrlChannelsIterator::new(self, &ecu)
-        } else {
-            FlexrayCtrlChannelsIterator {
-                connector_iter: None,
-                comm_controller: self.0.clone(),
-                model: Err(AutosarDataError::ElementNotFound),
-            }
-        }
-    }
-
-    /// get the `EcuInstance` that contains this `FlexrayCommunicationController`
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # use autosar_data_abstraction::*;
-    /// # let model = AutosarModel::new();
-    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
-    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
-    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
-    /// # let ecu_instance = system.create_ecu_instance("ecu_name", &package).unwrap();
-    /// let flexray_controller = ecu_instance.create_flexray_communication_controller("FRCtrl").unwrap();
-    /// assert_eq!(ecu_instance, flexray_controller.ecu_instance().unwrap());
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
-    pub fn ecu_instance(&self) -> Result<EcuInstance, AutosarAbstractionError> {
-        // unwrapping is safe here - self.0.named_parent() cannot return Ok(None).
-        // the FlexrayCommunicationController is always a child of an EcuInstance,
-        // or else it is deleted and named_parent() return Err(...), which is handled by the ?
-        let ecu: Element = self.0.named_parent()?.unwrap();
-        EcuInstance::try_from(ecu)
-    }
-
-    /// Connect this [`FlexrayCommunicationController`] inside an [`EcuInstance`] to a [`FlexrayPhysicalChannel`] in the [`crate::System`]
-    ///
-    /// Creates a FlexrayCommunicationConnector in the [`EcuInstance`] that contains this [`FlexrayCommunicationController`].
-    ///
-    /// This function establishes the relationships:
-    ///  - [`FlexrayPhysicalChannel`] -> FlexrayCommunicationConnector
-    ///  - FlexrayCommunicationConnector -> [`FlexrayCommunicationController`]
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use autosar_data::*;
-    /// # use autosar_data_abstraction::*;
-    /// # let model = AutosarModel::new();
-    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
-    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
-    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
-    /// # let ecu_instance = system.create_ecu_instance("ecu_name", &package).unwrap();
-    /// let flexray_controller = ecu_instance.create_flexray_communication_controller("FlxCtrl").unwrap();
-    /// # let cluster = system.create_flexray_cluster("Cluster", &package, &FlexrayClusterSettings::default()).unwrap();
-    /// # let physical_channel = cluster.create_physical_channel("Channel", FlexrayChannelName::A).unwrap();
-    /// flexray_controller.connect_physical_channel("connection", &physical_channel).unwrap();
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
-    pub fn connect_physical_channel(
-        &self,
-        connection_name: &str,
-        flx_channel: &FlexrayPhysicalChannel,
-    ) -> Result<(), AutosarAbstractionError> {
-        let ecu = self.0.named_parent()?.unwrap();
-
-        for existing_channel in self.connected_channels() {
-            if existing_channel == *flx_channel {
-                return Err(AutosarAbstractionError::ItemAlreadyExists);
-            }
-        }
-
-        // create a new connector
-        let connectors = ecu.get_or_create_sub_element(ElementName::Connectors)?;
-        let connector =
-            connectors.create_named_sub_element(ElementName::FlexrayCommunicationConnector, connection_name)?;
-        connector
-            .create_sub_element(ElementName::CommControllerRef)
-            .and_then(|refelem| refelem.set_reference_target(&self.0))?;
-
-        let channel_connctor_refs = flx_channel
-            .element()
-            .get_or_create_sub_element(ElementName::CommConnectors)?;
-        channel_connctor_refs
-            .create_sub_element(ElementName::CommunicationConnectorRefConditional)
-            .and_then(|ccrc| ccrc.create_sub_element(ElementName::CommunicationConnectorRef))
-            .and_then(|ccr| ccr.set_reference_target(&connector))?;
-
-        Ok(())
-    }
+/// Configuration settings of the Flexray cluster.
+///
+/// Refer to `AUTOSAR_TPS_SystemTemplate.pdf`, chapter 3.3.4 and Flexray 2.1a / 3.0 standard, appendix A + B
+/// for the meanings and ranges of these parameters.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlexrayClusterSettings {
+    /// baud rate of the Flexray cluster: one of 10000000 (10Mbit/s), 5000000 (5Mbit/s), 2500000 (2.5Mbit/s)
+    pub baudrate: u32,
+    /// gdActionPointOffset: Number of macroticks the action point is offset from the
+    /// beginning of a static slot or symbol window: in the range 1 - 63 MT
+    pub action_point_offset: u8,
+    /// gdBit: Nominal bit time; inverse of the baudrate: 0.1µs, 0.2µs, or 0.4µs
+    pub bit: f64,
+    /// gdCASRxLowMax: Upper limit of the CAS acceptance window. Range 67 - 99 gdBit
+    pub cas_rx_low_max: u8,
+    /// gColdStartAttempts: Maximum number of times a node in the cluster is permitted to attempt to start the cluster.
+    /// Range: 2 - 31
+    pub cold_start_attempts: u8,
+    /// gdCycle: Length of the cycle in seconds. Range: 10µs - 16000µs; typically 0.005s
+    pub cycle: f64,
+    /// cCycleCountMax. Must be 63 to conform with Flexray 2.1
+    pub cycle_count_max: u8,
+    /// Indicates whether network idle time (NIT) error status should be detected
+    pub detect_nit_error: bool,
+    /// gdDynamicSlotIdlePhase: Duration of the idle phase within a dynamic slot. Range 0 - 2
+    pub dynamic_slot_idle_phase: u8,
+    /// Duration for which the bitstrobing is paused after transmission
+    pub ignore_after_tx: u16,
+    /// gListenNoise: Upper limit for the startup listen timeout and wakeup listen timeout in the presence of noise.
+    /// Range 2 - 16
+    pub listen_noise: u8,
+    /// gMacroPerCycle: Number of macroticks in a communication cycle. Range: 10 - 16000 MT
+    pub macro_per_cycle: u16,
+    /// macrotick_duration \[s\] = cycle \[s\] / macro_per_cycle
+    pub macrotick_duration: f64,
+    /// gMaxWithoutClockCorrectionFatal: Threshold used for testing the vClockCorrectionFailed counter.
+    /// Range: <max_without_clock_correction_passive> - 15 even/odd cycle pairs
+    pub max_without_clock_correction_fatal: u8,
+    /// gMaxWithoutClockCorrectionPassive: Threshold used for testing the vClockCorrectionFailed counter.
+    /// Range: 1 - 15 even/odd cycle pairs
+    pub max_without_clock_correction_passive: u8,
+    /// gdMinislotActionPointOffset: Number of macroticks the minislot action point is offset from the beginning of a minislot. Range: 1 - 31 MT
+    pub minislot_action_point_offset: u8,
+    /// gdMinislot: Duration of a minislot. Range: 2 - 63 MT
+    pub minislot_duration: u8,
+    /// gdNIT: Duration of the Network Idle Time. 2 - 805 MT
+    pub network_idle_time: u16,
+    /// gNetworkManagementVectorLength: Length of the Network Management vector in a cluster. Range: 0 - 12 bytes
+    pub network_management_vector_length: u8,
+    /// gNumberOfMinislots: Number of minislots in the dynamic segment. Range: 0 - 7986
+    pub number_of_minislots: u16,
+    /// gNumberOfStaticSlots: Number of static slots in the static segment. Range: 2 - 1023
+    pub number_of_static_slots: u16,
+    /// gOffsetCorrectionStart: Start of the offset correction phase within the NIT, as MT from the start of the cycle. Range: 9 - 15999 MT
+    pub offset_correction_start: u16,
+    /// gPayloadLengthStatic: Payload length of a static frame, in two byte words. Range: 0 - 127 words
+    pub payload_length_static: u16,
+    /// Additional timespan in macroticks which takes jitter into account
+    pub safety_margin: u16,
+    /// gdSampleClockPeriod: Sample clock period. One of [1.25e-8 s, 2.5e-8 s, 5e-8 s]
+    pub sample_clock_period: Option<f64>,
+    /// gdStaticSlot: Duration of a static slot. Range: 4 - 661 MT
+    pub static_slot_duration: u16,
+    /// gdSymbolWindow: Duration of the symbol window. Range: 0 - 142 MT
+    pub symbol_window: u8,
+    // according to the Flexray spec: "gdActionPointOffset parameter also specifies the action point in the symbol window"
+    // so this parameter is useless?
+    pub symbol_window_action_point_offset: Option<u8>,
+    /// gSyncNodeMax: Maximum number of nodes that may send frames with the sync frame indicator bit set to one. Range: 2 - 15
+    pub sync_frame_id_count_max: u8,
+    /// The duration of timer t_TrcvStdbyDelay in seconds.
+    pub transceiver_standby_delay: Option<f64>,
+    /// gdTSSTransmitter: Number of bits in the Transmission Start Sequence. Range: 3 - 15 gdBit
+    pub transmission_start_sequence_duration: u8,
+    /// gdWakeupSymbolRxIdle: Number of bits used by the node to test the duration
+    /// of the 'idle' portion of a received wakeup symbol. Range: 14 - 59 gdBit
+    pub wakeup_rx_idle: u16,
+    /// gdWakeupSymbolRxLow: Number of bits used by the node to test the LOW
+    /// portion of a received wakeup symbol. Range 11 - 59 gdBit
+    pub wakeup_rx_low: u8,
+    /// gdWakeupSymbolRxWindow: The size of the window used to detect wakeups. Range: 76 - 301 gdBit
+    pub wakeup_rx_window: u16,
+    /// gdWakeupSymbolTxLow: Number of bits used by the node to transmit the LOW part of a wakeup symbol. Range: 15 - 60 gdBit
+    pub wakeup_tx_active: u16,
+    /// gdWakeupSymbolTxIdle: Number of bits used by the node to transmit the 'idle' part of a wakeup symbol. Range: 45 - 180 gdBit
+    pub wakeup_tx_idle: u16,
 }
-
-//##################################################################
-
-#[doc(hidden)]
-pub struct FlexrayCtrlChannelsIterator {
-    connector_iter: Option<ElementsIterator>,
-    comm_controller: Element,
-    model: Result<AutosarModel, AutosarDataError>,
-}
-
-impl FlexrayCtrlChannelsIterator {
-    fn new(controller: &FlexrayCommunicationController, ecu: &Element) -> Self {
-        let iter = ecu.get_sub_element(ElementName::Connectors).map(|c| c.sub_elements());
-        let comm_controller = controller.element().clone();
-        let model = comm_controller.model();
-        Self {
-            connector_iter: iter,
-            comm_controller,
-            model,
-        }
-    }
-}
-
-impl Iterator for FlexrayCtrlChannelsIterator {
-    type Item = FlexrayPhysicalChannel;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let model = self.model.as_ref().ok()?;
-        let connector_iter = self.connector_iter.as_mut()?;
-        for connector in connector_iter.by_ref() {
-            if connector.element_name() == ElementName::FlexrayCommunicationConnector {
-                if let Some(commcontroller_of_connector) = connector
-                    .get_sub_element(ElementName::CommControllerRef)
-                    .and_then(|ccr| ccr.get_reference_target().ok())
-                {
-                    if commcontroller_of_connector == self.comm_controller {
-                        for ref_origin in model
-                            .get_references_to(&connector.path().ok()?)
-                            .iter()
-                            .filter_map(WeakElement::upgrade)
-                            .filter_map(|elem| elem.named_parent().ok().flatten())
-                        {
-                            // This assumes that each connector will only ever be referenced by at most one
-                            // PhysicalChannel, which is true for well-formed files.
-                            if ref_origin.element_name() == ElementName::FlexrayPhysicalChannel {
-                                return Some(FlexrayPhysicalChannel(ref_origin));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-}
-
-//##################################################################
 
 impl FlexrayClusterSettings {
     /// Create a new `FlexrayClusterSettings` object with default values
@@ -1010,7 +767,7 @@ impl FlexrayClusterSettings {
     /// # Example
     ///
     /// ```
-    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
     /// let mut settings = FlexrayClusterSettings::default();
     /// settings.macro_per_cycle = 1111;
     /// assert!(!settings.verify())
@@ -1196,10 +953,11 @@ impl Default for FlexrayClusterSettings {
 
 #[cfg(test)]
 mod test {
-    use crate::{System, SystemCategory};
-
-    use super::*;
-    use autosar_data::AutosarVersion;
+    use crate::{
+        communication::{AbstractCluster, FlexrayChannelName, FlexrayClusterSettings},
+        ArPackage, System, SystemCategory,
+    };
+    use autosar_data::{AutosarModel, AutosarVersion};
 
     #[test]
     fn cluster() {
@@ -1219,6 +977,10 @@ mod test {
         let result = system.create_flexray_cluster("FlxCluster", &pkg2, &settings);
         assert!(result.is_err());
 
+        // system link
+        let linked_system = cluster.system().unwrap();
+        assert_eq!(linked_system, system);
+
         // create channel A
         let result = cluster.create_physical_channel("Channel1", FlexrayChannelName::A);
         assert!(result.is_ok());
@@ -1232,65 +994,6 @@ mod test {
         let pc = cluster.physical_channels();
         assert!(pc.channel_a.is_some());
         assert!(pc.channel_b.is_some());
-    }
-
-    #[test]
-    fn channel() {
-        let model = AutosarModel::new();
-        model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
-        let pkg = ArPackage::get_or_create(&model, "/test").unwrap();
-        let system = System::new("System", &pkg, SystemCategory::SystemDescription).unwrap();
-        let settings = FlexrayClusterSettings::default();
-        let cluster = system.create_flexray_cluster("FlxCluster", &pkg, &settings).unwrap();
-
-        let channel = cluster
-            .create_physical_channel("channel_name", FlexrayChannelName::A)
-            .unwrap();
-        let c2 = channel.cluster().unwrap();
-        assert_eq!(cluster, c2);
-
-        // damage the channel info by removing the channel name
-        let elem_channelname = channel.0.get_sub_element(ElementName::ChannelName).unwrap();
-        elem_channelname.remove_character_data().unwrap();
-        assert!(channel.channel_name().is_none());
-
-        // now there is no longer a channel A
-        let channel2 = cluster.create_physical_channel("channel_name2", FlexrayChannelName::A);
-        assert!(channel2.is_ok())
-    }
-
-    #[test]
-    fn controller() {
-        let model = AutosarModel::new();
-        model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
-        let pkg = ArPackage::get_or_create(&model, "/test").unwrap();
-        let system = System::new("System", &pkg, SystemCategory::SystemDescription).unwrap();
-        let ecu = system.create_ecu_instance("ECU", &pkg).unwrap();
-
-        // create a controller
-        let result = ecu.create_flexray_communication_controller("Controller");
-        let controller = result.unwrap();
-
-        // create some physical channels
-        let settings = FlexrayClusterSettings::default();
-        let cluster = system.create_flexray_cluster("FlxCluster", &pkg, &settings).unwrap();
-        let channel1 = cluster.create_physical_channel("C1", FlexrayChannelName::A).unwrap();
-
-        // connect the controller to channel1
-        let result = controller.connect_physical_channel("connection_name1", &channel1);
-        assert!(result.is_ok());
-        // can't connect to the same channel again
-        let result = controller.connect_physical_channel("connection_name2", &channel1);
-        assert!(result.is_err());
-
-        let count = controller.connected_channels().count();
-        assert_eq!(count, 1);
-
-        // remove the controller and try to list its connected channels again
-        let ctrl_parent = controller.0.parent().unwrap().unwrap();
-        ctrl_parent.remove_sub_element(controller.0.clone()).unwrap();
-        let count = controller.connected_channels().count();
-        assert_eq!(count, 0);
     }
 
     #[test]
