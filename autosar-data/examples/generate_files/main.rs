@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use autosar_data::*;
 use autosar_data_specification::CharacterDataSpec;
 
-static VERSIONS: [AutosarVersion; 19] = [
+static VERSIONS: [AutosarVersion; 20] = [
     AutosarVersion::Autosar_4_0_1,
     AutosarVersion::Autosar_4_0_2,
     AutosarVersion::Autosar_4_0_3,
@@ -23,6 +23,7 @@ static VERSIONS: [AutosarVersion; 19] = [
     AutosarVersion::Autosar_00049,
     AutosarVersion::Autosar_00050,
     AutosarVersion::Autosar_00051,
+    AutosarVersion::Autosar_00052,
 ];
 
 fn main() {
@@ -151,6 +152,7 @@ fn make_cdata(spec: &CharacterDataSpec, version: AutosarVersion) -> CharacterDat
         }
         autosar_data_specification::CharacterDataSpec::Pattern { regex, .. } => match *regex {
             r"0x[0-9a-z]*" => CharacterData::String("0xdeadbeef".to_string()),
+            r"0[xX][0-9a-fA-F]+" => CharacterData::String("0xbaadf00d".to_string()),
             r"[1-9][0-9]*|0[xX][0-9a-fA-F]*|0[bB][0-1]+|0[0-7]*|UNSPECIFIED|UNKNOWN|BOOLEAN|PTR" => {
                 CharacterData::String("UNSPECIFIED".to_string())
             }
