@@ -2,7 +2,9 @@ use crate::communication::{
     EthernetCluster, NetworkEndpoint, NetworkEndpointAddress, Pdu, PduCollectionTrigger, PduTriggering,
     PhysicalChannel, SocketAddress, SocketAddressType, TpConfig,
 };
-use crate::{abstraction_element, element_iterator, AbstractionElement, AutosarAbstractionError, EcuInstance};
+use crate::{
+    abstraction_element, element_iterator, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance,
+};
 use autosar_data::{AutosarVersion, Element, ElementName, EnumItem};
 
 /// Provides information about the VLAN of an [`EthernetPhysicalChannel`]
@@ -266,89 +268,664 @@ impl EthernetPhysicalChannel {
         PhysicalChannel::Ethernet(self.clone()).get_ecu_connector(ecu_instance)
     }
 
-    /// create a static connection between two sockets (v1)
+    /// create a socket connection bundle
     ///
-    /// The static connection transports PDUs between two sockets.
+    /// The `SocketConnectionBundle` is the "old" way to establish a connection between two sockets.
+    /// It is deprecated in newer versions of the Autosar standard, but remains available for compatibility.
     ///
-    /// The Autosar standard specified two different ways to establish a connection.
-    /// This function creates a connection using the first method, using SOCKET-CONNECTION-BUNDLEs.
+    /// # Example
     ///
-    /// Using SOCKET-CONNECTION-BUNDLEs was deprecated after Autosar 4.4.0, but remains available for compatibility.
-    /// If the file version is <= AUTOSAR_00046 then this is the only available method.
-    /// In newer files it is important to never mix the two methods, since this is explicitly forbidden by the standard.
-    pub fn create_static_connection_v1(
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00046).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # let server_endpoint = channel.create_network_endpoint("ServerAddress", NetworkEndpointAddress::IPv4 {
+    /// #    address: Some("192.16.0.1".to_string()),
+    /// #    address_source: Some(IPv4AddressSource::Fixed),
+    /// #    default_gateway: None,
+    /// #    network_mask: None
+    /// # }, None).unwrap();
+    /// # let server_socket = channel.create_socket_address("ServerSocket", &server_endpoint, &TpConfig::TcpTp {
+    /// #    port_number: Some(1234),
+    /// #    port_dynamically_assigned: None
+    /// # }, SocketAddressType::Unicast(None)).unwrap();
+    /// let bundle = channel.create_socket_connection_bundle("Bundle", &server_socket).unwrap();
+    /// ```
+    pub fn create_socket_connection_bundle(
         &self,
         name: &str,
-        server: &SocketAddress,
-        client: &SocketAddress,
-        pdu_config: &Vec<SoConnIPdu>,
-    ) -> Result<(), AutosarAbstractionError> {
+        server_port: &SocketAddress,
+    ) -> Result<SocketConnectionBundle, AutosarAbstractionError> {
         let soadcfg = self.0.get_or_create_sub_element(ElementName::SoAdConfig)?;
         let connections = soadcfg.get_or_create_sub_element(ElementName::ConnectionBundles)?;
-        let scb = connections.create_named_sub_element(ElementName::SocketConnectionBundle, name)?;
 
-        scb.create_sub_element(ElementName::ServerPortRef)?
-            .set_reference_target(server.element())?;
-        let conn = scb
-            .create_sub_element(ElementName::BundledConnections)?
-            .create_sub_element(ElementName::SocketConnection)?;
-        conn.create_sub_element(ElementName::ClientPortRef)?
-            .set_reference_target(client.element())?;
-
-        let channel = PhysicalChannel::Ethernet(self.clone());
-        let pdus = conn.create_sub_element(ElementName::Pdus)?;
-        for pdu_cfg in pdu_config {
-            let scii = pdus.create_sub_element(ElementName::SocketConnectionIpduIdentifier)?;
-            scii.create_sub_element(ElementName::HeaderId)?
-                .set_character_data(pdu_cfg.header_id.to_string())?;
-            if let Some(timeout) = &pdu_cfg.timeout {
-                scii.create_sub_element(ElementName::PduCollectionPduTimeout)?
-                    .set_character_data(*timeout)?;
-            }
-            if let Some(collection_trigger) = &pdu_cfg.collection_trigger {
-                scii.create_sub_element(ElementName::PduCollectionTrigger)?
-                    .set_character_data::<EnumItem>((*collection_trigger).into())?;
-            }
-
-            let pt = PduTriggering::new(&pdu_cfg.pdu, &channel)?;
-            scii.create_sub_element(ElementName::PduTriggeringRef)?
-                .set_reference_target(pt.element())?;
-
-            todo!("Pdu ports")
-        }
-
-        todo!()
+        SocketConnectionBundle::new(name, server_port, &connections)
     }
 
-    /// create a static connection between two sockets (v2)
+    /// create a pair of static socket connections
     ///
-    /// The static connection transports PDUs between two sockets.
+    /// Static socket connections must always be created as a pair, one on each socket involved on the connection.
+    /// This helper function creates both at once. To create a single connection, use [`SocketAddress::create_static_socket_connection`].
     ///
-    /// The Autosar standard specified two different ways to establish a connection.
-    /// This function creates a connection using the second method, using STATIC-SOCKET-CONNECTIONs.
+    /// If the connection is a TCP connection, the first port connects to the second port, and the second port listens for incoming connection.
+    /// The ordering of `port_1` and `port_2` has no impact on the direction of the transported PDUs. This is defined in the PduTriggering.
     ///
-    /// STATIC-SOCKET-CONNECTIONs were introduced in Autosar 4.5.0 (AUTOSAR_00048).
-    /// If the file version is <= AUTOSAR_00048 then this method always fails.
-    pub fn create_static_connection_v2(
+    /// `StaticSocketConnection`s are the "new" way to establish a connection between two sockets.
+    /// It was introduced in Autosar 4.5.0 (AUTOSAR_00048) and is the recommended way to create connections.
+    ///
+    /// SocketConnectionBundles (old) and StaticSocketConnections (new) may never be used in the same file.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # let endpoint = channel.create_network_endpoint("ServerAddress", NetworkEndpointAddress::IPv4 {
+    /// #    address: Some("192.168.0.1".to_string()),
+    /// #    address_source: Some(IPv4AddressSource::Fixed),
+    /// #    default_gateway: None,
+    /// #    network_mask: None
+    /// # }, None).unwrap();
+    /// # let server_socket = channel.create_socket_address("ServerSocket", &endpoint, &TpConfig::TcpTp {
+    /// #    port_number: Some(1234),
+    /// #    port_dynamically_assigned: None
+    /// # }, SocketAddressType::Unicast(None)).unwrap();
+    /// # let client_socket = channel.create_socket_address("ClientSocket", &endpoint, &TpConfig::TcpTp {
+    /// #    port_number: Some(1235),
+    /// #    port_dynamically_assigned: None
+    /// # }, SocketAddressType::Unicast(None)).unwrap();
+    /// let (connection_a, connection_b) = channel.create_static_socket_connection("Connection", &server_socket, &client_socket, None).unwrap();
+    /// ```
+    pub fn create_static_socket_connection(
         &self,
         name: &str,
-        server: &SocketAddress,
-        client: &SocketAddress,
-        pdu_config: &Vec<SoConnIPdu>,
-    ) -> Result<(), AutosarAbstractionError> {
-        //
-        todo!()
+        port_1: &SocketAddress,
+        port_2: &SocketAddress,
+        tcp_connect_timeout: Option<f64>,
+    ) -> Result<(StaticSocketConnection, StaticSocketConnection), AutosarAbstractionError> {
+        let ssc1 = port_1.create_static_socket_connection(name, port_2, Some(TcpRole::Connect), tcp_connect_timeout)?;
+        let ssc2 = port_2.create_static_socket_connection(name, port_1, Some(TcpRole::Listen), tcp_connect_timeout)?;
+        Ok((ssc1, ssc2))
     }
 }
 
 //##################################################################
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SoConnIPdu {
-    pub pdu: Pdu,
-    pub header_id: u32,
-    pub timeout: Option<f64>,
-    pub collection_trigger: Option<PduCollectionTrigger>,
+///
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SocketConnectionBundle(Element);
+abstraction_element!(SocketConnectionBundle, SocketConnectionBundle);
+
+impl SocketConnectionBundle {
+    pub(crate) fn new(
+        name: &str,
+        server_port: &SocketAddress,
+        connections_elem: &Element,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let scb = connections_elem.create_named_sub_element(ElementName::SocketConnectionBundle, name)?;
+
+        scb.create_sub_element(ElementName::ServerPortRef)?
+            .set_reference_target(server_port.element())?;
+
+        Ok(Self(scb))
+    }
+
+    /// get the physical channel containing this socket connection bundle
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # let server_endpoint = channel.create_network_endpoint("ServerAddress", NetworkEndpointAddress::IPv4 {
+    /// #    address: Some("192.168.0.1".to_string()),
+    /// #    address_source: Some(IPv4AddressSource::Fixed),
+    /// #    default_gateway: None,
+    /// #    network_mask: None
+    /// # }, None).unwrap();
+    /// # let server_socket = channel.create_socket_address("ServerSocket", &server_endpoint, &TpConfig::TcpTp { port_number: Some(1234), port_dynamically_assigned: None }, SocketAddressType::Unicast(None)).unwrap();
+    /// # let client_endpoint = channel.create_network_endpoint("ClientAddress", NetworkEndpointAddress::IPv4 {
+    /// #    address: Some("192.168.0.2".to_string()),
+    /// #    address_source: Some(IPv4AddressSource::Fixed),
+    /// #    default_gateway: None,
+    /// #    network_mask: None
+    /// # }, None).unwrap();
+    /// # let client_socket = channel.create_socket_address("ClientSocket", &client_endpoint, &TpConfig::TcpTp { port_number: Some(1235), port_dynamically_assigned: None }, SocketAddressType::Unicast(None)).unwrap();
+    /// let bundle = channel.create_socket_connection_bundle("Bundle", &server_socket).unwrap();
+    /// assert_eq!(channel, bundle.get_physical_channel().unwrap());
+    /// ```
+    pub fn get_physical_channel(&self) -> Result<EthernetPhysicalChannel, AutosarAbstractionError> {
+        let channel = self.element().named_parent()?.unwrap();
+        EthernetPhysicalChannel::try_from(channel)
+    }
+
+    /// get the server port of this socket connection bundle
+    pub fn server_port(&self) -> Option<SocketAddress> {
+        self.element()
+            .get_sub_element(ElementName::ServerPortRef)
+            .and_then(|spr| spr.get_reference_target().ok())
+            .and_then(|sp| SocketAddress::try_from(sp).ok())
+    }
+
+    /// create a bundled SocketConnection between the server port and a client port
+    pub fn create_bundled_connection(
+        &self,
+        client_port: &SocketAddress,
+    ) -> Result<SocketConnection, AutosarAbstractionError> {
+        let server_port = self.server_port().ok_or_else(|| {
+            AutosarAbstractionError::InvalidParameter("SocketConnectionBundle has no server port".to_string())
+        })?;
+        let own_tp_config = server_port.get_tp_config();
+        let remote_tp_config = client_port.get_tp_config();
+        match (own_tp_config, remote_tp_config) {
+            (Some(TpConfig::TcpTp { .. }), Some(TpConfig::TcpTp { .. }))
+            | (Some(TpConfig::UdpTp { .. }), Some(TpConfig::UdpTp { .. }))
+            | (None, None) => { /* ok */ }
+            _ => {
+                return Err(AutosarAbstractionError::InvalidParameter(
+                    "Both SocketAddresses must use the same transport protocol".to_string(),
+                ))
+            }
+        }
+        let conn = self
+            .0
+            .get_or_create_sub_element(ElementName::BundledConnections)?
+            .get_or_create_sub_element(ElementName::SocketConnection)?;
+
+        SocketConnection::new(conn, client_port)
+    }
+}
+
+//##################################################################
+
+///
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SocketConnection(Element);
+abstraction_element!(SocketConnection, SocketConnection);
+
+impl SocketConnection {
+    pub(crate) fn new(conn: Element, client_port: &SocketAddress) -> Result<Self, AutosarAbstractionError> {
+        conn.create_sub_element(ElementName::ClientPortRef)?
+            .set_reference_target(client_port.element())?;
+
+        Ok(Self(conn))
+    }
+
+    /// get the socket connection bundle containing this socket connection
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// # let cluster = system.create_ethernet_cluster("Cluster", &package).unwrap();
+    /// # let channel = cluster.create_physical_channel("Channel", None).unwrap();
+    /// # let server_endpoint = channel.create_network_endpoint("ServerAddress", NetworkEndpointAddress::IPv4 {
+    /// #    address: Some("192.168.0.1".to_string()),
+    /// #    address_source: Some(IPv4AddressSource::Fixed),
+    /// #    default_gateway: None,
+    /// #    network_mask: None
+    /// # }, None).unwrap();
+    /// # let server_socket = channel.create_socket_address("ServerSocket", &server_endpoint, &TpConfig::TcpTp { port_number: Some(1234), port_dynamically_assigned: None }, SocketAddressType::Unicast(None)).unwrap();
+    /// # let client_endpoint = channel.create_network_endpoint("ClientAddress", NetworkEndpointAddress::IPv4 {
+    /// #    address: Some("192.168.0.2".to_string()),
+    /// #    address_source: Some(IPv4AddressSource::Fixed),
+    /// #    default_gateway: None,
+    /// #    network_mask: None
+    /// # }, None).unwrap();
+    /// # let client_socket = channel.create_socket_address("ClientSocket", &client_endpoint, &TpConfig::TcpTp { port_number: Some(1235), port_dynamically_assigned: None }, SocketAddressType::Unicast(None)).unwrap();
+    /// let bundle = channel.create_socket_connection_bundle("Bundle", &server_socket).unwrap();
+    /// let connection = bundle.create_bundled_connection(&client_socket).unwrap();
+    /// assert_eq!(bundle, connection.get_socket_connection_bundle().unwrap());
+    /// ```
+    pub fn get_socket_connection_bundle(&self) -> Result<SocketConnectionBundle, AutosarAbstractionError> {
+        let bundle = self.element().named_parent()?.unwrap();
+        SocketConnectionBundle::try_from(bundle)
+    }
+
+    /// add a PDU to the socket connection, returning a PduTriggering
+    pub fn add_pdu(
+        &self,
+        pdu: &Pdu,
+        header_id: u32,
+        timeout: Option<f64>,
+        collection_trigger: Option<PduCollectionTrigger>,
+    ) -> Result<PduTriggering, AutosarAbstractionError> {
+        let scii = self
+            .0
+            .get_or_create_sub_element(ElementName::Pdus)?
+            .create_sub_element(ElementName::SocketConnectionIpduIdentifier)?;
+        scii.create_sub_element(ElementName::HeaderId)?
+            .set_character_data(header_id.to_string())?;
+        if let Some(timeout) = timeout {
+            scii.create_sub_element(ElementName::PduCollectionPduTimeout)?
+                .set_character_data(timeout)?;
+        }
+        if let Some(collection_trigger) = collection_trigger {
+            scii.create_sub_element(ElementName::PduCollectionTrigger)?
+                .set_character_data::<EnumItem>(collection_trigger.into())?;
+        }
+
+        let pt = PduTriggering::new(
+            pdu,
+            &self.get_socket_connection_bundle()?.get_physical_channel()?.into(),
+        )?;
+        scii.create_sub_element(ElementName::PduTriggeringRef)?
+            .set_reference_target(pt.element())?;
+
+        Ok(pt)
+    }
+
+    /// set the header id for a PDU in this socket connection
+    pub fn set_header_id(&self, pdu_triggering: &PduTriggering, header_id: u64) -> Result<(), AutosarAbstractionError> {
+        for scii in self
+            .element()
+            .get_or_create_sub_element(ElementName::Pdus)?
+            .sub_elements()
+        {
+            if let Some(pt_ref) = scii
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|ptref| ptref.get_reference_target().ok())
+                .and_then(|pt| PduTriggering::try_from(pt).ok())
+            {
+                if pt_ref == *pdu_triggering {
+                    scii.get_or_create_sub_element(ElementName::HeaderId)?
+                        .set_character_data(header_id)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// get the header id for a PDU in this socket connection
+    pub fn header_id(&self, pdu_triggering: &PduTriggering) -> Option<u64> {
+        for scii in self.element().get_sub_element(ElementName::Pdus)?.sub_elements() {
+            if let Some(pt_ref) = scii
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|ptref| ptref.get_reference_target().ok())
+                .and_then(|pt| PduTriggering::try_from(pt).ok())
+            {
+                if pt_ref == *pdu_triggering {
+                    return scii
+                        .get_sub_element(ElementName::HeaderId)?
+                        .character_data()?
+                        .parse_integer();
+                }
+            }
+        }
+        None
+    }
+
+    /// set the timeout for a PDU in this socket connection
+    pub fn set_timeout(&self, pdu_triggering: &PduTriggering, timeout: f64) -> Result<(), AutosarAbstractionError> {
+        for scii in self
+            .element()
+            .get_or_create_sub_element(ElementName::Pdus)?
+            .sub_elements()
+        {
+            if let Some(pt_ref) = scii
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|ptref| ptref.get_reference_target().ok())
+                .and_then(|pt| PduTriggering::try_from(pt).ok())
+            {
+                if pt_ref == *pdu_triggering {
+                    scii.get_or_create_sub_element(ElementName::PduCollectionPduTimeout)?
+                        .set_character_data(timeout)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// get the timeout for a PDU in this socket connection
+    pub fn timeout(&self, pdu_triggering: &PduTriggering) -> Option<f64> {
+        for scii in self.element().get_sub_element(ElementName::Pdus)?.sub_elements() {
+            if let Some(pt_ref) = scii
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|ptref| ptref.get_reference_target().ok())
+                .and_then(|pt| PduTriggering::try_from(pt).ok())
+            {
+                if pt_ref == *pdu_triggering {
+                    return scii
+                        .get_sub_element(ElementName::PduCollectionPduTimeout)?
+                        .character_data()?
+                        .float_value();
+                }
+            }
+        }
+        None
+    }
+
+    /// set the collection trigger for a PDU in this socket connection
+    pub fn set_collection_trigger(
+        &self,
+        pdu_triggering: &PduTriggering,
+        trigger: PduCollectionTrigger,
+    ) -> Result<(), AutosarAbstractionError> {
+        for scii in self
+            .element()
+            .get_or_create_sub_element(ElementName::Pdus)?
+            .sub_elements()
+        {
+            if let Some(pt_ref) = scii
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|ptref| ptref.get_reference_target().ok())
+                .and_then(|pt| PduTriggering::try_from(pt).ok())
+            {
+                if pt_ref == *pdu_triggering {
+                    scii.get_or_create_sub_element(ElementName::PduCollectionTrigger)?
+                        .set_character_data::<EnumItem>(trigger.into())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// get the collection trigger for a PDU in this socket connection
+    pub fn collection_trigger(&self, pdu_triggering: &PduTriggering) -> Option<PduCollectionTrigger> {
+        for scii in self.element().get_sub_element(ElementName::Pdus)?.sub_elements() {
+            if let Some(pt_ref) = scii
+                .get_sub_element(ElementName::PduTriggeringRef)
+                .and_then(|ptref| ptref.get_reference_target().ok())
+                .and_then(|pt| PduTriggering::try_from(pt).ok())
+            {
+                if pt_ref == *pdu_triggering {
+                    return scii
+                        .get_sub_element(ElementName::PduCollectionTrigger)?
+                        .character_data()?
+                        .enum_value()?
+                        .try_into()
+                        .ok();
+                }
+            }
+        }
+        None
+    }
+
+    /// create an iterator over all PDU triggerings in this socket connection
+    pub fn pdu_triggerings(&self) -> SCPduTriggeringsIterator {
+        SCPduTriggeringsIterator::new(self.element().get_sub_element(ElementName::Pdus))
+    }
+}
+
+//##################################################################
+
+///
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StaticSocketConnection(Element);
+abstraction_element!(StaticSocketConnection, StaticSocketConnection);
+
+impl StaticSocketConnection {
+    pub(crate) fn new(
+        name: &str,
+        parent: &Element,
+        remote_address: &SocketAddress,
+        tcp_role: Option<TcpRole>,
+        tcp_connect_timeout: Option<f64>,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let connections = parent.get_or_create_sub_element(ElementName::StaticSocketConnections)?;
+        let ssc = connections.create_named_sub_element(ElementName::StaticSocketConnection, name)?;
+
+        ssc.create_sub_element(ElementName::RemoteAddresss)?
+            .create_sub_element(ElementName::SocketAddressRefConditional)?
+            .create_sub_element(ElementName::SocketAddressRef)?
+            .set_reference_target(remote_address.element())?;
+
+        if let Some(role) = tcp_role {
+            ssc.create_sub_element(ElementName::TcpRole)?
+                .set_character_data::<EnumItem>(role.into())?;
+        }
+
+        if let Some(timeout) = tcp_connect_timeout {
+            ssc.create_sub_element(ElementName::TcpConnectTimeout)?
+                .set_character_data(timeout)?;
+        }
+
+        Ok(Self(ssc))
+    }
+
+    /// get the socket address containing this static socket connection
+    pub fn socket_address(&self) -> Result<SocketAddress, AutosarAbstractionError> {
+        let sa = self.element().named_parent()?.unwrap();
+        SocketAddress::try_from(sa)
+    }
+
+    /// get the remote port of this connection
+    pub fn remote_port(&self) -> Option<SocketAddress> {
+        let remote_port = self.element().get_sub_element(ElementName::RemoteAddresss)?;
+        SocketAddress::try_from(remote_port).ok()
+    }
+
+    pub fn add_ipdu_identifier(&self, identifier: &SoConIPduIdentifier) -> Result<(), AutosarAbstractionError> {
+        let ipdu_identifiers = self.element().get_or_create_sub_element(ElementName::IPduIdentifiers)?;
+        let scii = ipdu_identifiers
+            .create_sub_element(ElementName::SoConIPduIdentifierRefConditional)?
+            .create_sub_element(ElementName::SoConIPduIdentifierRef)?;
+        scii.set_reference_target(identifier.element())?;
+        Ok(())
+    }
+
+    /// create an iterator over all SoConIPduIdentifiers in this static socket connection
+    pub fn i_pdu_identifiers(&self) -> SoConIPduIdentifiersIterator {
+        SoConIPduIdentifiersIterator::new(self.element().get_sub_element(ElementName::IPduIdentifiers))
+    }
+}
+
+//##################################################################
+
+///
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SocketConnectionIpduIdentifierSet(Element);
+abstraction_element!(SocketConnectionIpduIdentifierSet, SocketConnectionIpduIdentifierSet);
+
+impl SocketConnectionIpduIdentifierSet {
+    pub fn new(name: &str, package: &ArPackage) -> Result<Self, AutosarAbstractionError> {
+        let sci = package
+            .element()
+            .get_or_create_sub_element(ElementName::Elements)?
+            .create_named_sub_element(ElementName::SocketConnectionIpduIdentifierSet, name)?;
+        Ok(Self(sci))
+    }
+
+    /// create a new SoConIPduIdentifier in this set
+    pub fn create_socon_ipdu_identifier(
+        &self,
+        name: &str,
+        pdu: &Pdu,
+        channel: &EthernetPhysicalChannel,
+        header_id: Option<u64>,
+        timeout: Option<f64>,
+        collection_trigger: Option<PduCollectionTrigger>,
+    ) -> Result<SoConIPduIdentifier, AutosarAbstractionError> {
+        let ipdu_identifiers = self.element().get_or_create_sub_element(ElementName::IPduIdentifiers)?;
+        SoConIPduIdentifier::new(
+            name,
+            &ipdu_identifiers,
+            pdu,
+            channel,
+            header_id,
+            timeout,
+            collection_trigger,
+        )
+    }
+}
+
+//##################################################################
+
+///
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SoConIPduIdentifier(Element);
+abstraction_element!(SoConIPduIdentifier, SoConIPduIdentifier);
+
+impl SoConIPduIdentifier {
+    pub(crate) fn new(
+        name: &str,
+        parent: &Element,
+        pdu: &Pdu,
+        channel: &EthernetPhysicalChannel,
+        header_id: Option<u64>,
+        timeout: Option<f64>,
+        collection_trigger: Option<PduCollectionTrigger>,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let scii = Self(parent.create_named_sub_element(ElementName::SoConIPduIdentifier, name)?);
+
+        let pt = PduTriggering::new(pdu, &channel.clone().into())?;
+        scii.element()
+            .create_sub_element(ElementName::PduTriggeringRef)?
+            .set_reference_target(pt.element())?;
+
+        if let Some(header_id) = header_id {
+            scii.set_header_id(header_id)?;
+        }
+        if let Some(timeout) = timeout {
+            scii.set_timeout(timeout)?;
+        }
+        if let Some(collection_trigger) = collection_trigger {
+            scii.set_collection_trigger(collection_trigger)?;
+        }
+        Ok(scii)
+    }
+
+    /// create a new PduTriggering for the pdu and reference it in this SoConIPduIdentifier
+    pub fn set_pdu(&self, pdu: &Pdu, channel: &EthernetPhysicalChannel) -> Result<(), AutosarAbstractionError> {
+        if let Some(pt_old) = self
+            .element()
+            .get_sub_element(ElementName::PduTriggeringRef)
+            .and_then(|pt| pt.get_reference_target().ok())
+        {
+            let pt_old = PduTriggering::try_from(pt_old)?;
+            if let Some(old_pdu) = pt_old.pdu() {
+                if old_pdu == *pdu {
+                    return Ok(());
+                }
+                // remove old pdu
+                // -> pt_old.remove();
+                todo!("remove() is not implemented yet");
+            }
+        }
+        let pt_new = PduTriggering::new(pdu, &channel.clone().into())?;
+        self.element()
+            .get_or_create_sub_element(ElementName::PduTriggeringRef)?
+            .set_reference_target(pt_new.element())?;
+        Ok(())
+    }
+
+    /// set the header id for this SoConIPduIdentifier
+    pub fn set_header_id(&self, header_id: u64) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .create_sub_element(ElementName::HeaderId)?
+            .set_character_data(header_id)?;
+        Ok(())
+    }
+
+    /// set the timeout for this SoConIPduIdentifier
+    pub fn set_timeout(&self, timeout: f64) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .create_sub_element(ElementName::PduCollectionPduTimeout)?
+            .set_character_data(timeout)?;
+        Ok(())
+    }
+
+    /// set the collection trigger for this SoConIPduIdentifier
+    pub fn set_collection_trigger(&self, trigger: PduCollectionTrigger) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .create_sub_element(ElementName::PduCollectionTrigger)?
+            .set_character_data::<EnumItem>(trigger.into())?;
+        Ok(())
+    }
+
+    /// get the PduTriggering referenced by this SoConIPduIdentifier
+    pub fn pdu_triggering(&self) -> Option<PduTriggering> {
+        let pt = self
+            .element()
+            .get_sub_element(ElementName::PduTriggeringRef)?
+            .get_reference_target()
+            .ok()?;
+        PduTriggering::try_from(pt).ok()
+    }
+
+    /// get the header id for this SoConIPduIdentifier
+    pub fn header_id(&self) -> Option<u64> {
+        self.element()
+            .get_sub_element(ElementName::HeaderId)?
+            .character_data()?
+            .parse_integer()
+    }
+
+    /// get the timeout for this SoConIPduIdentifier
+    pub fn timeout(&self) -> Option<f64> {
+        self.element()
+            .get_sub_element(ElementName::PduCollectionPduTimeout)?
+            .character_data()?
+            .float_value()
+    }
+
+    /// get the collection trigger for this SoConIPduIdentifier
+    pub fn collection_trigger(&self) -> Option<PduCollectionTrigger> {
+        self.element()
+            .get_sub_element(ElementName::PduCollectionTrigger)?
+            .character_data()?
+            .enum_value()?
+            .try_into()
+            .ok()
+    }
+}
+
+//##################################################################
+
+pub enum TcpRole {
+    Connect,
+    Listen,
+}
+
+impl TryFrom<EnumItem> for TcpRole {
+    type Error = AutosarAbstractionError;
+
+    fn try_from(value: EnumItem) -> Result<Self, Self::Error> {
+        match value {
+            EnumItem::Listen => Ok(Self::Listen),
+            EnumItem::Connect => Ok(Self::Connect),
+
+            _ => Err(AutosarAbstractionError::ValueConversionError {
+                value: value.to_string(),
+                dest: "TcpRole".to_string(),
+            }),
+        }
+    }
+}
+
+impl From<TcpRole> for EnumItem {
+    fn from(value: TcpRole) -> Self {
+        match value {
+            TcpRole::Listen => EnumItem::Listen,
+            TcpRole::Connect => EnumItem::Connect,
+        }
+    }
 }
 
 //##################################################################
@@ -358,6 +935,26 @@ element_iterator!(NetworkEndpointIterator, NetworkEndpoint, Some);
 //##################################################################
 
 element_iterator!(SocketAddressIterator, SocketAddress, Some);
+
+//##################################################################
+
+element_iterator!(
+    SCPduTriggeringsIterator,
+    PduTriggering,
+    (|scii: Element| scii
+        .get_sub_element(ElementName::PduTriggeringRef)
+        .and_then(|pt| pt.get_reference_target().ok()))
+);
+
+//##################################################################
+
+element_iterator!(
+    SoConIPduIdentifiersIterator,
+    SoConIPduIdentifier,
+    (|scirc: Element| scirc
+        .get_sub_element(ElementName::SoConIPduIdentifierRef)
+        .and_then(|sciir| sciir.get_reference_target().ok()))
+);
 
 //##################################################################
 
