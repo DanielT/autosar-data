@@ -455,6 +455,16 @@ impl PduTriggering {
         Ok(pt)
     }
 
+    /// get the Pdu that is triggered by this pdu triggering
+    pub fn pdu(&self) -> Option<Pdu> {
+        let pdu_elem = self
+            .element()
+            .get_sub_element(ElementName::IPduRef)?
+            .get_reference_target()
+            .ok()?;
+        Pdu::try_from(pdu_elem).ok()
+    }
+
     /// get the physical channel that contains this pdu triggering
     pub fn physical_channel(&self) -> Result<PhysicalChannel, AutosarAbstractionError> {
         let channel_elem = self.element().named_parent()?.ok_or(AutosarDataError::ItemDeleted)?;
@@ -462,7 +472,7 @@ impl PduTriggering {
     }
 
     /// create an IPduPort to connect a PduTriggering to an EcuInstance
-    pub fn connect_to_ecu(
+    pub fn create_pdu_port(
         &self,
         ecu: &EcuInstance,
         direction: CommunicationDirection,
@@ -508,14 +518,17 @@ impl PduTriggering {
         Ok(IPduPort(pp_elem))
     }
 
+    /// create an iterator over the IPduPorts that are connected to this PduTriggering
     pub fn pdu_ports(&self) -> IPduPortIterator {
         IPduPortIterator::new(self.element().get_sub_element(ElementName::IPduPortRefs))
     }
 
+    /// create an iterator over the ISignalTriggerings that are triggered by this PduTriggering
     pub fn signal_triggerings(&self) -> PtSignalTriggeringsIterator {
         PtSignalTriggeringsIterator::new(self.element().get_sub_element(ElementName::ISignalTriggerings))
     }
 
+    /// add a signal triggering for a signal to this PduTriggering
     pub fn add_signal_triggering(&self, signal: &ISignal) -> Result<ISignalTriggering, AutosarAbstractionError> {
         let channel = self.physical_channel()?;
         let st = ISignalTriggering::new(signal, &channel)?;
@@ -536,6 +549,7 @@ impl PduTriggering {
         Ok(st)
     }
 
+    /// add a signal triggering for a signal group to this PduTriggering
     pub fn add_signal_group_triggering(
         &self,
         signal_group: &ISignalGroup,
@@ -597,6 +611,21 @@ impl From<PduCollectionTrigger> for EnumItem {
         match value {
             PduCollectionTrigger::Always => EnumItem::Always,
             PduCollectionTrigger::Never => EnumItem::Never,
+        }
+    }
+}
+
+impl TryFrom<EnumItem> for PduCollectionTrigger {
+    type Error = AutosarAbstractionError;
+
+    fn try_from(value: EnumItem) -> Result<Self, Self::Error> {
+        match value {
+            EnumItem::Always => Ok(PduCollectionTrigger::Always),
+            EnumItem::Never => Ok(PduCollectionTrigger::Never),
+            _ => Err(AutosarAbstractionError::ValueConversionError {
+                value: value.to_string(),
+                dest: "PduCollectionTrigger".to_string(),
+            }),
         }
     }
 }

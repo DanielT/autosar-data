@@ -80,7 +80,7 @@ impl Frame {
             let pt = ft.add_pdu_triggering(&pdu)?;
             for frame_port in ft.frame_ports() {
                 if let (Some(ecu), Some(direction)) = (frame_port.ecu(), frame_port.communication_direction()) {
-                    pt.connect_to_ecu(&ecu, direction)?;
+                    pt.create_pdu_port(&ecu, direction)?;
                 }
             }
         }
@@ -169,7 +169,7 @@ impl FrameTriggering {
 
         for frame_port in self.frame_ports() {
             if let (Some(ecu), Some(direction)) = (frame_port.ecu(), frame_port.communication_direction()) {
-                pt.connect_to_ecu(&ecu, direction)?;
+                pt.create_pdu_port(&ecu, direction)?;
             }
         }
 
@@ -226,7 +226,7 @@ impl FrameTriggering {
             .set_reference_target(&fp_elem)?;
 
         for pt in self.pdu_triggerings() {
-            pt.connect_to_ecu(ecu, direction)?;
+            pt.create_pdu_port(ecu, direction)?;
         }
 
         Ok(FramePort(fp_elem))
