@@ -3,9 +3,12 @@ mod test {
     use autosar_data::{AutosarModel, AutosarVersion, ElementName};
     use autosar_data_abstraction::{
         communication::{
-            CanAddressingMode, CanClusterSettings, CanFrameType, CommunicationDirection, EthernetVlanInfo, FlexrayChannelName, FlexrayClusterSettings, FlexrayCommunicationCycle, IPv4AddressSource, NetworkEndpointAddress, SocketAddressType, SystemSignal, TpConfig, TransferProperty
+            CanAddressingMode, CanClusterSettings, CanFrameType, CommunicationDirection, EthernetVlanInfo,
+            FlexrayChannelName, FlexrayClusterSettings, FlexrayCommunicationCycle, IPv4AddressSource,
+            NetworkEndpointAddress, SocketAddressType, SocketConnectionIpduIdentifierSet, SystemSignal, TpConfig,
+            TransferProperty,
         },
-        AbstractionElement, ArPackage, System, SystemCategory,
+        AbstractionElement, ArPackage, ByteOrder, System, SystemCategory,
     };
 
     #[test]
@@ -127,7 +130,9 @@ mod test {
     #[test]
     fn create_ethernet_system() {
         let model = AutosarModel::new();
-        model.create_file("ethernet.arxml", AutosarVersion::LATEST).unwrap();
+        model
+            .create_file("ethernet.arxml", AutosarVersion::Autosar_00046)
+            .unwrap();
         let package_1 = ArPackage::get_or_create(&model, "/SYSTEM").unwrap();
         let system = System::new("System", &package_1, SystemCategory::SystemExtract).unwrap();
         let package_2 = ArPackage::get_or_create(&model, "/Clusters").unwrap();
@@ -157,33 +162,218 @@ mod test {
         let channels_iter = ethctrl.connected_channels();
         assert_eq!(channels_iter.count(), 1);
 
-        let address = NetworkEndpointAddress::IPv4 {
+        // local socket which belongs to Ecu_A
+        let address_1 = NetworkEndpointAddress::IPv4 {
             address: Some("192.168.0.1".to_string()),
             address_source: Some(IPv4AddressSource::Fixed),
             default_gateway: Some("192.168.0.200".to_string()),
             network_mask: Some("255.255.255.0".to_string()),
         };
-        let network_endpoint = eth_channel
-            .create_network_endpoint("local_endpoint", address, None)
+        let network_endpoint_1 = eth_channel
+            .create_network_endpoint("local_endpoint", address_1, None)
             .unwrap();
-        let tcp_port = TpConfig::TcpTp {
+        let tcp_port_1 = TpConfig::TcpTp {
             port_number: Some(1234),
             port_dynamically_assigned: None,
         };
-        let socket_type = SocketAddressType::Unicast(Some(ecu_instance.clone()));
-        let socket_address = eth_channel
-            .create_socket_address("SocketName", &network_endpoint, &tcp_port, socket_type)
+        let socket_type_1 = SocketAddressType::Unicast(Some(ecu_instance.clone()));
+        let socket_address_1 = eth_channel
+            .create_socket_address("ServerSocket", &network_endpoint_1, &tcp_port_1, socket_type_1)
             .unwrap();
-        let tcp_port_2 = socket_address.get_tp_config().unwrap();
-        assert_eq!(tcp_port, tcp_port_2);
-        let socket_type = socket_address.get_type().unwrap();
+        assert_eq!(tcp_port_1, socket_address_1.get_tp_config().unwrap());
+        let socket_type = socket_address_1.get_type().unwrap();
         assert!(matches!(socket_type, SocketAddressType::Unicast(Some(_))));
         if let SocketAddressType::Unicast(Some(ecu)) = socket_type {
             assert_eq!(ecu, ecu_instance);
         }
 
+        // remote socket
+        let address_2 = NetworkEndpointAddress::IPv4 {
+            address: Some("192.168.0.2".to_string()),
+            address_source: Some(IPv4AddressSource::Fixed),
+            default_gateway: Some("192.168.0.200".to_string()),
+            network_mask: Some("255.255.255.0".to_string()),
+        };
+        let network_endpoint_2 = eth_channel
+            .create_network_endpoint("remote_endpoint", address_2, None)
+            .unwrap();
+        let tcp_port_2 = TpConfig::TcpTp {
+            port_number: Some(5678),
+            port_dynamically_assigned: None,
+        };
+        let socket_type_2 = SocketAddressType::Unicast(None);
+        let socket_address_2 = eth_channel
+            .create_socket_address("ClientSocket", &network_endpoint_2, &tcp_port_2, socket_type_2)
+            .unwrap();
+
+        // create a connection (V1)
+        let socket_connection_bundle = eth_channel
+            .create_socket_connection_bundle("ConnectionBundle", &socket_address_1)
+            .unwrap();
+        let connection = socket_connection_bundle
+            .create_bundled_connection(&socket_address_2)
+            .unwrap();
+
+        // create a pdu and add it to the connection
+        let pdu_package = ArPackage::get_or_create(&model, "/Network/Pdus").unwrap();
+        let isignal_package = ArPackage::get_or_create(&model, "/Network/Signals").unwrap();
+        let syssignal_package = ArPackage::get_or_create(&model, "/System/Signals").unwrap();
+        let pdu = system.create_isignal_ipdu("Pdu_1", &pdu_package, 8).unwrap();
+        let system_signal = SystemSignal::new("Signal_1", &syssignal_package).unwrap();
+        let isignal = system
+            .create_isignal("Signal_1", 8, &system_signal, &isignal_package)
+            .unwrap();
+
+        let pdu_triggering = connection.add_pdu(&pdu.clone().into(), 0x1000, None, None).unwrap();
+        pdu.map_signal(
+            &isignal,
+            0,
+            ByteOrder::MostSignificantByteLast,
+            None,
+            TransferProperty::Triggered,
+        )
+        .unwrap();
+        assert_eq!(pdu_triggering, connection.pdu_triggerings().next().unwrap());
+
+        pdu_triggering
+            .create_pdu_port(&ecu_instance, CommunicationDirection::Out)
+            .unwrap();
+
         println!("{}", model.files().next().unwrap().serialize().unwrap());
-        // model.write().unwrap();
+        model.write().unwrap();
+    }
+
+    #[test]
+    fn create_ethernet_v2_system() {
+        let model = AutosarModel::new();
+        model
+            .create_file("ethernet_new.arxml", AutosarVersion::Autosar_00048)
+            .unwrap();
+        let package_1 = ArPackage::get_or_create(&model, "/SYSTEM").unwrap();
+        let system = System::new("System", &package_1, SystemCategory::SystemExtract).unwrap();
+        let package_2 = ArPackage::get_or_create(&model, "/Clusters").unwrap();
+
+        let eth_cluster = system.create_ethernet_cluster("EthCluster", &package_2).unwrap();
+        assert_eq!(eth_cluster.element().element_name(), ElementName::EthernetCluster);
+        let vlan_info = EthernetVlanInfo {
+            vlan_id: 33,
+            vlan_name: "VLAN_33".to_string(),
+        };
+        let eth_channel = eth_cluster
+            .create_physical_channel("EthChannel", Some(vlan_info))
+            .unwrap();
+        let vlan_info_2 = eth_channel.get_vlan_info().unwrap();
+        assert_eq!(vlan_info_2.vlan_id, 33);
+
+        let package_3 = ArPackage::get_or_create(&model, "/Ecus").unwrap();
+        let ecu_instance = system.create_ecu_instance("Ecu_A", &package_3).unwrap();
+        let ethctrl = ecu_instance
+            .create_ethernet_communication_controller("EthernetController", Some("ab:cd:ef:01:02:03".to_string()))
+            .unwrap();
+        let channels_iter = ethctrl.connected_channels();
+        assert_eq!(channels_iter.count(), 0);
+        ethctrl
+            .connect_physical_channel("Ecu_A_connector", &eth_channel)
+            .unwrap();
+        let channels_iter = ethctrl.connected_channels();
+        assert_eq!(channels_iter.count(), 1);
+
+        // local socket which belongs to Ecu_A
+        let address_1 = NetworkEndpointAddress::IPv4 {
+            address: Some("192.168.0.1".to_string()),
+            address_source: Some(IPv4AddressSource::Fixed),
+            default_gateway: Some("192.168.0.200".to_string()),
+            network_mask: Some("255.255.255.0".to_string()),
+        };
+        let network_endpoint_1 = eth_channel
+            .create_network_endpoint("local_endpoint", address_1, None)
+            .unwrap();
+        let tcp_port_1 = TpConfig::TcpTp {
+            port_number: Some(1234),
+            port_dynamically_assigned: None,
+        };
+        let socket_type_1 = SocketAddressType::Unicast(Some(ecu_instance.clone()));
+        let socket_address_1 = eth_channel
+            .create_socket_address("ServerSocket", &network_endpoint_1, &tcp_port_1, socket_type_1)
+            .unwrap();
+        assert_eq!(tcp_port_1, socket_address_1.get_tp_config().unwrap());
+        let socket_type = socket_address_1.get_type().unwrap();
+        assert!(matches!(socket_type, SocketAddressType::Unicast(Some(_))));
+        if let SocketAddressType::Unicast(Some(ecu)) = socket_type {
+            assert_eq!(ecu, ecu_instance);
+        }
+
+        // remote socket
+        let address_2 = NetworkEndpointAddress::IPv4 {
+            address: Some("192.168.0.2".to_string()),
+            address_source: Some(IPv4AddressSource::Fixed),
+            default_gateway: Some("192.168.0.200".to_string()),
+            network_mask: Some("255.255.255.0".to_string()),
+        };
+        let network_endpoint_2 = eth_channel
+            .create_network_endpoint("remote_endpoint", address_2, None)
+            .unwrap();
+        let tcp_port_2 = TpConfig::TcpTp {
+            port_number: Some(5678),
+            port_dynamically_assigned: None,
+        };
+        let socket_type_2 = SocketAddressType::Unicast(None);
+        let socket_address_2 = eth_channel
+            .create_socket_address("ClientSocket", &network_endpoint_2, &tcp_port_2, socket_type_2)
+            .unwrap();
+
+        // create a connection (V2)
+        let (static_socket_connection_a, static_socket_connection_b) = eth_channel
+            .create_static_socket_connection("StaticSocketConnection", &socket_address_1, &socket_address_2, None)
+            .unwrap();
+
+        // create a pdu and add it to the connection
+        let pdu_package = ArPackage::get_or_create(&model, "/Network/Pdus").unwrap();
+        let isignal_package = ArPackage::get_or_create(&model, "/Network/Signals").unwrap();
+        let syssignal_package = ArPackage::get_or_create(&model, "/System/Signals").unwrap();
+        let pdu = system.create_isignal_ipdu("Pdu_1", &pdu_package, 8).unwrap();
+        let system_signal = SystemSignal::new("Signal_1", &syssignal_package).unwrap();
+        let isignal = system
+            .create_isignal("Signal_1", 8, &system_signal, &isignal_package)
+            .unwrap();
+
+        let ipdu_identifier_set_package = ArPackage::get_or_create(&model, "/Network/IpduIdentifierSets").unwrap();
+        let socon_ipdu_identifier_set =
+            SocketConnectionIpduIdentifierSet::new("IpduIdentifierSet", &ipdu_identifier_set_package).unwrap();
+        let ipdu_identifier = socon_ipdu_identifier_set
+            .create_socon_ipdu_identifier(
+                "IpduIdentifier",
+                &pdu.clone().into(),
+                &eth_channel,
+                Some(0x1000),
+                None,
+                None,
+            )
+            .unwrap();
+
+        static_socket_connection_a
+            .add_ipdu_identifier(&ipdu_identifier)
+            .unwrap();
+        static_socket_connection_b
+            .add_ipdu_identifier(&ipdu_identifier)
+            .unwrap();
+
+        pdu.map_signal(
+            &isignal,
+            0,
+            ByteOrder::MostSignificantByteLast,
+            None,
+            TransferProperty::Triggered,
+        )
+        .unwrap();
+
+        let pdu_triggering = ipdu_identifier.pdu_triggering().unwrap();
+        pdu_triggering
+            .create_pdu_port(&ecu_instance, CommunicationDirection::Out)
+            .unwrap();
+
+        println!("{}", model.files().next().unwrap().serialize().unwrap());
+        model.write().unwrap();
     }
 
     #[test]

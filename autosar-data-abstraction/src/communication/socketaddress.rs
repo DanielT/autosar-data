@@ -2,6 +2,8 @@ use crate::communication::{EthernetPhysicalChannel, NetworkEndpoint};
 use crate::{abstraction_element, AbstractionElement, AutosarAbstractionError, EcuInstance};
 use autosar_data::{Element, ElementName};
 
+use super::{StaticSocketConnection, TcpRole};
+
 //##################################################################
 
 /// A socket address estapblishes the link between one or more ECUs and a NetworkEndpoint.
@@ -27,7 +29,9 @@ impl SocketAddress {
 
         // TCP connections don't work using multicast IP addresses
         if !unicast && matches!(tp_config, TpConfig::TcpTp { .. }) {
-            return Err(AutosarAbstractionError::InvalidParameter("TCP is incomptible with multicasting".to_string()));
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "TCP is incomptible with multicasting".to_string(),
+            ));
         }
         // extension: check if the address is valid for multicasting?
         // IPv4: 224.0.0.0 - 239.255.255.255
@@ -50,10 +54,12 @@ impl SocketAddress {
             .create_named_sub_element(ElementName::SocketAddress, name)?;
 
         if unicast {
-            elem.create_sub_element(ElementName::ConnectorRef)
-                .unwrap()
-                .set_reference_target(&connectors[0])
-                .unwrap();
+            if !connectors.is_empty() {
+                elem.create_sub_element(ElementName::ConnectorRef)
+                    .unwrap()
+                    .set_reference_target(&connectors[0])
+                    .unwrap();
+            }
         } else {
             let mc_connectors = elem.create_sub_element(ElementName::MulticastConnectorRefs)?;
             for conn in &connectors {
@@ -169,6 +175,30 @@ impl SocketAddress {
             .and_then(|cdata| cdata.string_value())
             .map(|val| val == "true" || val == "1");
         (port_number, port_dynamically_assigned)
+    }
+
+    pub fn create_static_socket_connection(
+        &self,
+        name: &str,
+        remote_address: &SocketAddress,
+        tcp_role: Option<TcpRole>,
+        tcp_connect_timeout: Option<f64>,
+    ) -> Result<StaticSocketConnection, AutosarAbstractionError> {
+        let own_tp_config = self.get_tp_config();
+        let remote_tp_config = remote_address.get_tp_config();
+        match (own_tp_config, remote_tp_config) {
+            (Some(TpConfig::TcpTp { .. }), Some(TpConfig::TcpTp { .. })) => {
+                StaticSocketConnection::new(name, self.element(), remote_address, tcp_role, tcp_connect_timeout)
+            }
+            (Some(TpConfig::UdpTp { .. }), Some(TpConfig::UdpTp { .. })) | (None, None) => {
+                StaticSocketConnection::new(name, self.element(), remote_address, None, None)
+            }
+            _ => {
+                return Err(AutosarAbstractionError::InvalidParameter(
+                    "Both SocketAddresses must use the same transport protocol".to_string(),
+                ))
+            }
+        }
     }
 }
 
