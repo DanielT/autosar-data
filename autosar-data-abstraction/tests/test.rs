@@ -7,8 +7,7 @@ mod test {
             FlexrayChannelName, FlexrayClusterSettings, FlexrayCommunicationCycle, IPv4AddressSource,
             NetworkEndpointAddress, SocketAddressType, SocketConnectionIpduIdentifierSet, SystemSignal, TpConfig,
             TransferProperty,
-        },
-        AbstractionElement, ArPackage, ByteOrder, System, SystemCategory,
+        }, software_component::CompositionSwComponentType, AbstractionElement, ArPackage, ByteOrder, System, SystemCategory
     };
 
     #[test]
@@ -122,6 +121,15 @@ mod test {
             .unwrap();
         ft_2.connect_to_ecu(&ecu_instance_b, CommunicationDirection::Out)
             .unwrap();
+
+        // software component modeling
+        let swc_package = ArPackage::get_or_create(&model, "/SoftwareComponents").unwrap();
+        let root_composition = CompositionSwComponentType::new("RootComposition", &swc_package).unwrap();
+
+        // ... Todo: create other swc elements ...
+
+        // add the root composition to the system
+        system.set_root_sw_composition("CanTestComposition", &root_composition).unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         model.write().unwrap();
@@ -238,6 +246,15 @@ mod test {
         pdu_triggering
             .create_pdu_port(&ecu_instance, CommunicationDirection::Out)
             .unwrap();
+
+        // software component modeling
+        let swc_package = ArPackage::get_or_create(&model, "/SoftwareComponents").unwrap();
+        let root_composition = CompositionSwComponentType::new("RootComposition", &swc_package).unwrap();
+
+        // ... Todo: create other swc elements ...
+
+        // add the root composition to the system
+        system.set_root_sw_composition("EthernetTestComposition", &root_composition).unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         model.write().unwrap();
@@ -372,6 +389,15 @@ mod test {
             .create_pdu_port(&ecu_instance, CommunicationDirection::Out)
             .unwrap();
 
+        // software component modeling
+        let swc_package = ArPackage::get_or_create(&model, "/SoftwareComponents").unwrap();
+        let root_composition = CompositionSwComponentType::new("RootComposition", &swc_package).unwrap();
+
+        // ... Todo: create other swc elements ...
+
+        // add the root composition to the system
+        system.set_root_sw_composition("EthernetTestComposition", &root_composition).unwrap();
+
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         model.write().unwrap();
     }
@@ -466,6 +492,15 @@ mod test {
             .unwrap();
         ft_2.connect_to_ecu(&ecu_instance_b, CommunicationDirection::Out)
             .unwrap();
+
+        // software component modeling
+        let swc_package = ArPackage::get_or_create(&model, "/SoftwareComponents").unwrap();
+        let root_composition = CompositionSwComponentType::new("RootComposition", &swc_package).unwrap();
+
+        // ... Todo: create other swc elements ...
+
+        // add the root composition to the system
+        system.set_root_sw_composition("FlexrayTestComposition", &root_composition).unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         // model.write().unwrap();
