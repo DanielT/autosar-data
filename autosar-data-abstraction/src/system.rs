@@ -1,8 +1,11 @@
 use std::iter::FusedIterator;
 
 use crate::communication::{
-    CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, FlexrayCluster, FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposePdu, ISignal, ISignalGroup, ISignalIPdu, MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, SystemSignal, SystemSignalGroup
+    CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, FlexrayCluster,
+    FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposePdu, ISignal, ISignalGroup, ISignalIPdu,
+    MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, SystemSignal, SystemSignalGroup,
 };
+use crate::software_component::CompositionSwComponentType;
 use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, WeakElement};
 
@@ -664,6 +667,25 @@ impl System {
             .create_sub_element(ElementName::FibexElementRefConditional)?
             .create_sub_element(ElementName::FibexElementRef)?;
         fibex_element_ref.set_reference_target(elem)
+    }
+
+    /// set the root software composition of the system
+    pub fn set_root_sw_composition(
+        &self,
+        name: &str,
+        composition_type: &CompositionSwComponentType,
+    ) -> Result<(), AutosarAbstractionError> {
+        let root_compositions = self.0
+            .get_or_create_sub_element(ElementName::RootSoftwareCompositions)?;
+
+        if let Some(existing_composition) = root_compositions.get_sub_element(ElementName::RootSwCompositionPrototype) {
+            root_compositions.remove_sub_element(existing_composition)?;
+        }
+        root_compositions
+            .create_named_sub_element(ElementName::RootSwCompositionPrototype, name)?
+            .get_or_create_sub_element(ElementName::SoftwareCompositionTref)?
+            .set_reference_target(composition_type.element())?;
+        Ok(())
     }
 }
 
