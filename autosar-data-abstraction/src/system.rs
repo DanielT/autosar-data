@@ -1,13 +1,15 @@
-use std::iter::FusedIterator;
-
 use crate::communication::{
     CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, FlexrayCluster,
     FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposePdu, ISignal, ISignalGroup, ISignalIPdu,
     MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, SystemSignal, SystemSignalGroup,
 };
-use crate::software_component::CompositionSwComponentType;
+use crate::software_component::{
+    AbstractSwComponentType, ComponentPrototype, CompositionSwComponentType, RootSwCompositionPrototype,
+    SwComponentPrototype,
+};
 use crate::{abstraction_element, AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance};
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, WeakElement};
+use std::iter::FusedIterator;
 
 /// The System is the top level of a system template
 ///
@@ -670,22 +672,182 @@ impl System {
     }
 
     /// set the root software composition of the system
+    ///
+    /// This function will remove any existing root software composition
     pub fn set_root_sw_composition(
         &self,
         name: &str,
         composition_type: &CompositionSwComponentType,
-    ) -> Result<(), AutosarAbstractionError> {
-        let root_compositions = self.0
+    ) -> Result<RootSwCompositionPrototype, AutosarAbstractionError> {
+        let root_compositions = self
+            .0
             .get_or_create_sub_element(ElementName::RootSoftwareCompositions)?;
 
         if let Some(existing_composition) = root_compositions.get_sub_element(ElementName::RootSwCompositionPrototype) {
             root_compositions.remove_sub_element(existing_composition)?;
         }
-        root_compositions
-            .create_named_sub_element(ElementName::RootSwCompositionPrototype, name)?
-            .get_or_create_sub_element(ElementName::SoftwareCompositionTref)?
-            .set_reference_target(composition_type.element())?;
-        Ok(())
+        RootSwCompositionPrototype::new(name, &root_compositions, composition_type)
+    }
+
+    /// get the root software composition of the system
+    pub fn root_composition(&self) -> Option<RootSwCompositionPrototype> {
+        let root_compositions = self.element().get_sub_element(ElementName::RootSoftwareCompositions)?;
+        let root_composition = root_compositions.get_sub_element(ElementName::RootSwCompositionPrototype)?;
+        RootSwCompositionPrototype::try_from(root_composition).ok()
+    }
+
+    /// get or create a mapping for this system
+    ///
+    /// There does not seem to be any benefit to having multiple mappings for a single system, so this function
+    /// will return the first mapping if it exists. Otherwise a new mapping will be created with the provided name.
+    pub fn get_or_create_mapping(&self, name: &str) -> Result<SystemMapping, AutosarAbstractionError> {
+        if let Some(mapping) = self.0.get_sub_element(ElementName::Mappings) {
+            if let Some(mapping) = mapping.get_sub_element(ElementName::SystemMapping) {
+                return SystemMapping::try_from(mapping);
+            }
+        }
+        SystemMapping::new(name, self)
+    }
+}
+
+//#########################################################
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SystemMapping(Element);
+abstraction_element!(SystemMapping, SystemMapping);
+
+impl SystemMapping {
+    pub(crate) fn new(name: &str, system: &System) -> Result<Self, AutosarAbstractionError> {
+        let element = system
+            .element()
+            .get_or_create_sub_element(ElementName::Mappings)?
+            .create_named_sub_element(ElementName::SystemMapping, name)?;
+
+        Ok(Self(element))
+    }
+
+    /// get the system that contains this mapping
+    pub fn system(&self) -> Result<System, AutosarAbstractionError> {
+        let sys_elem = self.element().named_parent()?.unwrap();
+        System::try_from(sys_elem)
+    }
+
+    /// create a new mapping between a SWC and an ECU
+    pub fn map_swc_to_ecu(
+        &self,
+        name: &str,
+        component_prototype: &SwComponentPrototype,
+        ecu: &EcuInstance,
+    ) -> Result<SwcToEcuMapping, AutosarAbstractionError> {
+        let root_composition_prototype =
+            self.system()?
+                .root_composition()
+                .ok_or(AutosarAbstractionError::InvalidParameter(
+                    "The root compositon must be set before mapping any swc".to_string(),
+                ))?;
+        let root_composition_type =
+            root_composition_prototype
+                .composition()
+                .ok_or(AutosarAbstractionError::InvalidParameter(
+                    "Incomplete root composition prototype".to_string(),
+                ))?;
+
+        let mut context_composition_prototypes = vec![];
+        let mut current_composition = component_prototype.parent_composition()?;
+
+        // check if the composition is a child of the root composition; this is needed to ensure that the loop can terminate
+        if root_composition_type != current_composition && !root_composition_type.is_parent_of(&current_composition) {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The composition is not a child of the root composition".to_string(),
+            ));
+        }
+
+        // find all compositions between the root composition and the current composition
+        while current_composition != root_composition_type {
+            // typical case is that each component is only in one composition, so the for loop should only run once
+            for comp_proto in current_composition.instances() {
+                // this condition should never fail - it only returns none if comp_proto is the root
+                // composition, which we already know is not true
+                if let Ok(Some(comp_type)) = comp_proto.parent_composition() {
+                    if root_composition_type == comp_type || root_composition_type.is_parent_of(&comp_type) {
+                        context_composition_prototypes.push(comp_proto.clone());
+                        current_composition = comp_type;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // the items were collected in reverse order, so we need to reverse them again
+        context_composition_prototypes.reverse();
+
+        SwcToEcuMapping::new(
+            name,
+            component_prototype,
+            &context_composition_prototypes,
+            &root_composition_prototype,
+            ecu,
+            self,
+        )
+    }
+}
+
+//#########################################################
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SwcToEcuMapping(Element);
+abstraction_element!(SwcToEcuMapping, SwcToEcuMapping);
+
+impl SwcToEcuMapping {
+    pub(crate) fn new(
+        name: &str,
+        component_prototype: &SwComponentPrototype,
+        context_composition_prototypes: &[ComponentPrototype],
+        root_composition_prototype: &RootSwCompositionPrototype,
+        ecu: &EcuInstance,
+        mapping: &SystemMapping,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let sw_mappings_elem = mapping.element().get_or_create_sub_element(ElementName::SwMappings)?;
+        let swc_to_ecu_mapping = sw_mappings_elem.create_named_sub_element(ElementName::SwcToEcuMapping, name)?;
+
+        let iref = swc_to_ecu_mapping
+            .create_sub_element(ElementName::ComponentIrefs)?
+            .create_sub_element(ElementName::ComponentIref)?;
+
+        // create the references to root composition and context compositions
+        iref.create_sub_element(ElementName::ContextCompositionRef)?
+            .set_reference_target(root_composition_prototype.element())?;
+        for context_comp in context_composition_prototypes {
+            iref.create_sub_element(ElementName::ContextComponentRef)?
+                .set_reference_target(context_comp.element())?;
+        }
+        // create the reference to the target component prototype
+        iref.create_sub_element(ElementName::TargetComponentRef)?
+            .set_reference_target(component_prototype.element())?;
+
+        swc_to_ecu_mapping
+            .create_sub_element(ElementName::EcuInstanceRef)?
+            .set_reference_target(ecu.element())?;
+
+        Ok(Self(swc_to_ecu_mapping))
+    }
+
+    /// get the component prototype that is mapped here
+    pub fn target_component(&self) -> Option<SwComponentPrototype> {
+        self.element()
+            .get_sub_element(ElementName::ComponentIrefs)
+            .and_then(|irefs| irefs.get_sub_element(ElementName::ComponentIref))
+            .and_then(|iref| iref.get_sub_element(ElementName::TargetComponentRef))
+            .and_then(|target| target.get_reference_target().ok())
+            .and_then(|target| SwComponentPrototype::try_from(target).ok())
+    }
+
+    /// get the ECU instance which is the target of this mapping
+    pub fn ecu_instance(&self) -> Option<EcuInstance> {
+        self.element()
+            .get_sub_element(ElementName::EcuInstanceRef)
+            .and_then(|r| r.get_reference_target().ok())
+            .and_then(|target| EcuInstance::try_from(target).ok())
     }
 }
 
@@ -832,7 +994,9 @@ impl FusedIterator for ClusterIterator {}
 #[cfg(test)]
 mod test {
     use crate::{
-        communication::CanClusterSettings, communication::FlexrayClusterSettings, system::SystemCategory,
+        communication::{CanClusterSettings, FlexrayClusterSettings},
+        software_component::CompositionSwComponentType,
+        system::SystemCategory,
         AbstractionElement, ArPackage, System,
     };
     use autosar_data::{AutosarModel, AutosarVersion, ElementName};
@@ -977,5 +1141,40 @@ mod test {
         system.create_ecu_instance("Ecu_1", &package_3).unwrap();
 
         assert_eq!(system.clusters().count(), 3);
+    }
+
+    #[test]
+    fn sw_mapping() {
+        let model = AutosarModel::new();
+        let _file = model.create_file("filename", AutosarVersion::LATEST).unwrap();
+        let package_1 = ArPackage::get_or_create(&model, "/SYSTEM").unwrap();
+        let system = System::new("System", &package_1, SystemCategory::SystemExtract).unwrap();
+        let package_2 = ArPackage::get_or_create(&model, "/SWC").unwrap();
+        let package_3 = ArPackage::get_or_create(&model, "/ECU").unwrap();
+
+        let root_composition = CompositionSwComponentType::new("RootComposition", &package_2).unwrap();
+        let context_composition = CompositionSwComponentType::new("ContextComposition", &package_2).unwrap();
+        let ecu_composition = CompositionSwComponentType::new("EcuComposition", &package_2).unwrap();
+        let _root_proto = system
+            .set_root_sw_composition("RootComposition", &root_composition)
+            .unwrap();
+        assert_eq!(system.root_composition().unwrap(), _root_proto);
+
+        let context_proto = root_composition
+            .add_component("ContextComposition", &context_composition.clone().into())
+            .unwrap();
+        let ecu_proto = context_composition
+            .add_component("EcuComposition", &ecu_composition.into())
+            .unwrap();
+        let ecu = system.create_ecu_instance("Ecu", &package_3).unwrap();
+
+        let mapping = system.get_or_create_mapping("Mapping").unwrap();
+        mapping.map_swc_to_ecu("SwcToEcu1", &context_proto, &ecu).unwrap();
+        let swc_to_ecu = mapping.map_swc_to_ecu("SwcToEcu2", &ecu_proto, &ecu).unwrap();
+
+        assert_eq!(swc_to_ecu.target_component().unwrap(), ecu_proto);
+        assert_eq!(swc_to_ecu.ecu_instance().unwrap(), ecu);
+
+        // println!("{}", _file.serialize().unwrap());
     }
 }
