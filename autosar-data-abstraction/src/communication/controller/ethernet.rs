@@ -196,7 +196,7 @@ impl EthernetCommunicationController {
                     .get_or_create_sub_element(ElementName::VlanMemberships)
                     .and_then(|vms| vms.create_sub_element(ElementName::VlanMembership))
                     .and_then(|vm| vm.create_sub_element(ElementName::VlanRef))
-                    .and_then(|vr| vr.set_reference_target(&eth_channel.element()))?;
+                    .and_then(|vr| vr.set_reference_target(eth_channel.element()))?;
             }
         }
 

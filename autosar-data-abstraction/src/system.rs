@@ -3,6 +3,7 @@ use crate::communication::{
     FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposePdu, ISignal, ISignalGroup, ISignalIPdu,
     MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, SystemSignal, SystemSignalGroup,
 };
+use crate::datatype::SwBaseType;
 use crate::software_component::{
     AbstractSwComponentType, ComponentPrototype, CompositionSwComponentType, RootSwCompositionPrototype,
     SwComponentPrototype,
@@ -93,7 +94,7 @@ impl System {
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
     pub fn create_ecu_instance(&self, name: &str, package: &ArPackage) -> Result<EcuInstance, AutosarAbstractionError> {
         let ecu_instance = EcuInstance::new(name, package)?;
-        self.create_fibex_element_ref_unchecked(&ecu_instance.element())?;
+        self.create_fibex_element_ref_unchecked(ecu_instance.element())?;
 
         Ok(ecu_instance)
     }
@@ -152,7 +153,7 @@ impl System {
         settings: &CanClusterSettings,
     ) -> Result<CanCluster, AutosarAbstractionError> {
         let cluster = CanCluster::new(cluster_name, package, settings)?;
-        self.create_fibex_element_ref_unchecked(&cluster.element())?;
+        self.create_fibex_element_ref_unchecked(cluster.element())?;
 
         Ok(cluster)
     }
@@ -186,7 +187,7 @@ impl System {
         package: &ArPackage,
     ) -> Result<EthernetCluster, AutosarAbstractionError> {
         let cluster = EthernetCluster::new(cluster_name, package)?;
-        self.create_fibex_element_ref_unchecked(&cluster.element())?;
+        self.create_fibex_element_ref_unchecked(cluster.element())?;
 
         Ok(cluster)
     }
@@ -222,7 +223,7 @@ impl System {
         settings: &FlexrayClusterSettings,
     ) -> Result<FlexrayCluster, AutosarAbstractionError> {
         let cluster = FlexrayCluster::new(cluster_name, package, settings)?;
-        self.create_fibex_element_ref_unchecked(&cluster.element())?;
+        self.create_fibex_element_ref_unchecked(cluster.element())?;
 
         Ok(cluster)
     }
@@ -272,7 +273,7 @@ impl System {
     /// let sig_package = ArPackage::get_or_create(&model, "/ISignals").unwrap();
     /// let sys_package = ArPackage::get_or_create(&model, "/SystemSignals").unwrap();
     /// let system_signal = SystemSignal::new("signal1", &sys_package).unwrap();
-    /// system.create_isignal("signal1", 32, &system_signal, &sig_package).unwrap();
+    /// system.create_isignal("signal1", 32, &system_signal, None, &sig_package).unwrap();
     /// ```
     ///
     /// # Errors
@@ -284,9 +285,10 @@ impl System {
         name: &str,
         bit_length: u64,
         syssignal: &SystemSignal,
+        datatype: Option<&SwBaseType>,
         package: &ArPackage,
     ) -> Result<ISignal, AutosarAbstractionError> {
-        let i_signal = ISignal::new(name, bit_length, syssignal, package)?;
+        let i_signal = ISignal::new(name, bit_length, syssignal, datatype, package)?;
 
         self.create_fibex_element_ref_unchecked(i_signal.element())?;
 
@@ -874,17 +876,17 @@ pub enum SystemCategory {
     RptSystem,
 }
 
-impl ToString for SystemCategory {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for SystemCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SystemCategory::SystemConstraints => "SYSTEM_CONSTRAINTS".to_string(),
-            SystemCategory::SystemDescription => "SYSTEM_DESCRIPTION".to_string(),
-            SystemCategory::SystemExtract => "SYSTEM_EXTRACT".to_string(),
-            SystemCategory::EcuExtract => "ECU_EXTRACT".to_string(),
-            SystemCategory::AbstractSystemDescription => "ABSTRACT_SYSTEM_DESCRIPTION".to_string(),
-            SystemCategory::EcuSystemDescription => "ECU_SYSTEM_DESCRIPTION".to_string(),
-            SystemCategory::SwClusterSystemDescription => "SW_CLUSTER_SYSTEM_DESCRIPTION".to_string(),
-            SystemCategory::RptSystem => "RPT_SYSTEM".to_string(),
+            SystemCategory::SystemConstraints => f.write_str("SYSTEM_CONSTRAINTS"),
+            SystemCategory::SystemDescription => f.write_str("SYSTEM_DESCRIPTION"),
+            SystemCategory::SystemExtract => f.write_str("SYSTEM_EXTRACT"),
+            SystemCategory::EcuExtract => f.write_str("ECU_EXTRACT"),
+            SystemCategory::AbstractSystemDescription => f.write_str("ABSTRACT_SYSTEM_DESCRIPTION"),
+            SystemCategory::EcuSystemDescription => f.write_str("ECU_SYSTEM_DESCRIPTION"),
+            SystemCategory::SwClusterSystemDescription => f.write_str("SW_CLUSTER_SYSTEM_DESCRIPTION"),
+            SystemCategory::RptSystem => f.write_str("RPT_SYSTEM"),
         }
     }
 }
