@@ -364,7 +364,8 @@ impl EthernetPhysicalChannel {
 
 //##################################################################
 
-///
+/// A SocketConnectionBundle describes a connection between a server port and multiple client ports.
+/// It contains multiple bundled connections, each transporting one or more PDUs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SocketConnectionBundle(Element);
 abstraction_element!(SocketConnectionBundle, SocketConnectionBundle);
@@ -458,7 +459,7 @@ impl SocketConnectionBundle {
 
 //##################################################################
 
-///
+/// A socketConnection inside a SocketConnectionBundle describes a single connection to a specific client port.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SocketConnection(Element);
 abstraction_element!(SocketConnection, SocketConnection);
@@ -675,7 +676,9 @@ impl SocketConnection {
 
 //##################################################################
 
-///
+/// A static socket connection is a connection between two sockets.
+/// 
+/// This is the new way to establish a connection. It was introduced in Autosar 4.5.0 (AUTOSAR_00048).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StaticSocketConnection(Element);
 abstraction_element!(StaticSocketConnection, StaticSocketConnection);
@@ -738,7 +741,7 @@ impl StaticSocketConnection {
 
 //##################################################################
 
-///
+/// A SocketConnectionIpduIdentifierSet contains a set of SoConIPduIdentifiers, which are used in static socket connections.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SocketConnectionIpduIdentifierSet(Element);
 abstraction_element!(SocketConnectionIpduIdentifierSet, SocketConnectionIpduIdentifierSet);
@@ -777,7 +780,7 @@ impl SocketConnectionIpduIdentifierSet {
 
 //##################################################################
 
-///
+/// A SoConIPduIdentifier describes a PDU that is transported over a static socket connection.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SoConIPduIdentifier(Element);
 abstraction_element!(SoConIPduIdentifier, SoConIPduIdentifier);
@@ -898,6 +901,7 @@ impl SoConIPduIdentifier {
 
 //##################################################################
 
+/// The role of a TCP connection in a static socket connection cna either be `Connect` (=client) or `Listen` (=server).
 pub enum TcpRole {
     Connect,
     Listen,
