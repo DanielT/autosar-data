@@ -2,6 +2,7 @@ use autosar_data::{AutosarDataError, AutosarModel, Element, EnumItem};
 use thiserror::Error;
 
 pub mod communication;
+pub mod datatype;
 pub mod software_component;
 
 mod arpackage;

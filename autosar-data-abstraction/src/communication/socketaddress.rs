@@ -72,7 +72,7 @@ impl SocketAddress {
         let ae_name = format!("{name}_AE");
         let ae = elem.create_named_sub_element(ElementName::ApplicationEndpoint, &ae_name)?;
         ae.create_sub_element(ElementName::NetworkEndpointRef)?
-            .set_reference_target(&network_endpoint.element())?;
+            .set_reference_target(network_endpoint.element())?;
         let tp_configuration = ae.create_sub_element(ElementName::TpConfiguration)?;
         match tp_config {
             TpConfig::TcpTp {
@@ -193,11 +193,9 @@ impl SocketAddress {
             (Some(TpConfig::UdpTp { .. }), Some(TpConfig::UdpTp { .. })) | (None, None) => {
                 StaticSocketConnection::new(name, self.element(), remote_address, None, None)
             }
-            _ => {
-                return Err(AutosarAbstractionError::InvalidParameter(
-                    "Both SocketAddresses must use the same transport protocol".to_string(),
-                ))
-            }
+            _ => Err(AutosarAbstractionError::InvalidParameter(
+                "Both SocketAddresses must use the same transport protocol".to_string(),
+            )),
         }
     }
 }

@@ -1,11 +1,12 @@
 use crate::communication::{CommunicationDirection, PhysicalChannel};
+use crate::datatype::{CompuMethod, DataConstr, SwBaseType, Unit};
 use crate::{
     abstraction_element, communication::ISignalToIPduMapping, element_iterator, make_unique_name, reflist_iterator,
     AbstractionElement, ArPackage, AutosarAbstractionError, EcuInstance,
 };
 use autosar_data::{AutosarDataError, Element, ElementName, EnumItem, WeakElement};
 
-///
+/// Signal of the Interaction Layer
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ISignal(Element);
 abstraction_element!(ISignal, ISignal);
@@ -15,6 +16,7 @@ impl ISignal {
         name: &str,
         bit_length: u64,
         syssignal: &SystemSignal,
+        datatype: Option<&SwBaseType>,
         package: &ArPackage,
     ) -> Result<Self, AutosarAbstractionError> {
         if bit_length > (u32::MAX as u64) * 8 {
@@ -37,17 +39,31 @@ impl ISignal {
             .create_sub_element(ElementName::DataTypePolicy)?
             .set_character_data(EnumItem::Override)?;
 
-        Ok(Self(elem_isignal))
+        let isignal = Self(elem_isignal);
+
+        if let Some(datatype) = datatype {
+            isignal.set_datatype(datatype)?;
+        }
+
+        Ok(isignal)
     }
 
-    pub fn set_datatype(&self, _datatype: ()) -> Result<(), AutosarAbstractionError> {
-        todo!()
+    /// set the data type for this signal
+    pub fn set_datatype(&self, datatype: &SwBaseType) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .get_or_create_sub_element(ElementName::NetworkRepresentationProps)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_or_create_sub_element(ElementName::BaseTypeRef)?
+            .set_reference_target(datatype.element())?;
+        Ok(())
     }
 
     pub fn set_transformation(&self) -> Result<(), AutosarAbstractionError> {
         todo!()
     }
 
+    /// get the length of this signal in bits
     pub fn length(&self) -> Option<u64> {
         self.element()
             .get_sub_element(ElementName::Length)?
@@ -55,6 +71,7 @@ impl ISignal {
             .parse_integer()
     }
 
+    /// get the system signal that corresponds to this isignal
     pub fn system_signal(&self) -> Option<SystemSignal> {
         self.element()
             .get_sub_element(ElementName::SystemSignalRef)?
@@ -93,7 +110,7 @@ impl ISignal {
 
 //##################################################################
 
-///
+/// The system signal represents the communication system's view of data exchanged between SW components which reside on different ECUs
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SystemSignal(Element);
 abstraction_element!(SystemSignal, SystemSignal);
@@ -106,21 +123,98 @@ impl SystemSignal {
         Ok(Self(elem_syssignal))
     }
 
+    /// get the signal group that contains this signal
     pub fn signal_group(&self) -> Option<SystemSignalGroup> {
         let path = self.element().path().ok()?;
         let referrers = self.element().model().ok()?.get_references_to(&path);
-        for elem in referrers.iter().filter_map(WeakElement::upgrade) {
+        for elem in referrers
+            .iter()
+            .filter_map(WeakElement::upgrade)
+            .filter_map(|refelem| refelem.named_parent().ok().flatten())
+        {
             if let Ok(grp) = SystemSignalGroup::try_from(elem) {
                 return Some(grp);
             }
         }
         None
     }
+
+    /// set the unit for this signal
+    pub fn set_unit(&self, unit: &Unit) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .get_or_create_sub_element(ElementName::PhysicalProps)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_or_create_sub_element(ElementName::UnitRef)?
+            .set_reference_target(unit.element())?;
+        Ok(())
+    }
+
+    /// get the unit for this signal
+    pub fn unit(&self) -> Option<Unit> {
+        self.element()
+            .get_sub_element(ElementName::PhysicalProps)?
+            .get_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_sub_element(ElementName::UnitRef)?
+            .get_reference_target()
+            .ok()?
+            .try_into()
+            .ok()
+    }
+
+    /// set the compu method for this signal
+    pub fn set_compu_method(&self, compu_method: &CompuMethod) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .get_or_create_sub_element(ElementName::PhysicalProps)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_or_create_sub_element(ElementName::CompuMethodRef)?
+            .set_reference_target(compu_method.element())?;
+        Ok(())
+    }
+
+    /// get the compu method for this signal
+    pub fn compu_method(&self) -> Option<CompuMethod> {
+        self.element()
+            .get_sub_element(ElementName::PhysicalProps)?
+            .get_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_sub_element(ElementName::CompuMethodRef)?
+            .get_reference_target()
+            .ok()?
+            .try_into()
+            .ok()
+    }
+
+    /// set the data constraint for this signal
+    pub fn set_data_constr(&self, data_constr: &DataConstr) -> Result<(), AutosarAbstractionError> {
+        self.element()
+            .get_or_create_sub_element(ElementName::PhysicalProps)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_or_create_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_or_create_sub_element(ElementName::DataConstrRef)?
+            .set_reference_target(data_constr.element())?;
+        Ok(())
+    }
+
+    /// get the data constraint for this signal
+    pub fn data_constr(&self) -> Option<DataConstr> {
+        self.element()
+            .get_sub_element(ElementName::PhysicalProps)?
+            .get_sub_element(ElementName::SwDataDefPropsVariants)?
+            .get_sub_element(ElementName::SwDataDefPropsConditional)?
+            .get_sub_element(ElementName::DataConstrRef)?
+            .get_reference_target()
+            .ok()?
+            .try_into()
+            .ok()
+    }
 }
 
 //##################################################################
 
-///
+/// An ISignalGroup groups signals that should always be kept together
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ISignalGroup(Element);
 abstraction_element!(ISignalGroup, ISignalGroup);
@@ -147,7 +241,9 @@ impl ISignalGroup {
         let syssig_grp_of_signal = signal.system_signal().and_then(|ss| ss.signal_group());
         let syssig_grp = self.system_signal_group();
         if syssig_grp != syssig_grp_of_signal {
-            return Err(AutosarAbstractionError::InvalidParameter("".to_string()));
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The isignal and the system signal must both be part of corresponding signal groups".to_string(),
+            ));
         }
 
         let isrefs = self.element().get_or_create_sub_element(ElementName::ISignalRefs)?;
@@ -161,6 +257,7 @@ impl ISignalGroup {
         Ok(())
     }
 
+    /// get the system signal group that is associated with this signal group
     pub fn system_signal_group(&self) -> Option<SystemSignalGroup> {
         self.element()
             .get_sub_element(ElementName::SystemSignalGroupRef)?
@@ -174,18 +271,20 @@ impl ISignalGroup {
     ///
     /// # Example
     pub fn signals(&self) -> ISignalsIterator {
-        ISignalsIterator::new(self.element().get_sub_element(ElementName::Signals))
+        ISignalsIterator::new(self.element().get_sub_element(ElementName::ISignalRefs))
     }
 }
 
 //##################################################################
 
-///
+/// A signal group refers to a set of signals that shall always be kept together. A signal group is used to
+/// guarantee the atomic transfer of AUTOSAR composite data types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SystemSignalGroup(Element);
 abstraction_element!(SystemSignalGroup, SystemSignalGroup);
 
 impl SystemSignalGroup {
+    /// Create a new system signal group
     pub fn new(name: &str, package: &ArPackage) -> Result<Self, AutosarAbstractionError> {
         let pkg_elements = package.element().get_or_create_sub_element(ElementName::Elements)?;
         let signalgroup = pkg_elements.create_named_sub_element(ElementName::SystemSignalGroup, name)?;
@@ -270,6 +369,7 @@ impl ISignalTriggering {
         PhysicalChannel::try_from(channel_elem)
     }
 
+    /// connect this signal triggering to an ECU
     pub fn connect_to_ecu(
         &self,
         ecu: &EcuInstance,
@@ -313,6 +413,7 @@ impl ISignalTriggering {
         Ok(ISignalPort(sp_elem))
     }
 
+    /// create an iterator over all signal ports that are connected to this signal triggering
     pub fn signal_ports(&self) -> ISignalPortIterator {
         ISignalPortIterator::new(self.element().get_sub_element(ElementName::ISignalPortRefs))
     }
@@ -326,12 +427,14 @@ pub struct ISignalPort(Element);
 abstraction_element!(ISignalPort, ISignalPort);
 
 impl ISignalPort {
+    /// get the ECU that is connected to this signal port
     pub fn ecu(&self) -> Option<EcuInstance> {
         let comm_connector_elem = self.element().named_parent().ok()??;
         let ecu_elem = comm_connector_elem.named_parent().ok()??;
         EcuInstance::try_from(ecu_elem).ok()
     }
 
+    /// get the communication direction of this port
     pub fn communication_direction(&self) -> Option<CommunicationDirection> {
         self.element()
             .get_sub_element(ElementName::CommunicationDirection)?
@@ -402,3 +505,57 @@ element_iterator!(
 //##################################################################
 
 reflist_iterator!(ISignalToIPduMappingsIterator, ISignalToIPduMapping);
+
+//##################################################################
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::datatype::{BaseTypeEncoding, SwBaseType, Unit};
+    use autosar_data::{AutosarModel, AutosarVersion};
+
+    #[test]
+    fn test_signal() {
+        let model = AutosarModel::new();
+        let _file = model.create_file("test.arxml", AutosarVersion::LATEST).unwrap();
+        let package = ArPackage::get_or_create(&model, "/test").unwrap();
+        let unit = Unit::new("unit", &package).unwrap();
+        let compu_method = CompuMethod::new("compu_method", &package).unwrap();
+        let data_constr = DataConstr::new("data_constr", &package).unwrap();
+        let sw_base_type =
+            SwBaseType::new("sw_base_type", &package, 8, BaseTypeEncoding::None, None, None, None).unwrap();
+
+        let sys_signal = SystemSignal::new("sys_signal", &package).unwrap();
+        let signal = ISignal::new("signal", 8, &sys_signal, Some(&sw_base_type), &package).unwrap();
+
+        sys_signal.set_unit(&unit).unwrap();
+        sys_signal.set_compu_method(&compu_method).unwrap();
+        sys_signal.set_data_constr(&data_constr).unwrap();
+
+        assert_eq!(signal.length(), Some(8));
+        assert_eq!(signal.system_signal(), Some(sys_signal.clone()));
+        assert_eq!(sys_signal.unit(), Some(unit));
+        assert_eq!(sys_signal.compu_method(), Some(compu_method));
+        assert_eq!(sys_signal.data_constr(), Some(data_constr));
+    }
+
+    #[test]
+    fn test_signal_group() {
+        let model = AutosarModel::new();
+        let _file = model.create_file("test.arxml", AutosarVersion::LATEST).unwrap();
+        let package = ArPackage::get_or_create(&model, "/test").unwrap();
+        let sys_signal_group = SystemSignalGroup::new("sys_signal_group", &package).unwrap();
+        let signal_group = ISignalGroup::new("signal_group", &sys_signal_group, &package).unwrap();
+        assert_eq!(signal_group.system_signal_group(), Some(sys_signal_group.clone()));
+
+        let sys_signal = SystemSignal::new("sys_signal", &package).unwrap();
+        let signal = ISignal::new("signal", 8, &sys_signal, None, &package).unwrap();
+        assert_eq!(signal.system_signal(), Some(sys_signal.clone()));
+
+        sys_signal_group.add_signal(&sys_signal).unwrap();
+        assert_eq!(sys_signal.signal_group(), Some(sys_signal_group.clone()));
+
+        signal_group.add_signal(&signal).unwrap();
+        assert_eq!(signal_group.signals().count(), 1);
+    }
+}

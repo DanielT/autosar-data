@@ -7,7 +7,10 @@ mod test {
             FlexrayChannelName, FlexrayClusterSettings, FlexrayCommunicationCycle, IPv4AddressSource,
             NetworkEndpointAddress, SocketAddressType, SocketConnectionIpduIdentifierSet, SystemSignal, TpConfig,
             TransferProperty,
-        }, software_component::CompositionSwComponentType, AbstractionElement, ArPackage, ByteOrder, System, SystemCategory
+        },
+        datatype::{BaseTypeEncoding, SwBaseType},
+        software_component::CompositionSwComponentType,
+        AbstractionElement, ArPackage, ByteOrder, System, SystemCategory,
     };
 
     #[test]
@@ -55,6 +58,19 @@ mod test {
         let isignal_package = ArPackage::get_or_create(&model, "/Network/Signals").unwrap();
         let syssignal_package = ArPackage::get_or_create(&model, "/System/Signals").unwrap();
 
+        // create a base type for the CAN signals
+        let base_type_package = ArPackage::get_or_create(&model, "/BaseTypes").unwrap();
+        let base_type_u8 = SwBaseType::new(
+            "uint8",
+            &base_type_package,
+            8,
+            BaseTypeEncoding::None,
+            None,
+            None,
+            Some("uint8"),
+        )
+        .unwrap();
+
         // create Frame_1 which contains Pdu_1: Id 0x100, length 8
         let frame1 = system.create_can_frame("Frame_1", 8, &frame_package).unwrap();
         let pdu1 = system.create_isignal_ipdu("Pdu_1", &pdu_package, 8).unwrap();
@@ -77,11 +93,11 @@ mod test {
         let pdu2 = system.create_isignal_ipdu("Pdu_2", &pdu_package, 8).unwrap();
         let ss_pdu2signal1 = SystemSignal::new("P2S1", &isignal_package).unwrap();
         let pdu2signal1 = system
-            .create_isignal("P2S1", 4, &ss_pdu2signal1, &syssignal_package)
+            .create_isignal("P2S1", 4, &ss_pdu2signal1, Some(&base_type_u8), &syssignal_package)
             .unwrap();
         let ss_pdu2signal2 = SystemSignal::new("P2S2", &syssignal_package).unwrap();
         let pdu2signal2 = system
-            .create_isignal("P2S2", 4, &ss_pdu2signal2, &isignal_package)
+            .create_isignal("P2S2", 4, &ss_pdu2signal2, Some(&base_type_u8), &isignal_package)
             .unwrap();
         pdu2.map_signal(
             &pdu2signal1,
@@ -129,7 +145,9 @@ mod test {
         // ... Todo: create other swc elements ...
 
         // add the root composition to the system
-        system.set_root_sw_composition("CanTestComposition", &root_composition).unwrap();
+        system
+            .set_root_sw_composition("CanTestComposition", &root_composition)
+            .unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         model.write().unwrap();
@@ -229,7 +247,7 @@ mod test {
         let pdu = system.create_isignal_ipdu("Pdu_1", &pdu_package, 8).unwrap();
         let system_signal = SystemSignal::new("Signal_1", &syssignal_package).unwrap();
         let isignal = system
-            .create_isignal("Signal_1", 8, &system_signal, &isignal_package)
+            .create_isignal("Signal_1", 8, &system_signal, None, &isignal_package)
             .unwrap();
 
         let pdu_triggering = connection.add_pdu(&pdu.clone().into(), 0x1000, None, None).unwrap();
@@ -254,7 +272,9 @@ mod test {
         // ... Todo: create other swc elements ...
 
         // add the root composition to the system
-        system.set_root_sw_composition("EthernetTestComposition", &root_composition).unwrap();
+        system
+            .set_root_sw_composition("EthernetTestComposition", &root_composition)
+            .unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         model.write().unwrap();
@@ -351,7 +371,7 @@ mod test {
         let pdu = system.create_isignal_ipdu("Pdu_1", &pdu_package, 8).unwrap();
         let system_signal = SystemSignal::new("Signal_1", &syssignal_package).unwrap();
         let isignal = system
-            .create_isignal("Signal_1", 8, &system_signal, &isignal_package)
+            .create_isignal("Signal_1", 8, &system_signal, None, &isignal_package)
             .unwrap();
 
         let ipdu_identifier_set_package = ArPackage::get_or_create(&model, "/Network/IpduIdentifierSets").unwrap();
@@ -396,7 +416,9 @@ mod test {
         // ... Todo: create other swc elements ...
 
         // add the root composition to the system
-        system.set_root_sw_composition("EthernetTestComposition", &root_composition).unwrap();
+        system
+            .set_root_sw_composition("EthernetTestComposition", &root_composition)
+            .unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         model.write().unwrap();
@@ -500,7 +522,9 @@ mod test {
         // ... Todo: create other swc elements ...
 
         // add the root composition to the system
-        system.set_root_sw_composition("FlexrayTestComposition", &root_composition).unwrap();
+        system
+            .set_root_sw_composition("FlexrayTestComposition", &root_composition)
+            .unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
         // model.write().unwrap();

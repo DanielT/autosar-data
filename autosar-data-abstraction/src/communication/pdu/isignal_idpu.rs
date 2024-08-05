@@ -72,8 +72,7 @@ impl ISignalIPdu {
             if self
                 .mapped_signals()
                 .filter_map(|mapping| mapping.signal_group())
-                .find(|grp| grp == &signal_group)
-                .is_none()
+                .any(|grp| grp == signal_group)
             {
                 return Err(AutosarAbstractionError::InvalidParameter(
                     "Cannot map signal to pdu, because it is part of an unmapped signal group.".to_string(),
@@ -83,7 +82,7 @@ impl ISignalIPdu {
 
         // add a pdu triggering for the newly mapped PDU to each frame triggering of this frame
         for pt in self.pdu_triggerings() {
-            let st = pt.add_signal_triggering(&signal)?;
+            let st = pt.add_signal_triggering(signal)?;
             for pdu_port in pt.pdu_ports() {
                 if let (Some(ecu), Some(direction)) = (pdu_port.ecu(), pdu_port.communication_direction()) {
                     st.connect_to_ecu(&ecu, direction)?;
@@ -103,7 +102,7 @@ impl ISignalIPdu {
         ISignalToIPduMapping::new(
             &name,
             &mappings,
-            &signal,
+            signal,
             start_position,
             byte_order,
             update_bit,
@@ -122,7 +121,7 @@ impl ISignalIPdu {
 
         // add a pdu triggering for the newly mapped PDU to each frame triggering of this frame
         for pt in self.pdu_triggerings() {
-            let st = pt.add_signal_group_triggering(&signal_group)?;
+            let st = pt.add_signal_group_triggering(signal_group)?;
             for pdu_port in pt.pdu_ports() {
                 if let (Some(ecu), Some(direction)) = (pdu_port.ecu(), pdu_port.communication_direction()) {
                     st.connect_to_ecu(&ecu, direction)?;
@@ -139,7 +138,7 @@ impl ISignalIPdu {
             .element()
             .get_or_create_sub_element(ElementName::ISignalToPduMappings)?;
 
-        ISignalToIPduMapping::new_group(&name, &mappings, &signal_group)
+        ISignalToIPduMapping::new_group(&name, &mappings, signal_group)
     }
 
     pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
