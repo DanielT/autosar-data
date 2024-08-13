@@ -401,6 +401,7 @@ element_iterator!(ApplicationRecordElementIterator, ApplicationRecordElement, So
 mod tests {
     use super::*;
     use autosar_data::AutosarVersion;
+    use datatype::{CompuMethodContent, CompuMethodLinearContent};
 
     #[test]
     fn test_application_array_data_type() {
@@ -457,8 +458,20 @@ mod tests {
         let model = AutosarModel::new();
         let _file = model.create_file("filename", AutosarVersion::LATEST).unwrap();
         let package = ArPackage::get_or_create(&model, "/DataTypes").unwrap();
-        let compu_method = CompuMethod::new("CompuMethod", &package).unwrap();
-        let unit = Unit::new("Unit", &package).unwrap();
+        let compu_method = CompuMethod::new(
+            "CompuMethod",
+            &package,
+            CompuMethodContent::Linear(CompuMethodLinearContent {
+                direction: datatype::CompuScaleDirection::IntToPhys,
+                offset: 0.0,
+                factor: 100.0,
+                divisor: 1.0,
+                lower_limit: None,
+                upper_limit: None,
+            }),
+        )
+        .unwrap();
+        let unit = Unit::new("Unit", &package, Some("Unit name")).unwrap();
         let data_constraint = DataConstr::new("DataConstraint", &package).unwrap();
         let primitive_data_type = ApplicationPrimitiveDataType::new(
             "Primitive",

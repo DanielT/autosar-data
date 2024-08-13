@@ -511,7 +511,7 @@ reflist_iterator!(ISignalToIPduMappingsIterator, ISignalToIPduMapping);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::datatype::{BaseTypeEncoding, SwBaseType, Unit};
+    use crate::datatype::{BaseTypeEncoding, CompuMethodContent, SwBaseType, Unit};
     use autosar_data::{AutosarModel, AutosarVersion};
 
     #[test]
@@ -519,8 +519,8 @@ mod tests {
         let model = AutosarModel::new();
         let _file = model.create_file("test.arxml", AutosarVersion::LATEST).unwrap();
         let package = ArPackage::get_or_create(&model, "/test").unwrap();
-        let unit = Unit::new("unit", &package).unwrap();
-        let compu_method = CompuMethod::new("compu_method", &package).unwrap();
+        let unit = Unit::new("unit", &package, Some("Unit Name")).unwrap();
+        let compu_method = CompuMethod::new("compu_method", &package, CompuMethodContent::Identical).unwrap();
         let data_constr = DataConstr::new("data_constr", &package).unwrap();
         let sw_base_type =
             SwBaseType::new("sw_base_type", &package, 8, BaseTypeEncoding::None, None, None, None).unwrap();
