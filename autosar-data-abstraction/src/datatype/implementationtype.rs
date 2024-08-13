@@ -142,14 +142,12 @@ pub trait AbstractImplementationDataType: AbstractionElement {
             ImplementationDataCategory::FunctionReference => {
                 Some(ImplementationDataTypeSettings::FunctionReference { name: self.name()? })
             }
-            ImplementationDataCategory::TypeReference => {
-                Some(ImplementationDataTypeSettings::TypeReference {
-                    name: self.name()?,
-                    reftype: self.referenced_type()?,
-                    compu_method: self.compu_method(),
-                    data_constraint: self.data_constraint(),
-                })
-            }
+            ImplementationDataCategory::TypeReference => Some(ImplementationDataTypeSettings::TypeReference {
+                name: self.name()?,
+                reftype: self.referenced_type()?,
+                compu_method: self.compu_method(),
+                data_constraint: self.data_constraint(),
+            }),
         }
     }
 }
@@ -428,7 +426,7 @@ element_iterator!(
 mod tests {
     use super::*;
     use autosar_data::AutosarVersion;
-    use datatype::BaseTypeEncoding;
+    use datatype::{BaseTypeEncoding, CompuMethodCategory};
 
     #[test]
     fn test_impl_data_type() {
@@ -437,7 +435,7 @@ mod tests {
         let package = ArPackage::get_or_create(&model, "/DataTypes").unwrap();
         let base_type =
             SwBaseType::new("uint8", &package, 8, BaseTypeEncoding::None, None, None, Some("uint8")).unwrap();
-        let compu_method = CompuMethod::new("linear", &package).unwrap();
+        let compu_method = CompuMethod::new_raw("linear", &package, CompuMethodCategory::Linear).unwrap();
         let data_constraint = DataConstr::new("constraint", &package).unwrap();
         let other_impl_data_type = ImplementationDataType::new(
             &package,
