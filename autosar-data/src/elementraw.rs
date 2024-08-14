@@ -966,6 +966,14 @@ impl ElementRaw {
 
         if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
             // element_name is a valid sub-element according to the specification; new_element_inidices describes the element grouping and ordering
+
+            // Optimization: No need to check in detail because ContentMode::Bag
+            // and ContentMode::mixed allow any number of elements in any order.
+            // This optimization is particularly relevant for <AR-PACKAGE><ELEMENTS>, which could contain a large number of sub elements
+            if self.elemtype.content_mode() == ContentMode::Bag || self.elemtype.content_mode() == ContentMode::Mixed {
+                return Ok((0, self.content.len()));
+            }
+
             let mut start_pos = 0;
             let mut end_pos = 0;
             // compare the new element to the existing elements
@@ -1025,11 +1033,14 @@ impl ElementRaw {
                             }
                         }
                         ContentMode::Bag | ContentMode::Mixed => {
-                            // can insert before or after the current element
+                            // Can insert before or after the current element.
+                            // Currently (R23-11) there is no case where ContentMode::Bag/Mixed is
+                            // nested inside another ContentMode, so this code won't be reached.
+                            // It remains here since this may change in future versions of AUTOSAR
                             end_pos = idx + 1;
                         }
                         ContentMode::Characters => {
-                            panic!(); // impossible on sub-groups
+                            unreachable!(); // impossible on sub-groups
                         }
                     }
                 } else if let ElementContent::CharacterData(_) = content_item {
