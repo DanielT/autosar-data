@@ -1,7 +1,6 @@
 use smallvec::smallvec;
 use std::{borrow::Cow, time::Duration};
 
-use crate::element::ElementSortKey;
 use autosar_data_specification::{
     AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementMultiplicity, ElementName,
 };
@@ -1254,51 +1253,26 @@ impl ElementRaw {
                 let len = self.content.len();
                 if !self.elemtype.is_ordered() && len > 1 {
                     // remove all child elements from this element and sort them
-                    let mut sorting_vec: Vec<(Vec<usize>, ElementSortKey, Element)> = Vec::with_capacity(len);
+                    let mut sorting_vec: Vec<(Vec<usize>, Element)> = Vec::with_capacity(len);
                     for ec_elem in &self.content {
                         if let ElementContent::Element(elem) = ec_elem {
                             // descend into the element and sort it before doing anything else with it
                             elem.sort();
                             let (_, elem_indices) =
                                 self.elemtype.find_sub_element(elem.element_name(), u32::MAX).unwrap();
-                            sorting_vec.push((elem_indices, ElementSortKey::default(), elem.clone()));
+                            sorting_vec.push((elem_indices, elem.clone()));
                         }
                         // Sequence, Choice and Bag do not have character content, so else {} is not needed
                     }
 
-                    // basic sort, typically a no-op
-                    sorting_vec
-                        .sort_by(|(elem_indices_a, _, _), (elem_indices_b, _, _)| elem_indices_a.cmp(elem_indices_b));
-                    // try to find out if there are any conflicts during basic sorting, i.e. items that need more info to sort
-                    let mut sort_key_needed: Vec<bool> = vec![false; len];
-                    for idx in 1..len {
-                        let (prev_elem_indices, _, _) = &sorting_vec[idx - 1];
-                        let (elem_indices, _, _) = &sorting_vec[idx];
-                        if elem_indices == prev_elem_indices {
-                            sort_key_needed[idx - 1] = true;
-                            sort_key_needed[idx] = true;
-                        }
-                    }
-                    // if any sub element needs sort-keys (i.e. there is a conflict) then these sort keys are generated and the list is sorted again
-                    if sort_key_needed.iter().any(|&val| val) {
-                        for idx in 0..len {
-                            if sort_key_needed[idx] {
-                                sorting_vec[idx].1 = sorting_vec[idx].2.get_sort_key();
-                            }
-                        }
-                        // sort again, taking into account the sorting keys
-                        sorting_vec.sort_by(|(elem_indices_a, sort_key_a, _), (elem_indices_b, sort_key_b, _)| {
-                            match elem_indices_a.cmp(elem_indices_b) {
-                                std::cmp::Ordering::Less => std::cmp::Ordering::Less,
-                                std::cmp::Ordering::Equal => sort_key_a.cmp(sort_key_b),
-                                std::cmp::Ordering::Greater => std::cmp::Ordering::Greater,
-                            }
-                        });
-                    }
+                    // sort the elements, first by their indices, then by their content
+                    sorting_vec.sort_by(|(elem_indices_a, elem_a), (elem_indices_b, elem_b)| {
+                        elem_indices_a.cmp(elem_indices_b).then(elem_a.cmp(elem_b))
+                    });
 
                     self.content.clear();
                     // put the sorted elements back
-                    for (_, _, elem) in sorting_vec {
+                    for (_, elem) in sorting_vec {
                         self.content.push(ElementContent::Element(elem));
                     }
                 } else {

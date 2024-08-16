@@ -78,7 +78,6 @@ impl AutosarVersion {
             Self::Autosar_00050 => "AUTOSAR_00050.xsd",
             Self::Autosar_00051 => "AUTOSAR_00051.xsd",
             Self::Autosar_00052 => "AUTOSAR_00052.xsd",
-
         }
     }
 
@@ -109,7 +108,6 @@ impl AutosarVersion {
             Self::Autosar_00050 => "AUTOSAR R21-11",
             Self::Autosar_00051 => "AUTOSAR R22-11",
             Self::Autosar_00052 => "AUTOSAR R23-11",
-
         }
     }
 
@@ -163,4 +161,3 @@ impl std::fmt::Display for AutosarVersion {
         f.write_str(self.describe())
     }
 }
-

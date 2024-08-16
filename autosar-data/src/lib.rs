@@ -319,7 +319,7 @@ pub(crate) struct ElementRaw {
 }
 
 /// A single attribute of an arxml element
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
     pub attrname: AttributeName,
     pub content: CharacterData,
@@ -328,7 +328,7 @@ pub struct Attribute {
 /// One content item inside an arxml element
 ///
 /// Elements may contain other elements, character data, or a mixture of both, depending on their type.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ElementContent {
     Element(Element),
     CharacterData(CharacterData),
@@ -451,6 +451,23 @@ pub fn check_file<P: AsRef<Path>>(filename: P) -> bool {
 pub fn check_buffer(buffer: &[u8]) -> bool {
     let mut parser = ArxmlParser::new(PathBuf::from("none"), buffer, false);
     parser.check_arxml_header()
+}
+
+/// provide PartialOrd for attributes; this is used while sorting elements
+impl PartialOrd for Attribute {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// provide Ord for attributes; this is used while sorting elements
+impl Ord for Attribute {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.attrname
+            .to_str()
+            .cmp(other.attrname.to_str())
+            .then(self.content.cmp(&other.content))
+    }
 }
 
 #[cfg(test)]

@@ -4,14 +4,6 @@ use std::str::FromStr;
 
 use super::*;
 
-#[derive(Debug, Default, Eq)]
-pub(crate) struct ElementSortKey {
-    pub(crate) index: Option<u32>,
-    pub(crate) item_name_indexed: Option<(String, u32)>,
-    pub(crate) item_name: Option<String>,
-    pub(crate) definition: Option<String>,
-}
-
 impl Element {
     /// Get the parent element of the current element
     ///
@@ -885,10 +877,7 @@ impl Element {
     ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///  - [`AutosarDataError::IncorrectContentType`]: Cannot set character data on an element which does not contain character data
-    pub fn set_character_data<T: Into<CharacterData>>(
-        &self,
-        value: T,
-    ) -> Result<(), AutosarDataError> {
+    pub fn set_character_data<T: Into<CharacterData>>(&self, value: T) -> Result<(), AutosarDataError> {
         let mut chardata: CharacterData = value.into();
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed {
@@ -1538,64 +1527,6 @@ impl Element {
         self.0.write().sort();
     }
 
-    /// create a textual sorting key that can be used to determine the ordering of otherwise equal elements
-    pub(crate) fn get_sort_key(&self) -> ElementSortKey {
-        let index = if self.get_sub_element(ElementName::DefinitionRef).is_some() {
-            self.get_sub_element(ElementName::Index)
-                .and_then(|indexelem| indexelem.character_data())
-                .and_then(|cdata| cdata.string_value())
-                .and_then(|strval| {
-                    if let Some(hexstring) = strval.strip_prefix("0x") {
-                        u32::from_str_radix(hexstring, 16).ok()
-                    } else if let Some(hexstring) = strval.strip_prefix("0X") {
-                        u32::from_str_radix(hexstring, 16).ok()
-                    } else if let Some(binstring) = strval.strip_prefix("0b") {
-                        u32::from_str_radix(binstring, 2).ok()
-                    } else if let Some(binstring) = strval.strip_prefix("0B") {
-                        u32::from_str_radix(binstring, 2).ok()
-                    } else if let Some(octval) = strval
-                        .strip_prefix('0')
-                        .and_then(|octstring| u32::from_str_radix(octstring, 8).ok())
-                    {
-                        Some(octval)
-                    } else {
-                        strval.parse::<u32>().ok()
-                    }
-                })
-        } else {
-            None
-        };
-
-        let item_name = self.item_name();
-        let item_name_indexed = if let Some(item_name) = &item_name {
-            // the set of characters for item names is restricted, and none of them takes more than one byte in utf-8
-            let bytestr = item_name.as_bytes();
-            let mut pos = bytestr.len();
-            while pos > 0 && bytestr[pos - 1].is_ascii_digit() {
-                pos -= 1;
-            }
-            if let Ok(index) = item_name[pos..].parse() {
-                Some((item_name[0..pos].to_owned(), index))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let definition = self
-            .get_sub_element(ElementName::DefinitionRef)
-            .and_then(|defref| defref.character_data())
-            .and_then(|cdata| cdata.string_value());
-
-        ElementSortKey {
-            index,
-            item_name_indexed,
-            item_name,
-            definition,
-        }
-    }
-
     /// Serialize the element and all of its content to a string
     ///
     /// The serialized text generated for elements below the root element cannot be loaded, but it may be useful for display.
@@ -2231,6 +2162,150 @@ impl Element {
     }
 }
 
+impl Ord for Element {
+    /// compare the content of two elements
+    ///
+    /// This function compares the content of two elements, returning a cmp::Ordering value.
+    /// The purpose of this function is to allow sorting of elements based on their content.
+    ///
+    /// The comparison is performed in the following order:
+    /// 1. Element name
+    /// 2. Index (if present)
+    /// 3. Item name (if present)
+    /// 4. Definition reference (if present)
+    /// 5. DEST attribute (if present)
+    /// 6. Content of the element
+    /// 7. Attributes of the element
+    ///
+    /// If the comparison returns `Ordering::Equal`, then the two elements are identical, but this does not imply that they are the same object.
+    ///
+    /// # Example
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::LATEST).unwrap();
+    /// # let element1 = model.root_element();
+    /// # let element2 = model.root_element();
+    /// let ordering = element1.cmp(&element2);
+    /// ```
+    fn cmp(&self, other: &Element) -> std::cmp::Ordering {
+        // Sort by the element name first. This test prevents the other comparisons from being performed when they don't make sense.
+        match self.element_name().to_str().cmp(other.element_name().to_str()) {
+            Ordering::Equal => {}
+            other => return other,
+        }
+
+        // if both elements have an index, then compare the index; if only one has an index, then it comes first
+        // if neither has an index, then continue and compare other criteria
+        let index1 = self
+            .get_sub_element(ElementName::Index)
+            .and_then(|indexelem| indexelem.character_data())
+            .and_then(|cdata| cdata.decode_integer::<u64>());
+        let index2 = other
+            .get_sub_element(ElementName::Index)
+            .and_then(|indexelem| indexelem.character_data())
+            .and_then(|cdata| cdata.decode_integer::<u64>());
+        match (index1, index2) {
+            (Some(idx1), Some(idx2)) => {
+                let result = idx1.cmp(&idx2);
+                if result != Ordering::Equal {
+                    return result;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+
+        // sort by item name if present
+        if let (Some(name1), Some(name2)) = (self.item_name(), other.item_name()) {
+            // both items have a name - try to decompose the name into a base and an index
+            // this allows for a more natural sorting of indexed items (e.g. "item2" < "item10")
+            if let (Some((base1, idx1)), Some((base2, idx2))) =
+                (decompose_item_name(&name1), decompose_item_name(&name2))
+            {
+                if base1 == base2 {
+                    let result = idx1.cmp(&idx2);
+                    if result != Ordering::Equal {
+                        return result;
+                    }
+                }
+            }
+            // if the decomposition fails, then just compare the full item names
+            let result = name1.cmp(&name2);
+            if result != Ordering::Equal {
+                return result;
+            }
+        }
+
+        // for BSW values: compare the definition references
+        let definition1 = self
+            .get_sub_element(ElementName::DefinitionRef)
+            .and_then(|defref| defref.character_data())
+            .and_then(|cdata| cdata.string_value());
+        let definition2 = other
+            .get_sub_element(ElementName::DefinitionRef)
+            .and_then(|defref| defref.character_data())
+            .and_then(|cdata| cdata.string_value());
+        if let (Some(def1), Some(def2)) = (definition1, definition2) {
+            let result = def1.cmp(&def2);
+            if result != Ordering::Equal {
+                return result;
+            }
+        }
+
+        // for references: compare the DEST attribute
+        let dest1 = self
+            .attribute_value(AttributeName::Dest)
+            .and_then(|cdata| cdata.enum_value());
+        let dest2 = other
+            .attribute_value(AttributeName::Dest)
+            .and_then(|cdata| cdata.enum_value());
+        match (dest1, dest2) {
+            (Some(dest1), Some(dest2)) => {
+                let result = dest1.to_str().cmp(dest2.to_str());
+                if result != Ordering::Equal {
+                    return result;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+
+        // if all else fails, compare the content of the elements
+        let locked_self = self.0.read();
+        let locked_other = other.0.read();
+        locked_self
+            .content
+            .cmp(&locked_other.content)
+            .then(locked_self.attributes.cmp(&locked_other.attributes))
+    }
+}
+
+impl PartialOrd for Element {
+    fn partial_cmp(&self, other: &Element) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// decompose an item name into a base name and an index
+/// The index is expected to be a decimal number at the end of the string
+///
+/// E.g. "item123" -> ("item", 123)
+fn decompose_item_name(name: &str) -> Option<(String, u64)> {
+    let bytestr = name.as_bytes();
+    let mut pos = bytestr.len();
+    while pos > 0 && bytestr[pos - 1].is_ascii_digit() {
+        pos -= 1;
+    }
+    if let Ok(index) = name[pos..].parse() {
+        Some((name[0..pos].to_owned(), index))
+    } else {
+        None
+    }
+}
+
 impl std::fmt::Debug for Element {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let elem = self.0.read();
@@ -2329,68 +2404,10 @@ impl std::fmt::Debug for ElementContent {
     }
 }
 
-impl PartialEq for ElementSortKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Ord for ElementSortKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // if any item has an <INDEX> element, then all its siblings should too
-        // just in case they don't then the elements with an INDEX will be placed first
-        match (self.index, other.index) {
-            (Some(idx1), Some(idx2)) => match idx1.cmp(&idx2) {
-                Ordering::Less => return Ordering::Less,
-                Ordering::Equal => {}
-                Ordering::Greater => return Ordering::Greater,
-            },
-            (None, Some(_)) => return Ordering::Greater,
-            (Some(_), None) => return Ordering::Less,
-            (None, None) => {}
-        }
-        // if the item name of an element appears to consist of a prefix followed by a numerical index, then the parts will be available in item_name_indexed
-        if let (Some((self_base, self_idx)), Some((other_base, other_idx))) =
-            (&self.item_name_indexed, &other.item_name_indexed)
-        {
-            if self_base == other_base {
-                match self_idx.cmp(other_idx) {
-                    Ordering::Less => return Ordering::Less,
-                    Ordering::Equal => {}
-                    Ordering::Greater => return Ordering::Greater,
-                }
-            }
-        }
-        // compare by definition ref (if any)
-        if let (Some(self_def), Some(other_def)) = (&self.definition, &other.definition) {
-            match self_def.cmp(other_def) {
-                Ordering::Less => return Ordering::Less,
-                Ordering::Equal => {}
-                Ordering::Greater => return Ordering::Greater,
-            }
-        }
-        // compare by item name (if any)
-        if let (Some(self_item_name), Some(other_item_name)) = (&self.item_name, &other.item_name) {
-            // item names are unique among siblings, so this comparison cannot return Equal
-            return self_item_name.cmp(other_item_name);
-        }
-        // sort keys are equal
-        Ordering::Equal
-    }
-}
-
-impl PartialOrd for ElementSortKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::*;
-    use std::{cmp::Ordering, ffi::OsString};
-
-    use super::ElementSortKey;
+    use std::ffi::OsString;
 
     const BASIC_AUTOSAR_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -3637,12 +3654,12 @@ mod test {
         assert_eq!(item1, el_value2);
         assert_eq!(item2, el_value1);
 
-        // validate that the misc elements (FIBEX-ELEMENT-REF-CONDITIONAL) without distinguishing features have not been sorted
+        // validate that the misc elements (FIBEX-ELEMENT-REF-CONDITIONAL) have been sorted
         let mut iter = el_fibex_elements.sub_elements();
         let item1 = iter.next().unwrap();
         let item2 = iter.next().unwrap();
-        assert_eq!(item1, el_fibex_element1);
-        assert_eq!(item2, el_fibex_element2);
+        assert_eq!(item1, el_fibex_element2);
+        assert_eq!(item2, el_fibex_element1);
     }
 
     fn helper_create_bsw_subelem(
@@ -3799,63 +3816,6 @@ mod test {
     }
 
     #[test]
-    fn element_sort_key() {
-        let key_none = ElementSortKey {
-            index: None,
-            item_name_indexed: None,
-            item_name: None,
-            definition: None,
-        };
-        let key_idx_1 = ElementSortKey {
-            index: Some(1),
-            item_name_indexed: None,
-            item_name: None,
-            definition: None,
-        };
-
-        assert_ne!(key_none, key_idx_1);
-        assert!(matches!(key_none.partial_cmp(&key_idx_1), Some(Ordering::Greater)));
-        assert!(matches!(key_idx_1.partial_cmp(&key_idx_1), Some(Ordering::Equal)));
-        assert!(matches!(key_idx_1.partial_cmp(&key_none), Some(Ordering::Less)));
-
-        let key_partialidx_1 = ElementSortKey {
-            index: None,
-            item_name_indexed: Some(("base".to_string(), 1)),
-            item_name: None,
-            definition: None,
-        };
-        let key_partialidx_2 = ElementSortKey {
-            index: None,
-            item_name_indexed: Some(("base".to_string(), 2)),
-            item_name: None,
-            definition: None,
-        };
-
-        assert_ne!(key_partialidx_1, key_partialidx_2);
-        assert!(matches!(key_partialidx_1.cmp(&key_partialidx_2), Ordering::Less));
-        assert!(matches!(key_partialidx_1.cmp(&key_partialidx_1), Ordering::Equal));
-        assert!(matches!(key_partialidx_2.cmp(&key_partialidx_1), Ordering::Greater));
-
-        let key_defref_a = ElementSortKey {
-            index: None,
-            item_name_indexed: None,
-            item_name: None,
-            definition: Some("/A".to_string()),
-        };
-        let key_defref_b = ElementSortKey {
-            index: None,
-            item_name_indexed: None,
-            item_name: None,
-            definition: Some("/B".to_string()),
-        };
-
-        assert_ne!(key_defref_a, key_defref_b);
-        assert!(matches!(key_defref_a.cmp(&key_defref_b), Ordering::Less));
-        assert!(matches!(key_defref_a.cmp(&key_defref_a), Ordering::Equal));
-        assert!(matches!(key_defref_b.cmp(&key_defref_a), Ordering::Greater));
-    }
-
-    #[test]
     fn traits() {
         let model = AutosarModel::new();
         model.create_file("test", AutosarVersion::LATEST).unwrap();
@@ -3894,5 +3854,78 @@ mod test {
         let ec_chars = ElementContent::CharacterData(cdata.clone());
         assert_eq!(format!("{cdata:?}"), format!("{ec_chars:?}"));
         assert_eq!(ec_chars.unwrap_cdata(), Some(cdata));
+    }
+
+    #[test]
+    fn element_order() {
+        let model = AutosarModel::new();
+        let _file = model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let el_autosar = model.root_element();
+        let el_elements = el_autosar
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap()
+            .create_named_sub_element(ElementName::ArPackage, "pkg")
+            .unwrap()
+            .create_sub_element(ElementName::Elements)
+            .unwrap();
+        let el_system = el_elements
+            .create_named_sub_element(ElementName::System, "sys")
+            .unwrap();
+        let fibex_elements = el_system.create_sub_element(ElementName::FibexElements).unwrap();
+
+        let item1 = el_elements
+            .create_named_sub_element(ElementName::ApplicationPrimitiveDataType, "adt_2")
+            .unwrap();
+        let item2 = el_elements
+            .create_named_sub_element(ElementName::ApplicationPrimitiveDataType, "adt_10")
+            .unwrap();
+        let item3 = el_elements
+            .create_named_sub_element(ElementName::ApplicationArrayDataType, "adt_12")
+            .unwrap();
+        // items 1 and 2 are sorted after separating the index from the name, so 10 comes after 2
+        assert!(item1 < item2);
+        // items 2 and 3 are sorted by the element type, so in this case the index does not matter
+        assert!(item3 < item1);
+
+        let item4 = fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
+        let item4_ref = item4.create_sub_element(ElementName::FibexElementRef).unwrap();
+        item4_ref
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::ISignal))
+            .unwrap();
+        item4_ref.set_character_data("/aaa").unwrap();
+
+        let item5 = fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
+        let item5_ref = item5.create_sub_element(ElementName::FibexElementRef).unwrap();
+        item5_ref
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::ISignal))
+            .unwrap();
+        item5_ref.set_character_data("/bbb").unwrap();
+
+        // items 4 and 5 are sorted by the character data of the reference
+        assert!(item4 < item5);
+
+        let item6 = fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
+        let item6_ref = item6.create_sub_element(ElementName::FibexElementRef).unwrap();
+        item6_ref
+            .set_attribute(AttributeName::Dest, CharacterData::Enum(EnumItem::EcuInstance))
+            .unwrap();
+
+        // items 4 and 6 are sorted by the DEST attribute of the reference
+        assert!(item6 < item4);
+
+        let item7 = fibex_elements
+            .create_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap();
+        item7.create_sub_element(ElementName::FibexElementRef).unwrap();
+
+        // item7 is incomplete, lacking the DEST attribute so it is sorted last
+        assert!(item7 > item6);
+        assert!(item6 < item7);
     }
 }

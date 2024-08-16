@@ -245,6 +245,37 @@ impl Display for CharacterData {
     }
 }
 
+impl Ord for CharacterData {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // compare two CharacterData values
+        // if the types are different, the order is determined by the type so that there is a consistent order
+        // sort order: enum < string < unsigned integer < double - this is arbitrary
+        match (self, other) {
+            (CharacterData::Enum(a), CharacterData::Enum(b)) => a.to_str().cmp(b.to_str()),
+            (CharacterData::String(a), CharacterData::String(b)) => a.cmp(b),
+            (CharacterData::UnsignedInteger(a), CharacterData::UnsignedInteger(b)) => a.cmp(b),
+            (CharacterData::Double(a), CharacterData::Double(b)) => {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            (CharacterData::Enum(_), _) => std::cmp::Ordering::Less,
+            (CharacterData::String(_), CharacterData::Enum(_)) => std::cmp::Ordering::Greater,
+            (CharacterData::String(_), _) => std::cmp::Ordering::Less,
+            (CharacterData::UnsignedInteger(_), CharacterData::Enum(_)) => std::cmp::Ordering::Greater,
+            (CharacterData::UnsignedInteger(_), CharacterData::String(_)) => std::cmp::Ordering::Greater,
+            (CharacterData::UnsignedInteger(_), _) => std::cmp::Ordering::Less,
+            (CharacterData::Double(_), _) => std::cmp::Ordering::Greater,
+        }
+    }
+}
+
+impl PartialOrd for CharacterData {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for CharacterData {}
+
 fn escape_text(input: &str) -> Cow<str> {
     if input.contains(['&', '>', '<', '\'', '"']) {
         let mut escaped = String::with_capacity(input.len() + 6);
