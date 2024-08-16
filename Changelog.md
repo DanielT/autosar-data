@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 0.14
+
+Released 2024-08-16
+
+### API
+
+- The usability of `Element::set_character_data` has been improved: it is no longer required to manually wrap the value in a CharacterData object.
+- `CharacterData::decode_interger` has been renamed to `CharacterData::parse_integer`
+- `CharacterData::Double` renamed to `CharacterData::Float`
+- added `CharacterData::parse_float`
+- The errors `ItemNameRequired`, `IncorrectContentType`, `InvalidSubElement`, and `DuplicateItemName` contain additional information
+- implement PartialOrd / Ord for elements
+
+### Enhancements
+
+- sorting of elements is now more complete, and takes the CharacterData and sub-elements into account
+- criterion has been added for benchmarking
+
+### Fixes
+
+- Add a fast path that dramatically speeds up a common case in element insertion
+
 ## Version 0.13
 
 Released 2024-05-19.

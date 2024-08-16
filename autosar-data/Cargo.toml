@@ -1,6 +1,6 @@
 [package]
 name = "autosar-data"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Daniel Thaler <daniel@dthaler.de>"]
 edition = "2021"
 description = "read, write and modify Autosar arxml data"
@@ -10,9 +10,9 @@ categories = ["parser-implementations"]
 repository = "https://github.com/DanielT/autosar-data"
 
 [dependencies]
-autosar-data-specification = "0.13"
+autosar-data-specification = "0.14"
 thiserror = "~1.0"
-smallvec = { version = "~1.11.0", features = ["union", "const_generics"]}
+smallvec = { version = "~1.13.0", features = ["union", "const_generics"]}
 parking_lot = "0.12"
 indexmap = "2.2.0"
 fxhash = "0.2.1"
@@ -20,7 +20,7 @@ num-traits = "0.2.18"
 
 [dev-dependencies]
 tempfile = "3.8"
-criterion = { version = "0.3", features = ["html_reports"]}
+criterion = { version = "0.5", features = ["html_reports"]}
 
 [[example]]
 name = "demo"
