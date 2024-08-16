@@ -177,6 +177,15 @@ impl CharacterData {
     /// If the stored value is already an integer, it will be converted to the output type.
     ///
     /// Returns the value if the conversion succeeds, or None otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::CharacterData;
+    /// let data = CharacterData::String("0x1234".to_string());
+    /// let value = data.parse_integer::<u32>().unwrap();
+    /// assert_eq!(value, 0x1234);
+    /// ```
     #[must_use]
     pub fn parse_integer<T: num_traits::Num + TryFrom<u64>>(&self) -> Option<T> {
         if let CharacterData::String(text) = self {
@@ -198,6 +207,71 @@ impl CharacterData {
             }
         } else if let CharacterData::UnsignedInteger(value) = self {
             T::try_from(*value).ok()
+        } else {
+            None
+        }
+    }
+
+    /// parse the stored character data value as a floating point number
+    ///
+    /// When the meta model declares that a value is of class "Numerical", this means it is stored as a string.
+    /// The regex associated with "Numerical" allows signed integers, floating point values (including scientific
+    /// notation, as well as INF and NaN), hexadecimal, octal, and binary numbers.
+    /// This function handles the conversion from text to floating point.
+    ///
+    /// Returns the value if the conversion succeeds, or None otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::CharacterData;
+    /// let data = CharacterData::String("0x1234".to_string());
+    /// let value = data.parse_float().unwrap();
+    /// assert_eq!(value, 0x1234 as f64);
+    ///
+    /// let data = CharacterData::String("1.234e5".to_string());
+    /// let value = data.parse_float().unwrap();
+    /// assert_eq!(value, 1.234e5);
+    /// ```
+    #[must_use]
+    pub fn parse_float(&self) -> Option<f64> {
+        if let CharacterData::String(text) = self {
+            if text == "0" {
+                // handle this first to avoid hitting the octal case
+                Some(0f64)
+            } else if let Some(hexval) = text
+                .strip_prefix("0x")
+                .and_then(|hextxt| u64::from_str_radix(hextxt, 16).ok())
+            {
+                Some(hexval as f64)
+            } else if let Some(hexval) = text
+                .strip_prefix("0X")
+                .and_then(|hextxt| u64::from_str_radix(hextxt, 16).ok())
+            {
+                Some(hexval as f64)
+            } else if let Some(binval) = text
+                .strip_prefix("0b")
+                .and_then(|bintxt| u64::from_str_radix(bintxt, 2).ok())
+            {
+                Some(binval as f64)
+            } else if let Some(binval) = text
+                .strip_prefix("0B")
+                .and_then(|bintxt| u64::from_str_radix(bintxt, 2).ok())
+            {
+                Some(binval as f64)
+            } else if let Some(octval) = text
+                .strip_prefix('0')
+                .and_then(|octtxt| u64::from_str_radix(octtxt, 8).ok())
+            {
+                Some(octval as f64)
+            } else {
+                // normal float conversion
+                text.parse().ok()
+            }
+        } else if let CharacterData::Float(value) = self {
+            Some(*value)
+        } else if let CharacterData::UnsignedInteger(value) = self {
+            Some(*value as f64)
         } else {
             None
         }
@@ -254,9 +328,7 @@ impl Ord for CharacterData {
             (CharacterData::Enum(a), CharacterData::Enum(b)) => a.to_str().cmp(b.to_str()),
             (CharacterData::String(a), CharacterData::String(b)) => a.cmp(b),
             (CharacterData::UnsignedInteger(a), CharacterData::UnsignedInteger(b)) => a.cmp(b),
-            (CharacterData::Float(a), CharacterData::Float(b)) => {
-                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-            }
+            (CharacterData::Float(a), CharacterData::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
             (CharacterData::Enum(_), _) => std::cmp::Ordering::Less,
             (CharacterData::String(_), CharacterData::Enum(_)) => std::cmp::Ordering::Greater,
             (CharacterData::String(_), _) => std::cmp::Ordering::Less,
@@ -554,6 +626,74 @@ mod test {
         let data = CharacterData::String("-55".to_string());
         let result = data.parse_integer::<i32>().unwrap();
         assert_eq!(result, -55);
+    }
+
+    #[test]
+    fn parse_float() {
+        // not a number
+        let data = CharacterData::String("text".to_string());
+        let result = data.parse_float();
+        assert!(result.is_none());
+
+        // hex (> 32 bits)
+        let data = CharacterData::String("0xFFFFFFFFF".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 68719476735.0);
+
+        // invalid format, hex and float can't be mixed like this
+        let data = CharacterData::String("0x1.234".to_string());
+        let result = data.parse_float();
+        assert!(result.is_none());
+
+        // float: normal number
+        let data = CharacterData::String("0.0001".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 0.0001);
+
+        // float: normal number
+        let data = CharacterData::String("1.234e5".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 1.234e5);
+
+        // float: 0.12 - not octal, note the leading zero!
+        let data = CharacterData::String("00.12".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 0.12);
+
+        // float: NaN
+        let data = CharacterData::String("NaN".to_string());
+        let result = data.parse_float().unwrap();
+        assert!(result.is_nan());
+
+        // float: infinity
+        let data = CharacterData::String("INF".to_string());
+        let result = data.parse_float().unwrap();
+        assert!(result.is_infinite());
+
+        // hex
+        let data = CharacterData::String("0x1234".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 4660.0);
+
+        // hex
+        let data = CharacterData::String("0X1234".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 4660.0);
+
+        // binary
+        let data = CharacterData::String("0b1101".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 13.0);
+
+        // binary
+        let data = CharacterData::String("0B1101".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 13.0);
+
+        // octal
+        let data = CharacterData::String("0777".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 511.0);
     }
 
     #[test]
