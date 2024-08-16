@@ -989,7 +989,7 @@ pub(crate) const CHARACTER_DATA: [CharacterDataSpec; 961] = [
     CharacterDataSpec::Enum{items: &[(EnumItem::StopTrigger, 0x1c00)]},
     CharacterDataSpec::Enum{items: &[(EnumItem::StopTrigger, 0xe000), (EnumItem::WrongTrigger, 0xe000)]},
     CharacterDataSpec::Enum{items: &[(EnumItem::default, 0xfffff), (EnumItem::preserve, 0xfffff)]},
-    CharacterDataSpec::Double,
+    CharacterDataSpec::Float,
     CharacterDataSpec::String{preserve_whitespace: false, max_length: None},
     CharacterDataSpec::UnsignedInteger,
 ];

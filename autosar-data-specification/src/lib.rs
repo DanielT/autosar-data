@@ -146,7 +146,7 @@ pub enum CharacterDataSpec {
         max_length: Option<usize>,
     },
     UnsignedInteger,
-    Double,
+    Float,
 }
 
 /// specification of an attribute
@@ -679,7 +679,7 @@ impl std::fmt::Debug for CharacterDataSpec {
                 .field("max_length", max_length)
                 .finish(),
             Self::UnsignedInteger => write!(f, "UnsignedInteger"),
-            Self::Double => write!(f, "Double"),
+            Self::Float => write!(f, "Double"),
         }
     }
 }
@@ -1273,7 +1273,7 @@ mod test {
         };
         let txt = format!("{cdata_spec:#?}");
         assert!(txt.starts_with("Enum"));
-        let cdata_spec = CharacterDataSpec::Double;
+        let cdata_spec = CharacterDataSpec::Float;
         let txt = format!("{cdata_spec:#?}");
         assert!(txt.starts_with("Double"));
         let cdata_spec = CharacterDataSpec::UnsignedInteger;

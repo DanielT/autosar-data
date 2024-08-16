@@ -712,7 +712,7 @@ impl<'a> ArxmlParser<'a> {
                 };
                 Ok(CharacterData::UnsignedInteger(value))
             }
-            CharacterDataSpec::Double => {
+            CharacterDataSpec::Float => {
                 let strval = std::str::from_utf8(trimmed_input)
                     .map_err(|err| self.error(ArxmlParserError::Utf8Error { source: err }))?;
                 let value = match strval.parse::<f64>() {
@@ -724,7 +724,7 @@ impl<'a> ArxmlParser<'a> {
                         0.0
                     }
                 };
-                Ok(CharacterData::Double(value))
+                Ok(CharacterData::Float(value))
             }
         }
     }

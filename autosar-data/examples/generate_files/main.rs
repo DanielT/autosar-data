@@ -203,6 +203,6 @@ fn make_cdata(spec: &CharacterDataSpec, version: AutosarVersion) -> CharacterDat
             CharacterData::String("lorem ipsum".to_string())
         }
         autosar_data_specification::CharacterDataSpec::UnsignedInteger => CharacterData::UnsignedInteger(42),
-        autosar_data_specification::CharacterDataSpec::Double => CharacterData::Double(std::f64::consts::PI),
+        autosar_data_specification::CharacterDataSpec::Float => CharacterData::Float(std::f64::consts::PI),
     }
 }

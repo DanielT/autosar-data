@@ -346,7 +346,7 @@ pub enum CharacterData {
     Enum(EnumItem),
     String(String),
     UnsignedInteger(u64),
-    Double(f64),
+    Float(f64),
 }
 
 /// The content type of an [Element]

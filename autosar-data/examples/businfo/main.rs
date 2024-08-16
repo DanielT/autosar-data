@@ -893,13 +893,13 @@ fn get_time_range(base: &Element) -> Option<TimeRange> {
     let value = base
         .get_sub_element(ElementName::Value)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| cdata.double_value())?;
+        .and_then(|cdata| cdata.float_value())?;
 
     let tolerance = if let Some(absolute_tolerance) = base
         .get_sub_element(ElementName::AbsoluteTolerance)
         .and_then(|elem| elem.get_sub_element(ElementName::Absolute))
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| cdata.double_value())
+        .and_then(|cdata| cdata.float_value())
     {
         Some(TimeRangeTolerance::Absolute(absolute_tolerance))
     } else {
@@ -1109,7 +1109,7 @@ fn display_container_ipdu(pdu: &Element, indent: usize) {
     if let Some(container_timeout) = pdu
         .get_sub_element(ElementName::ContainerTimeout)
         .and_then(|elem| elem.character_data())
-        .and_then(|cdata| cdata.double_value())
+        .and_then(|cdata| cdata.float_value())
     {
         println!("{indentation}Container timeout: {container_timeout}");
     }

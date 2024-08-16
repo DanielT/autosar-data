@@ -41,8 +41,8 @@ impl CharacterData {
                     return true;
                 }
             }
-            CharacterDataSpec::Double => {
-                if let CharacterData::Double(_) = &value {
+            CharacterDataSpec::Float => {
+                if let CharacterData::Float(_) = &value {
                     return true;
                 }
             }
@@ -104,9 +104,9 @@ impl CharacterData {
                     return Some(CharacterData::UnsignedInteger(value));
                 }
             }
-            CharacterDataSpec::Double => {
+            CharacterDataSpec::Float => {
                 if let Ok(value) = input.parse() {
-                    return Some(CharacterData::Double(value));
+                    return Some(CharacterData::Float(value));
                 }
             }
         }
@@ -118,7 +118,7 @@ impl CharacterData {
             CharacterData::Enum(enumval) => outstring.push_str(enumval.to_str()),
             CharacterData::String(strval) => outstring.push_str(&escape_text(strval)),
             CharacterData::UnsignedInteger(intval) => outstring.push_str(&intval.to_string()),
-            CharacterData::Double(doubleval) => outstring.push_str(&doubleval.to_string()),
+            CharacterData::Float(floatval) => outstring.push_str(&floatval.to_string()),
         }
     }
 
@@ -158,12 +158,12 @@ impl CharacterData {
         }
     }
 
-    /// Get the contained double
+    /// Get the contained floating point value
     ///
-    /// Returns the value content is a double, or None otherwise
+    /// Returns the value if the content is a float, or None otherwise
     #[must_use]
-    pub fn double_value(&self) -> Option<f64> {
-        if let CharacterData::Double(value) = self {
+    pub fn float_value(&self) -> Option<f64> {
+        if let CharacterData::Float(value) = self {
             Some(*value)
         } else {
             None
@@ -230,7 +230,7 @@ impl From<u64> for CharacterData {
 
 impl From<f64> for CharacterData {
     fn from(value: f64) -> Self {
-        Self::Double(value)
+        Self::Float(value)
     }
 }
 
@@ -240,7 +240,7 @@ impl Display for CharacterData {
             CharacterData::Enum(enumitem) => f.write_str(enumitem.to_str()),
             CharacterData::String(stringval) => f.write_str(stringval),
             CharacterData::UnsignedInteger(uintval) => f.write_str(&uintval.to_string()),
-            CharacterData::Double(f64val) => f.write_str(&f64val.to_string()),
+            CharacterData::Float(f64val) => f.write_str(&f64val.to_string()),
         }
     }
 }
@@ -249,12 +249,12 @@ impl Ord for CharacterData {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // compare two CharacterData values
         // if the types are different, the order is determined by the type so that there is a consistent order
-        // sort order: enum < string < unsigned integer < double - this is arbitrary
+        // sort order: enum < string < unsigned integer < float - this is arbitrary
         match (self, other) {
             (CharacterData::Enum(a), CharacterData::Enum(b)) => a.to_str().cmp(b.to_str()),
             (CharacterData::String(a), CharacterData::String(b)) => a.cmp(b),
             (CharacterData::UnsignedInteger(a), CharacterData::UnsignedInteger(b)) => a.cmp(b),
-            (CharacterData::Double(a), CharacterData::Double(b)) => {
+            (CharacterData::Float(a), CharacterData::Float(b)) => {
                 a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
             }
             (CharacterData::Enum(_), _) => std::cmp::Ordering::Less,
@@ -263,7 +263,7 @@ impl Ord for CharacterData {
             (CharacterData::UnsignedInteger(_), CharacterData::Enum(_)) => std::cmp::Ordering::Greater,
             (CharacterData::UnsignedInteger(_), CharacterData::String(_)) => std::cmp::Ordering::Greater,
             (CharacterData::UnsignedInteger(_), _) => std::cmp::Ordering::Less,
-            (CharacterData::Double(_), _) => std::cmp::Ordering::Greater,
+            (CharacterData::Float(_), _) => std::cmp::Ordering::Greater,
         }
     }
 }
@@ -328,15 +328,15 @@ mod test {
             &spec_enum,
             AutosarVersion::Autosar_00050
         ));
-        let data = CharacterData::Double(1.23);
+        let data = CharacterData::Float(1.23);
         assert!(!CharacterData::check_value(
             &data,
             &spec_enum,
             AutosarVersion::Autosar_00050
         ));
 
-        let spec_double = CharacterDataSpec::Double;
-        let data = CharacterData::Double(1.23);
+        let spec_double = CharacterDataSpec::Float;
+        let data = CharacterData::Float(1.23);
         assert!(CharacterData::check_value(
             &data,
             &spec_double,
@@ -437,9 +437,9 @@ mod test {
         let data = CharacterData::parse("", &spec_enum, AutosarVersion::Autosar_00050);
         assert!(data.is_none());
 
-        let spec_double = CharacterDataSpec::Double;
+        let spec_double = CharacterDataSpec::Float;
         let data = CharacterData::parse("2.0", &spec_double, AutosarVersion::Autosar_00050).unwrap();
-        assert_eq!(data.double_value().unwrap(), 2.0);
+        assert_eq!(data.float_value().unwrap(), 2.0);
         let data = CharacterData::parse("text", &spec_double, AutosarVersion::Autosar_00050);
         assert!(data.is_none());
 
@@ -478,7 +478,7 @@ mod test {
         assert_eq!(format!("{data}"), "ABSTRACT");
 
         let mut out = "".to_string();
-        let data = CharacterData::Double(1.23);
+        let data = CharacterData::Float(1.23);
         data.serialize_internal(&mut out);
         assert_eq!(out, "1.23");
         assert_eq!(format!("{data}"), "1.23");
@@ -507,11 +507,11 @@ mod test {
         assert!(CharacterData::Enum(EnumItem::Abstract).enum_value().is_some());
         assert!(CharacterData::Enum(EnumItem::Abstract).string_value().is_none());
 
-        assert!(CharacterData::Double(1.23).double_value().is_some());
-        assert!(CharacterData::Double(1.23).unsigned_integer_value().is_none());
+        assert!(CharacterData::Float(1.23).float_value().is_some());
+        assert!(CharacterData::Float(1.23).unsigned_integer_value().is_none());
 
         assert!(CharacterData::String("x".to_string()).string_value().is_some());
-        assert!(CharacterData::String("x".to_string()).double_value().is_none());
+        assert!(CharacterData::String("x".to_string()).float_value().is_none());
 
         assert!(CharacterData::UnsignedInteger(1).unsigned_integer_value().is_some());
         assert!(CharacterData::UnsignedInteger(1).enum_value().is_none());
@@ -562,7 +562,7 @@ mod test {
         assert_eq!(cdata, CharacterData::UnsignedInteger(0));
 
         let cdata: CharacterData = (1.0).into();
-        assert_eq!(cdata, CharacterData::Double(1.0));
+        assert_eq!(cdata, CharacterData::Float(1.0));
 
         let cdata: CharacterData = "text".into();
         assert_eq!(cdata, CharacterData::String("text".to_string()));

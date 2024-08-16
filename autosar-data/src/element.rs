@@ -1123,7 +1123,7 @@ impl Element {
     ///     Some(CharacterData::String(stringval)) => {},
     ///     Some(CharacterData::Enum(enumval)) => {},
     ///     Some(CharacterData::UnsignedInteger(intval)) => {},
-    ///     Some(CharacterData::Double(dblval)) => {},
+    ///     Some(CharacterData::Float(floatval)) => {},
     ///     None => {},
     /// }
     /// # Ok(())
