@@ -2200,11 +2200,11 @@ impl Ord for Element {
         let index1 = self
             .get_sub_element(ElementName::Index)
             .and_then(|indexelem| indexelem.character_data())
-            .and_then(|cdata| cdata.decode_integer::<u64>());
+            .and_then(|cdata| cdata.parse_integer::<u64>());
         let index2 = other
             .get_sub_element(ElementName::Index)
             .and_then(|indexelem| indexelem.character_data())
-            .and_then(|cdata| cdata.decode_integer::<u64>());
+            .and_then(|cdata| cdata.parse_integer::<u64>());
         match (index1, index2) {
             (Some(idx1), Some(idx2)) => {
                 let result = idx1.cmp(&idx2);
