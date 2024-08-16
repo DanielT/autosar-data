@@ -520,4 +520,28 @@ mod test {
 
         assert!(check_buffer(header.as_bytes()));
     }
+
+    #[test]
+    fn attribute_order() {
+        // attribute ordering: first by name, then by value
+        let a1 = Attribute {
+            attrname: AttributeName::Uuid,
+            content: CharacterData::String("Value1".to_string()),
+        };
+
+        let a2 = Attribute {
+            attrname: AttributeName::Uuid,
+            content: CharacterData::String("Value2".to_string()),
+        };
+        assert!(a1 < a2);
+
+        let a3 = Attribute {
+            attrname: AttributeName::T,
+            content: CharacterData::String("xyz".to_string()),
+        };
+        assert!(a3 < a1);
+
+        // PartialOrd
+        assert!(a1.partial_cmp(&a2) == Some(std::cmp::Ordering::Less));
+    }
 }

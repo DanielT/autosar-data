@@ -1126,6 +1126,11 @@ impl ElementRaw {
         version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
         let chardata: CharacterData = value.into();
+        self.set_character_data_internal(chardata, version)
+    }
+
+    // set the character data of this element - separated out since this part is not generic
+    fn set_character_data_internal(&mut self, chardata: CharacterData, version: AutosarVersion) -> Result<(), AutosarDataError> {
         if self.elemtype.content_mode() == ContentMode::Characters
             || (self.elemtype.content_mode() == ContentMode::Mixed && self.content.len() <= 1)
         {

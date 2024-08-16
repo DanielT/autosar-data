@@ -878,7 +878,12 @@ impl Element {
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///  - [`AutosarDataError::IncorrectContentType`]: Cannot set character data on an element which does not contain character data
     pub fn set_character_data<T: Into<CharacterData>>(&self, value: T) -> Result<(), AutosarDataError> {
-        let mut chardata: CharacterData = value.into();
+        let chardata: CharacterData = value.into();
+        self.set_character_data_internal(chardata)
+    }
+
+    // internal function to set the character data - separated out since it doesn't need to be generic
+    fn set_character_data_internal(&self, mut chardata: CharacterData) -> Result<(), AutosarDataError> {
         let elemtype = self.elemtype();
         if elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed {
             if let Some(cdata_spec) = elemtype.chardata_spec() {
@@ -2149,9 +2154,6 @@ impl Element {
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn min_version(&self) -> Result<AutosarVersion, AutosarDataError> {
         let (_, files) = self.file_membership()?;
-        if files.is_empty() {
-            return Err(AutosarDataError::NoFilesInModel);
-        }
         let mut ver = AutosarVersion::LATEST;
         for f in files.iter().filter_map(WeakArxmlFile::upgrade) {
             if f.version() < ver {
@@ -2562,6 +2564,13 @@ mod test {
 
         let named_parent = el_system.named_parent().unwrap().unwrap();
         assert_eq!(named_parent, el_ar_package);
+
+        let named_parent = el_autosar.named_parent().unwrap();
+        assert!(named_parent.is_none());
+
+        // trying to get the named parent of a removed element should fail
+        el_autosar.remove_sub_element(el_ar_packages).unwrap();
+        assert!(el_ar_package.named_parent().is_err());
     }
 
     #[test]
@@ -3443,6 +3452,7 @@ mod test {
     #[test]
     fn serialize() {
         const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<!--comment-->
 <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AR-PACKAGES>
     <AR-PACKAGE>
@@ -3459,6 +3469,7 @@ mod test {
             .unwrap();
         model.files().next().unwrap();
         let el_autosar = model.root_element();
+        el_autosar.set_comment(Some("comment".to_string()));
 
         let mut outstring = String::from(r#"<?xml version="1.0" encoding="utf-8"?>"#);
         el_autosar.serialize_internal(&mut outstring, 0, false, &None);
@@ -3801,6 +3812,28 @@ mod test {
     }
 
     #[test]
+    fn comment() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let el_autosar = model.root_element();
+
+        // initially there is no comment
+        assert!(el_autosar.comment().is_none());
+
+        // set and get a comment
+        el_autosar.set_comment(Some("comment".to_string()));
+        assert_eq!(el_autosar.comment().unwrap(), "comment");
+
+        // set a new comment containing "--" which is a forbidden sequence in XML comments
+        el_autosar.set_comment(Some("comment--".to_string()));
+        assert_eq!(el_autosar.comment().unwrap(), "comment__");
+
+        // remove the comment
+        el_autosar.set_comment(None);
+        assert!(el_autosar.comment().is_none());
+    }
+
+    #[test]
     fn min_version() {
         let model = AutosarModel::new();
         let result = model.root_element().min_version();
@@ -3850,10 +3883,12 @@ mod test {
         let ec_elem = ElementContent::Element(model.root_element());
         assert_eq!(format!("{:?}", model.root_element()), format!("{ec_elem:?}"));
         assert_eq!(ec_elem.unwrap_element(), Some(model.root_element()));
+        assert!(ec_elem.unwrap_cdata().is_none());
         let cdata = CharacterData::String("test".to_string());
         let ec_chars = ElementContent::CharacterData(cdata.clone());
         assert_eq!(format!("{cdata:?}"), format!("{ec_chars:?}"));
         assert_eq!(ec_chars.unwrap_cdata(), Some(cdata));
+        assert!(ec_chars.unwrap_element().is_none());
     }
 
     #[test]

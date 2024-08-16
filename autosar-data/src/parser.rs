@@ -1332,7 +1332,9 @@ mod test {
     }
 
     const PARSER_TEST_DATA: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <!--comment-->
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <!--comment-->
         <AR-PACKAGES>
             <AR-PACKAGE>
                 <SHORT-NAME>base</SHORT-NAME>
@@ -1397,6 +1399,71 @@ mod test {
         );
         let result = parser.parse_arxml();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn chardata_utf8_error() {
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), b"", true);
+        let mut parser_permissive = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), b"", false);
+
+        // correct input for CharacterDataSpec::Pattern
+        let pattern_spec = CharacterDataSpec::Pattern {
+            check_fn: |_| true,
+            regex: "",
+            max_length: Some(2),
+        };
+        let result = parser.parse_character_data(b"ab", &pattern_spec);
+        assert!(result.is_ok());
+
+        // trigger the invalid utf-8 error for CharacterDataSpec::Pattern
+        let result = parser.parse_character_data(&[0xff], &pattern_spec);
+        assert!(result.is_err());
+
+        // permissive parsing allows invalid utf-8 in CharacterDataSpec::Pattern
+        let result = parser_permissive.parse_character_data(&[0xff], &pattern_spec);
+        assert!(result.is_ok());
+
+        // correct input for CharacterDataSpec::String
+        let string_spec = CharacterDataSpec::String {
+            max_length: Some(2),
+            preserve_whitespace: false,
+        };
+        let result = parser.parse_character_data(b"ab", &string_spec);
+        assert!(result.is_ok());
+
+        // input too long for CharacterDataSpec::String
+        let result = parser.parse_character_data(b"abc", &string_spec);
+        assert!(result.is_err());
+
+        // trigger the invalid utf-8 error for CharacterDataSpec::String
+        let result = parser.parse_character_data(&[0xff], &string_spec);
+        assert!(result.is_err());
+
+        // correct conversion for CharacterDataSpec::UnsignedInteger
+        let int_spec = CharacterDataSpec::UnsignedInteger;
+        let result = parser.parse_character_data(b"123", &int_spec);
+        assert!(result.is_ok());
+
+        // conversion error for CharacterDataSpec::UnsignedInteger: valid utf-8, but not a number
+        let result = parser.parse_character_data(b"abc", &int_spec);
+        assert!(result.is_err());
+
+        // conversion error for CharacterDataSpec::UnsignedInteger: invalid utf-8
+        let result = parser.parse_character_data(&[0xff], &int_spec);
+        assert!(result.is_err());
+
+        // correct conversion for CharacterDataSpec::Float
+        let float_spec = CharacterDataSpec::Float;
+        let result = parser.parse_character_data(b"1.0", &float_spec);
+        assert!(result.is_ok());
+
+        // conversion error for CharacterDataSpec::Float: valid utf-8, but not a number
+        let result = parser.parse_character_data(b"abc", &float_spec);
+        assert!(result.is_err());
+
+        // conversion error for CharacterDataSpec::Float: invalid utf-8
+        let result = parser.parse_character_data(&[0xff], &float_spec);
+        assert!(result.is_err());
     }
 
     #[test]

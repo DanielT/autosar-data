@@ -445,7 +445,6 @@ impl AutosarModel {
     ///
     /// # Errors
     ///
-    ///  - [`AutosarDataError::IoErrorOpen`]: The file could not be opened
     ///  - [`AutosarDataError::IoErrorRead`]: There was an error while reading the file
     ///  - [`AutosarDataError::DuplicateFilenameError`]: The model already contains a file with this filename
     ///  - [`AutosarDataError::OverlappingDataError`]: The new data contains Autosar paths that are already defined by the existing data
@@ -457,23 +456,10 @@ impl AutosarModel {
         strict: bool,
     ) -> Result<(ArxmlFile, Vec<AutosarDataError>), AutosarDataError> {
         let filename_buf = filename.as_ref().to_path_buf();
-        let mut file = match File::open(filename) {
-            Ok(file) => file,
-            Err(error) => {
-                return Err(AutosarDataError::IoErrorOpen {
-                    filename: filename_buf,
-                    ioerror: error,
-                })
-            }
-        };
-
-        let filesize = file.metadata().unwrap().len();
-        let mut buffer = Vec::with_capacity(filesize as usize);
-        file.read_to_end(&mut buffer)
-            .map_err(|err| AutosarDataError::IoErrorRead {
-                filename: filename_buf.clone(),
-                ioerror: err,
-            })?;
+        let buffer = std::fs::read(&filename_buf).map_err(|err| AutosarDataError::IoErrorRead {
+            filename: filename_buf.clone(),
+            ioerror: err,
+        })?;
 
         self.load_buffer(&buffer, &filename_buf, strict)
     }
@@ -1208,6 +1194,42 @@ mod test {
         let result = model.load_buffer(ERRFILE2, "test2", true);
         let error = result.unwrap_err();
         assert!(matches!(error, AutosarDataError::InvalidFileMerge { .. }));
+
+        // diverging files, where each file uses a different element from a Choice set.
+        // In this case the COMPU-SCALE in ERRFILE3 uses COMPU-CONST while ERRFILE4 uses COMPU-RATIONAL-COEFFS.
+        // This is not permitted, because the COMPU-SCALE can only contain one or the other.
+        const ERRFILE3: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME>
+          <ELEMENTS>
+            <COMPU-METHOD><SHORT-NAME>compu</SHORT-NAME>
+              <COMPU-INTERNAL-TO-PHYS>
+                <COMPU-SCALES>
+                  <COMPU-SCALE><COMPU-CONST></COMPU-CONST></COMPU-SCALE>
+                </COMPU-SCALES>
+              </COMPU-INTERNAL-TO-PHYS>
+            </COMPU-METHOD>
+          </ELEMENTS>
+        </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        const ERRFILE4: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME>
+          <ELEMENTS>
+            <COMPU-METHOD><SHORT-NAME>compu</SHORT-NAME>
+              <COMPU-INTERNAL-TO-PHYS>
+                <COMPU-SCALES>
+                  <COMPU-SCALE><COMPU-RATIONAL-COEFFS></COMPU-RATIONAL-COEFFS></COMPU-SCALE>
+                </COMPU-SCALES>
+              </COMPU-INTERNAL-TO-PHYS>
+            </COMPU-METHOD>
+          </ELEMENTS>
+        </AR-PACKAGE></AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        let model = AutosarModel::new();
+        let result = model.load_buffer(ERRFILE3, "test3", true);
+        assert!(result.is_ok());
+        let result = model.load_buffer(ERRFILE4, "test4", true);
+        let error = result.unwrap_err();
+        assert!(matches!(error, AutosarDataError::InvalidFileMerge { .. }));
     }
 
     #[test]
@@ -1415,7 +1437,22 @@ mod test {
     #[test]
     fn write() {
         let model = AutosarModel::default();
+        // write an empty model, it does nothing since there are no files
         model.write().unwrap();
+
+        let dir = tempdir().unwrap();
+        let filename = dir.path().with_file_name("new.arxml");
+        model.create_file(&filename, AutosarVersion::LATEST).unwrap();
+        model.write().unwrap();
+        assert!(filename.exists());
+
+        let filename = PathBuf::from("nonexistent/dir/some_file.arxml");
+        let model = AutosarModel::default();
+        // creating an ArxmlFile with a non-existent directory is not an error
+        model.create_file(&filename, AutosarVersion::LATEST).unwrap();
+        // the write operation will fail, because the directory does not exist
+        let result = model.write();
+        assert!(result.is_err());
     }
 
     #[test]

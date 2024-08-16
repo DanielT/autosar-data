@@ -979,6 +979,10 @@ mod test {
             AutosarVersion::from_str("AUTOSAR_00051.xsd").unwrap(),
             AutosarVersion::Autosar_00051
         );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00052.xsd").unwrap(),
+            AutosarVersion::Autosar_00052
+        );
 
         // do all the version descriptions exist & make sense?
         assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));
@@ -1000,6 +1004,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00049.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00050.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00051.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00052.describe().starts_with("AUTOSAR"));
 
         // do all the xsd file names exist?
         assert!(AutosarVersion::Autosar_4_0_1.filename().ends_with(".xsd"));
@@ -1021,6 +1026,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00049.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00050.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00051.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00052.filename().ends_with(".xsd"));
 
         // to_string() should give the same result as describe()
         assert_eq!(

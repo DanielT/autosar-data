@@ -626,6 +626,14 @@ mod test {
         let data = CharacterData::String("-55".to_string());
         let result = data.parse_integer::<i32>().unwrap();
         assert_eq!(result, -55);
+
+        let data = CharacterData::UnsignedInteger(0);
+        let result = data.parse_integer::<u32>().unwrap();
+        assert_eq!(result, 0);
+
+        let data = CharacterData::Float(0.0);
+        let result = data.parse_integer::<u32>();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -634,6 +642,11 @@ mod test {
         let data = CharacterData::String("text".to_string());
         let result = data.parse_float();
         assert!(result.is_none());
+
+        // zero
+        let data = CharacterData::String("0".to_string());
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 0.0);
 
         // hex (> 32 bits)
         let data = CharacterData::String("0xFFFFFFFFF".to_string());
@@ -694,6 +707,57 @@ mod test {
         let data = CharacterData::String("0777".to_string());
         let result = data.parse_float().unwrap();
         assert_eq!(result, 511.0);
+
+        // integer value
+        let data = CharacterData::UnsignedInteger(0);
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 0.0);
+
+        // float value
+        let data = CharacterData::Float(5.0);
+        let result = data.parse_float().unwrap();
+        assert_eq!(result, 5.0);
+
+        // enum value
+        let data = CharacterData::Enum(EnumItem::Abstract);
+        let result = data.parse_float();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn ordering() {
+        let enum1 = CharacterData::Enum(EnumItem::Abstract);
+        let enum2 = CharacterData::Enum(EnumItem::default);
+        assert!(enum1 < enum2);
+
+        let string1 = CharacterData::String("abcdef".to_string());
+        let string2 = CharacterData::String("text".to_string());
+        assert!(string1 < string2);
+
+        let integer1 = CharacterData::UnsignedInteger(123);
+        let integer2 = CharacterData::UnsignedInteger(456);
+        assert!(integer1 < integer2);
+
+        let float1 = CharacterData::Float(1.23);
+        let float2 = CharacterData::Float(4.56);
+        assert!(float1 < float2);
+
+        // for unequal data types, the order is (arbitrarily) defined as enum < string < unsigned integer < float
+        assert!(enum1 < string1);
+        assert!(enum1 < integer1);
+        assert!(enum1 < float1);
+        assert!(string1 > enum1);
+        assert!(string1 < integer1);
+        assert!(string1 < float1);
+        assert!(integer1 > enum1);
+        assert!(integer1 > string1);
+        assert!(integer1 < float1);
+        assert!(float1 > enum1);
+        assert!(float1 > string1);
+        assert!(float1 > integer1);
+
+        // PartialOrd
+        assert!(enum1.partial_cmp(&enum2).unwrap() == std::cmp::Ordering::Less);
     }
 
     #[test]
