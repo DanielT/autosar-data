@@ -117,9 +117,9 @@ pub struct ArxmlFileElementsDfsIterator {
 }
 
 impl ArxmlFileElementsDfsIterator {
-    pub(crate) fn new(file: &ArxmlFile) -> Self {
+    pub(crate) fn new(file: &ArxmlFile, max_depth: usize) -> Self {
         let weak_file = file.downgrade();
-        let dfs_iter = file.model().ok().map(|m| m.elements_dfs());
+        let dfs_iter = file.model().ok().map(|m| m.elements_dfs_with_max_depth(max_depth));
         Self { weak_file, dfs_iter }
     }
 }

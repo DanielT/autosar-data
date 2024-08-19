@@ -3991,5 +3991,50 @@ mod test {
         assert!(item7 > item6);
         assert!(item6 < item7);
     }
+
+    #[test]
+    fn elements_dfs_with_max_depth() {
+        const FILEBUF: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>Pkg_A</SHORT-NAME><ELEMENTS>
+            <ECUC-MODULE-CONFIGURATION-VALUES><SHORT-NAME>BswModule</SHORT-NAME><CONTAINERS><ECUC-CONTAINER-VALUE>
+              <SHORT-NAME>BswModuleValues</SHORT-NAME>
+              <PARAMETER-VALUES>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_A</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_B</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_C</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+              </PARAMETER-VALUES>
+            </ECUC-CONTAINER-VALUE></CONTAINERS></ECUC-MODULE-CONFIGURATION-VALUES>
+          </ELEMENTS></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_B</SHORT-NAME></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_C</SHORT-NAME></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        let model = AutosarModel::new();
+        let (_, _) = model.load_buffer(FILEBUF, "test1", true).unwrap();
+        let root_elem = model.root_element();
+        let ar_packages_elem = root_elem.get_sub_element(ElementName::ArPackages).unwrap();
+        let root_all_count = root_elem.elements_dfs().count();
+        let ar_packages_all_count = ar_packages_elem.elements_dfs().count();
+        assert_eq!(root_all_count, ar_packages_all_count + 1);
+
+        let root_lvl3_count = root_elem.elements_dfs_with_max_depth(3).count();
+        let ar_packages_lvl2_count = ar_packages_elem.elements_dfs_with_max_depth(2).count();
+        assert_eq!(root_lvl3_count, ar_packages_lvl2_count + 1);
+
+        root_elem.elements_dfs_with_max_depth(3).skip(1).zip(
+            ar_packages_elem.elements_dfs_with_max_depth(2)
+        ).for_each(|((_, x), (_, y))| assert_eq!(x, y));
+
+        for elem in ar_packages_elem.elements_dfs_with_max_depth(2) {
+            assert!(elem.0 <= 2);
+        }
+    }
 }
 
