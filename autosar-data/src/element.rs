@@ -1402,7 +1402,35 @@ impl Element {
     /// ```
     #[must_use]
     pub fn elements_dfs(&self) -> ElementsDfsIterator {
-        ElementsDfsIterator::new(self)
+        ElementsDfsIterator::new(self, 0)
+    }
+
+    /// Create a depth first iterator over this element and all of its sub elements up to a maximum depth
+    ///
+    /// Each step in the iteration returns the depth and an element. Due to the nature of a depth first search,
+    /// the returned depth can remain the same, increase by one, or decrease by an arbitrary number in each step.
+    ///
+    /// The dfs iterator will always return this element as the first item. A `max_depth` of `0` returns all
+    /// child elements, regardless of depth (like `elements_dfs` does).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = model.root_element();
+    /// # element.create_sub_element(ElementName::ArPackages).unwrap();
+    /// # let sub_elem = element.get_sub_element(ElementName::ArPackages).unwrap();
+    /// # sub_elem.create_named_sub_element(ElementName::ArPackage, "test2").unwrap();
+    /// for (depth, elem) in element.elements_dfs_with_max_depth(1) {
+    ///     assert!(depth <= 1);
+    ///     // ...
+    /// }
+    /// ```
+    #[must_use]
+    pub fn elements_dfs_with_max_depth(&self, max_depth: usize) -> ElementsDfsIterator {
+        ElementsDfsIterator::new(self, max_depth)
     }
 
     /// Create an iterator over all the attributes in this element
@@ -3964,3 +3992,4 @@ mod test {
         assert!(item6 < item7);
     }
 }
+
