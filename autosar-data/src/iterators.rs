@@ -147,13 +147,15 @@ impl Iterator for ArxmlFileElementsDfsIterator {
 pub struct ElementsDfsIterator {
     elements: Vec<Element>,
     position: Vec<usize>,
+    max_depth: usize,
 }
 
 impl ElementsDfsIterator {
-    pub(crate) fn new(element: &Element) -> Self {
+    pub(crate) fn new(element: &Element, max_depth: usize) -> Self {
         Self {
             elements: vec![element.clone()],
             position: vec![],
+            max_depth,
         }
     }
 
@@ -181,7 +183,8 @@ impl Iterator for ElementsDfsIterator {
                 return Some((depth, element.clone()));
             } else {
                 // return sub elements?
-                if element.content_item_count() > self.position[depth] {
+                let max = self.max_depth;
+                if (max == 0 || max > depth) && element.content_item_count() > self.position[depth] {
                     // more items to show
                     if let Some(e) = element.get_sub_element_at(self.position[depth]) {
                         self.elements.push(e);
