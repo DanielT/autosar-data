@@ -724,6 +724,31 @@ impl AutosarModel {
         self.root_element().elements_dfs()
     }
 
+    /// Create a depth first iterator over all [Element]s in this model, up to a maximum depth
+    ///
+    /// The iterator returns all elements from the merged model, consisting of
+    /// data from all arxml files loaded in this model.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = model.root_element();
+    /// # element.create_sub_element(ElementName::ArPackages).unwrap();
+    /// # let sub_elem = element.get_sub_element(ElementName::ArPackages).unwrap();
+    /// # sub_elem.create_named_sub_element(ElementName::ArPackage, "test2").unwrap();
+    /// for (depth, elem) in model.elements_dfs_with_max_depth(1) {
+    ///     assert!(depth <= 1);
+    ///     // ...
+    /// }
+    /// ```
+    #[must_use]
+    pub fn elements_dfs_with_max_depth(&self, max_depth: usize) -> ElementsDfsIterator {
+        self.root_element().elements_dfs_with_max_depth(max_depth)
+    }
+
     /// Recursively sort all elements in the model. This is exactly identical to calling `sort()` on the root element of the model.
     ///
     /// All sub elements of the root element are sorted alphabetically.
@@ -1478,5 +1503,39 @@ mod test {
         let ct2 = ct.clone();
         assert_eq!(ct, ct2);
         assert_eq!(format!("{ct:#?}"), format!("{ct2:#?}"));
+    }
+
+    #[test]
+    fn elements_dfs_with_max_depth() {
+        const FILEBUF: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>Pkg_A</SHORT-NAME><ELEMENTS>
+            <ECUC-MODULE-CONFIGURATION-VALUES><SHORT-NAME>BswModule</SHORT-NAME><CONTAINERS><ECUC-CONTAINER-VALUE>
+              <SHORT-NAME>BswModuleValues</SHORT-NAME>
+              <PARAMETER-VALUES>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_A</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_B</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-BOOLEAN-PARAM-DEF">/REF_C</DEFINITION-REF>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+              </PARAMETER-VALUES>
+            </ECUC-CONTAINER-VALUE></CONTAINERS></ECUC-MODULE-CONFIGURATION-VALUES>
+          </ELEMENTS></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_B</SHORT-NAME></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Pkg_C</SHORT-NAME></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        let model = AutosarModel::new();
+        let (_, _) = model.load_buffer(FILEBUF, "test1", true).unwrap();
+        let all_count = model.elements_dfs().count();
+        let lvl2_count = model.elements_dfs_with_max_depth(2).count();
+        assert!(all_count > lvl2_count);
+        for elem in model.elements_dfs_with_max_depth(2) {
+            assert!(elem.0 <= 2);
+        }
     }
 }
