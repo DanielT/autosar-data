@@ -1,14 +1,17 @@
 use autosar_data::{AutosarDataError, AutosarModel, Element, EnumItem};
 use thiserror::Error;
 
+// modules that are visible in the API
 pub mod communication;
 pub mod datatype;
 pub mod software_component;
 
+// internal modules that only serve to split up the code
 mod arpackage;
 mod ecuinstance;
 mod system;
 
+// export the content of the internal modules
 pub use arpackage::ArPackage;
 pub use ecuinstance::*;
 pub use system::*;

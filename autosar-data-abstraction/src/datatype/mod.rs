@@ -13,6 +13,54 @@ pub use compu_method::*;
 pub use implementationtype::*;
 pub use mapping::*;
 
+/// AutosarDataType is the abstract base class for all data types in the AUTOSAR metamodel.
+///
+/// It encapsulates both application data types and implementation data types.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AutosarDataType {
+    ApplicationPrimitiveDataType(ApplicationPrimitiveDataType),
+    ApplicationArrayDataType(ApplicationArrayDataType),
+    ApplicationRecordDataType(ApplicationRecordDataType),
+    ImplementationDataType(ImplementationDataType),
+}
+
+impl AbstractionElement for AutosarDataType {
+    fn element(&self) -> &Element {
+        match self {
+            AutosarDataType::ApplicationPrimitiveDataType(data_type) => data_type.element(),
+            AutosarDataType::ApplicationArrayDataType(data_type) => data_type.element(),
+            AutosarDataType::ApplicationRecordDataType(data_type) => data_type.element(),
+            AutosarDataType::ImplementationDataType(data_type) => data_type.element(),
+        }
+    }
+}
+
+impl From<ApplicationPrimitiveDataType> for AutosarDataType {
+    fn from(data_type: ApplicationPrimitiveDataType) -> Self {
+        AutosarDataType::ApplicationPrimitiveDataType(data_type)
+    }
+}
+
+impl From<ApplicationArrayDataType> for AutosarDataType {
+    fn from(data_type: ApplicationArrayDataType) -> Self {
+        AutosarDataType::ApplicationArrayDataType(data_type)
+    }
+}
+
+impl From<ApplicationRecordDataType> for AutosarDataType {
+    fn from(data_type: ApplicationRecordDataType) -> Self {
+        AutosarDataType::ApplicationRecordDataType(data_type)
+    }
+}
+
+impl From<ImplementationDataType> for AutosarDataType {
+    fn from(data_type: ImplementationDataType) -> Self {
+        AutosarDataType::ImplementationDataType(data_type)
+    }
+}
+
+//#########################################################
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Unit(Element);
 abstraction_element!(Unit, Unit);
