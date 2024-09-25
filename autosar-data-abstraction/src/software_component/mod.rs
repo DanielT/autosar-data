@@ -2,6 +2,14 @@ use crate::*;
 use autosar_data::ElementName;
 use datatype::DataTypeMappingSet;
 
+mod connector;
+mod interface;
+mod port;
+
+pub use connector::*;
+pub use interface::*;
+pub use port::*;
+
 pub trait AbstractSwComponentType: AbstractionElement {
     /// iterator over the instances of the component type
     fn instances(&self) -> ComponentPrototypeIterator {
@@ -36,6 +44,47 @@ pub trait AbstractSwComponentType: AbstractionElement {
             .create_sub_element(ElementName::DataTypeMappingRef)?
             .set_reference_target(data_type_mapping_set.element())?;
         Ok(())
+    }
+
+    /// create a new required port with the given name and port interface
+    fn create_r_port(
+        &self,
+        name: &str,
+        port_interface: &PortInterface,
+    ) -> Result<RPortPrototype, AutosarAbstractionError> {
+        let ports = self.element().get_or_create_sub_element(ElementName::Ports)?;
+        RPortPrototype::new(name, &ports, port_interface)
+    }
+
+    /// create a new provided port with the given name and port interface
+    fn create_p_port(
+        &self,
+        name: &str,
+        port_interface: &PortInterface,
+    ) -> Result<PPortPrototype, AutosarAbstractionError> {
+        let ports = self.element().get_or_create_sub_element(ElementName::Ports)?;
+        PPortPrototype::new(name, &ports, port_interface)
+    }
+
+    /// create a new provided required port with the given name and port interface
+    fn create_pr_port(
+        &self,
+        name: &str,
+        port_interface: &PortInterface,
+    ) -> Result<PRPortPrototype, AutosarAbstractionError> {
+        let ports = self.element().get_or_create_sub_element(ElementName::Ports)?;
+        PRPortPrototype::new(name, &ports, port_interface)
+    }
+
+    /// get an iterator over the ports of the component
+    fn ports(&self) -> PortPrototypeIterator {
+        PortPrototypeIterator::new(self.element().get_sub_element(ElementName::Ports))
+    }
+
+    /// create a new port group
+    fn create_port_group(&self, name: &str) -> Result<PortGroup, AutosarAbstractionError> {
+        let port_groups = self.element().get_or_create_sub_element(ElementName::PortGroups)?;
+        PortGroup::new(name, &port_groups)
     }
 }
 
@@ -95,6 +144,155 @@ impl CompositionSwComponentType {
     /// get an iterator over the components of the composition
     pub fn components(&self) -> CompositionComponentsIter {
         CompositionComponentsIter::new(self.element().get_sub_element(ElementName::Components))
+    }
+
+    /// create a new delegation connector between an inner port and an outer port
+    ///
+    /// The two ports must be compatible.
+    pub fn create_delegation_connector(
+        &self,
+        name: &str,
+        inner_port: &PortPrototype,
+        inner_sw_prototype: &SwComponentPrototype,
+        outer_port: &PortPrototype,
+    ) -> Result<DelegationSwConnector, AutosarAbstractionError> {
+        // check the compatibility of the interfaces
+        let interface_1 = inner_port.port_interface()?;
+        let interface_2 = outer_port.port_interface()?;
+        if std::mem::discriminant(&interface_1) != std::mem::discriminant(&interface_2) {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The interfaces of the two ports are not compatible".to_string(),
+            ));
+        }
+
+        // check that the inner port is part of the inner component
+        let inner_swc_from_port = SwComponentType::try_from(inner_port.element().named_parent()?.unwrap())?;
+        let inner_swc_from_component =
+            inner_sw_prototype
+                .component_type()
+                .ok_or(AutosarAbstractionError::InvalidParameter(
+                    "The inner component is incomplete and lacks a type reference".to_string(),
+                ))?;
+        if inner_swc_from_port != inner_swc_from_component {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The inner port must be part of the inner component".to_string(),
+            ));
+        }
+
+        let swc_self = self.clone().into();
+        let outer_swc_from_port = SwComponentType::try_from(outer_port.element().named_parent()?.unwrap())?;
+        if outer_swc_from_port != swc_self {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The outer port must be part of the composition".to_string(),
+            ));
+        }
+
+        // create the delegation connector
+        let connectors = self.element().get_or_create_sub_element(ElementName::Connectors)?;
+
+        DelegationSwConnector::new(
+            name,
+            &connectors,
+            inner_port, // inner port = port of the contained component
+            inner_sw_prototype,
+            outer_port, // outer port = port of the composition
+        )
+    }
+
+    /// create a new assembly connector between two ports of contained software components
+    ///
+    /// The two ports must be compatible.
+    pub fn create_assembly_connector(
+        &self,
+        name: &str,
+        port_1: &PortPrototype,
+        sw_prototype_1: &SwComponentPrototype,
+        port_2: &PortPrototype,
+        sw_prototype_2: &SwComponentPrototype,
+    ) -> Result<AssemblySwConnector, AutosarAbstractionError> {
+        // check the compatibility of the interfaces
+        let interface_1 = port_1.port_interface()?;
+        let interface_2 = port_2.port_interface()?;
+        if std::mem::discriminant(&interface_1) != std::mem::discriminant(&interface_2) {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The interfaces of the two ports are not compatible".to_string(),
+            ));
+        }
+
+        // check that the ports are part of the correct components
+        let swc_1_from_port = SwComponentType::try_from(port_1.element().named_parent()?.unwrap())?;
+        let swc_1_from_component = sw_prototype_1
+            .component_type()
+            .ok_or(AutosarAbstractionError::InvalidParameter(
+                "SW component prototype 1 is incomplete and lacks a type reference".to_string(),
+            ))?;
+        if swc_1_from_port != swc_1_from_component {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The first port must be part of the first software component".to_string(),
+            ));
+        }
+
+        let swc_2_from_port = SwComponentType::try_from(port_2.element().named_parent()?.unwrap())?;
+        let swc_2_from_component = sw_prototype_2
+            .component_type()
+            .ok_or(AutosarAbstractionError::InvalidParameter(
+                "SW component prototype 2 is incomplete and lacks a type reference".to_string(),
+            ))?;
+        if swc_2_from_port != swc_2_from_component {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The second port must be part of the second software component".to_string(),
+            ));
+        }
+
+        // check that both SWCs are part of the composition
+        if &sw_prototype_1.parent_composition()? != self {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The first software component must be part of the composition".to_string(),
+            ));
+        }
+        if &sw_prototype_2.parent_composition()? != self {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The second software component must be part of the composition".to_string(),
+            ));
+        }
+
+        // create the assembly connector
+        let connectors = self.element().get_or_create_sub_element(ElementName::Connectors)?;
+        AssemblySwConnector::new(name, &connectors, port_1, sw_prototype_1, port_2, sw_prototype_2)
+    }
+
+    /// create a new passthrough connector between two outer ports of the composition
+    ///
+    /// The two ports must be compatible.
+    pub fn create_pass_through_connector(
+        &self,
+        name: &str,
+        port_1: &PortPrototype,
+        port_2: &PortPrototype,
+    ) -> Result<PassThroughSwConnector, AutosarAbstractionError> {
+        // check the compatibility of the interfaces
+        let interface_1 = port_1.port_interface()?;
+        let interface_2 = port_2.port_interface()?;
+        if std::mem::discriminant(&interface_1) != std::mem::discriminant(&interface_2) {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The interfaces of the two ports are not compatible".to_string(),
+            ));
+        }
+
+        // decide what kind of connector to create
+        let swc_1 = SwComponentType::try_from(port_1.element().named_parent()?.unwrap())?;
+        let swc_2 = SwComponentType::try_from(port_2.element().named_parent()?.unwrap())?;
+        let swc_self = self.clone().into();
+
+        // both ports must be part of the composition
+        if swc_1 != swc_self || swc_2 != swc_self {
+            return Err(AutosarAbstractionError::InvalidParameter(
+                "The ports must be part of the composition".to_string(),
+            ));
+        }
+
+        let connectors = self.element().get_or_create_sub_element(ElementName::Connectors)?;
+        PassThroughSwConnector::new(name, &connectors, port_1, port_2)
     }
 }
 
@@ -430,6 +628,10 @@ reflist_iterator!(ComponentPrototypeIterator, ComponentPrototype);
 
 //##################################################################
 
+element_iterator!(PortPrototypeIterator, PortPrototype, Some);
+
+//##################################################################
+
 #[cfg(test)]
 mod test {
     use autosar_data::AutosarVersion;
@@ -514,5 +716,31 @@ mod test {
 
         let ecu_abstraction = EcuAbstractionSwComponentType::new("ecu_abstraction", &package).unwrap();
         ecu_abstraction.add_data_type_mapping(&mapping_set).unwrap();
+    }
+
+    #[test]
+    fn components() {
+        let model = AutosarModel::new();
+        let _file = model.create_file("filename", AutosarVersion::LATEST).unwrap();
+        let package = ArPackage::get_or_create(&model, "/package").unwrap();
+
+        let comp = CompositionSwComponentType::new("comp", &package).unwrap();
+        let app = ApplicationSwComponentType::new("app", &package).unwrap();
+        let cdd = ComplexDeviceDriverSwComponentType::new("cdd", &package).unwrap();
+        let service = ServiceSwComponentType::new("service", &package).unwrap();
+        let sensor_actuator = SensorActuatorSwComponentType::new("sensor_actuator", &package).unwrap();
+        let ecu_abstraction = EcuAbstractionSwComponentType::new("ecu_abstraction", &package).unwrap();
+
+        let container_comp = CompositionSwComponentType::new("container_comp", &package).unwrap();
+        let _comp_prototype = container_comp.add_component("comp", &comp.clone().into()).unwrap();
+        let _app_prototype = container_comp.add_component("app", &app.clone().into()).unwrap();
+        let _cdd_prototype = container_comp.add_component("cdd", &cdd.clone().into()).unwrap();
+        let _service_prototype = container_comp.add_component("service", &service.clone().into()).unwrap();
+        let _sensor_actuator_prototype = container_comp
+            .add_component("sensor_actuator", &sensor_actuator.clone().into())
+            .unwrap();
+        let _ecu_abstraction_prototype = container_comp
+            .add_component("ecu_abstraction", &ecu_abstraction.clone().into())
+            .unwrap();
     }
 }
