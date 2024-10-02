@@ -111,7 +111,7 @@ impl NetworkEndpoint {
     }
 
     /// iterator over all addresses in the NetworkEndpoint
-    pub fn addresses(&self) -> NetworkEndpointAddressIterator {
+    pub fn addresses(&self) -> impl Iterator<Item = NetworkEndpointAddress> {
         NetworkEndpointAddressIterator::new(self.element().get_sub_element(ElementName::NetworkEndpointAddresses))
     }
 }

@@ -133,7 +133,7 @@ impl EcuInstance {
     /// # assert_eq!(ecu_instance.communication_controllers().count(), 2);
     /// ```
     #[must_use]
-    pub fn communication_controllers(&self) -> EcuInstanceControllersIterator {
+    pub fn communication_controllers(&self) -> impl Iterator<Item = CommunicationController> {
         EcuInstanceControllersIterator::new(self)
     }
 }

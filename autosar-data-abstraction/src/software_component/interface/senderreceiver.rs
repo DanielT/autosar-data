@@ -17,17 +17,17 @@ impl SenderReceiverInterface {
     }
 
     /// Add a new data element to the sender receiver interface
-    pub fn add_data_element(
+    pub fn create_data_element<T: Into<AutosarDataType> + AbstractionElement>(
         &self,
         name: &str,
-        data_type: &AutosarDataType,
+        data_type: &T,
     ) -> Result<VariableDataPrototype, AutosarAbstractionError> {
         let data_elements = self.element().get_or_create_sub_element(ElementName::DataElements)?;
         VariableDataPrototype::new(name, &data_elements, data_type.element())
     }
 
     /// iterate over all data elements
-    pub fn data_elements(&self) -> DataElementIterator {
+    pub fn data_elements(&self) -> impl Iterator<Item = VariableDataPrototype> {
         DataElementIterator::new(self.element().get_sub_element(ElementName::DataElements))
     }
 }

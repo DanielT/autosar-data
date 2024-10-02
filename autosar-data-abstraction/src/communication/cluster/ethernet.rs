@@ -112,7 +112,7 @@ impl EthernetCluster {
     /// }
     /// ```
     #[must_use]
-    pub fn physical_channels(&self) -> EthernetClusterChannelsIterator {
+    pub fn physical_channels(&self) -> impl Iterator<Item = EthernetPhysicalChannel> {
         EthernetClusterChannelsIterator::new(
             self.element()
                 .get_sub_element(ElementName::EthernetClusterVariants)

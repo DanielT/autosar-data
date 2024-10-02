@@ -68,7 +68,7 @@ impl CompuMethod {
                     .get_or_create_sub_element(ElementName::Category)?
                     .set_character_data("LINEAR")?;
 
-                let compu_scale = self.add_compu_scale(
+                let compu_scale = self.create_compu_scale(
                     linear_content.direction,
                     linear_content.lower_limit,
                     linear_content.upper_limit,
@@ -84,7 +84,7 @@ impl CompuMethod {
                     .set_character_data("SCALE_LINEAR")?;
 
                 for scale_linear in scale_linear_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         scale_linear.direction,
                         Some(scale_linear.lower_limit),
                         Some(scale_linear.upper_limit),
@@ -100,7 +100,7 @@ impl CompuMethod {
                     .get_or_create_sub_element(ElementName::Category)?
                     .set_character_data("RAT_FUNC")?;
 
-                let compu_scale = self.add_compu_scale(
+                let compu_scale = self.create_compu_scale(
                     rational_content.direction,
                     Some(rational_content.lower_limit),
                     Some(rational_content.upper_limit),
@@ -117,7 +117,7 @@ impl CompuMethod {
                     .set_character_data("SCALE_RAT_FUNC")?;
 
                 for scale_rational in scale_rational_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         scale_rational.direction,
                         Some(scale_rational.lower_limit),
                         Some(scale_rational.upper_limit),
@@ -135,7 +135,7 @@ impl CompuMethod {
                     .set_character_data("TEXTTABLE")?;
 
                 for text_table_item in text_table_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         CompuScaleDirection::IntToPhys,
                         Some(text_table_item.value),
                         Some(text_table_item.value),
@@ -149,7 +149,7 @@ impl CompuMethod {
                     .set_character_data("SCALE_LINEAR_AND_TEXTTABLE")?;
 
                 for scale_linear in scale_linear_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         scale_linear.direction,
                         Some(scale_linear.lower_limit),
                         Some(scale_linear.upper_limit),
@@ -162,7 +162,7 @@ impl CompuMethod {
                 }
 
                 for text_table_item in text_table_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         CompuScaleDirection::IntToPhys,
                         Some(text_table_item.value),
                         Some(text_table_item.value),
@@ -177,7 +177,7 @@ impl CompuMethod {
                     .set_character_data("SCALE_RATIONAL_AND_TEXTTABLE")?;
 
                 for scale_rational in scale_rational_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         scale_rational.direction,
                         Some(scale_rational.lower_limit),
                         Some(scale_rational.upper_limit),
@@ -190,7 +190,7 @@ impl CompuMethod {
                 }
 
                 for text_table_item in text_table_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         CompuScaleDirection::IntToPhys,
                         Some(text_table_item.value),
                         Some(text_table_item.value),
@@ -205,7 +205,7 @@ impl CompuMethod {
                     .set_character_data("BITFIELD_TEXTTABLE")?;
 
                 for bitfield_text_table_item in bitfield_text_table_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         CompuScaleDirection::IntToPhys,
                         Some(bitfield_text_table_item.value),
                         Some(bitfield_text_table_item.value),
@@ -221,7 +221,7 @@ impl CompuMethod {
                     .set_character_data("TAB_NOINTP")?;
 
                 for tab_item in tab_content {
-                    let compu_scale = self.add_compu_scale(
+                    let compu_scale = self.create_compu_scale(
                         CompuScaleDirection::IntToPhys,
                         Some(tab_item.value_in),
                         Some(tab_item.value_in),
@@ -489,8 +489,8 @@ impl CompuMethod {
         }
     }
 
-    /// add a CompuScale to the CompuMethod
-    pub fn add_compu_scale(
+    /// create a CompuScale in the CompuMethod
+    pub fn create_compu_scale(
         &self,
         direction: CompuScaleDirection,
         lower_limit: Option<f64>,
@@ -686,8 +686,7 @@ impl CompuScale {
 
     /// get the lower limit of the CompuScale
     pub fn lower_limit(&self) -> Option<f64> {
-        self
-            .element()
+        self.element()
             .get_sub_element(ElementName::LowerLimit)?
             .character_data()?
             .parse_float()
@@ -695,8 +694,7 @@ impl CompuScale {
 
     /// get the upper limit of the CompuScale
     pub fn upper_limit(&self) -> Option<f64> {
-        self
-            .element()
+        self.element()
             .get_sub_element(ElementName::UpperLimit)?
             .character_data()?
             .parse_float()
@@ -1068,7 +1066,7 @@ mod test {
         assert_eq!(compu_method.category(), Some(CompuMethodCategory::Rational));
 
         let compu_scale = compu_method
-            .add_compu_scale(CompuScaleDirection::IntToPhys, Some(0.5), Some(5.9))
+            .create_compu_scale(CompuScaleDirection::IntToPhys, Some(0.5), Some(5.9))
             .unwrap();
         compu_scale
             .set_content(CompuScaleContent::RationalCoeffs {
