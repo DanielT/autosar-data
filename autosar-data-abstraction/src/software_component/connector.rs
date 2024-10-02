@@ -276,103 +276,54 @@ mod test {
         let swc_type = ApplicationSwComponentType::new("app_type", &package).unwrap();
 
         // create multiple ports with different interfaces and directions
-        let outer_sr_p_port = composition
-            .create_p_port("outer_sr_p_port", &sr_interface.clone().into())
-            .unwrap();
-        let inner_sr_p_port = swc_type
-            .create_p_port("inner_sr_p_port", &sr_interface.clone().into())
-            .unwrap();
-        let outer_sr_r_port = composition
-            .create_r_port("outer_sr_r_port", &sr_interface.clone().into())
-            .unwrap();
-        let inner_sr_r_port = swc_type
-            .create_r_port("inner_sr_r_port", &sr_interface.clone().into())
-            .unwrap();
-        let outer_sr_pr_port = composition
-            .create_pr_port("outer_sr_pr_port", &sr_interface.clone().into())
-            .unwrap();
-        let inner_sr_pr_port = swc_type
-            .create_pr_port("inner_sr_pr_port", &sr_interface.clone().into())
-            .unwrap();
+        let outer_sr_p_port = composition.create_p_port("outer_sr_p_port", &sr_interface).unwrap();
+        let inner_sr_p_port = swc_type.create_p_port("inner_sr_p_port", &sr_interface).unwrap();
+        let outer_sr_r_port = composition.create_r_port("outer_sr_r_port", &sr_interface).unwrap();
+        let inner_sr_r_port = swc_type.create_r_port("inner_sr_r_port", &sr_interface).unwrap();
+        let outer_sr_pr_port = composition.create_pr_port("outer_sr_pr_port", &sr_interface).unwrap();
+        let inner_sr_pr_port = swc_type.create_pr_port("inner_sr_pr_port", &sr_interface).unwrap();
 
-        let outer_cs_p_port = composition
-            .create_p_port("outer_cs_p_port", &cs_interface.clone().into())
-            .unwrap();
-        let inner_cs_p_port = swc_type
-            .create_p_port("inner_cs_p_port", &cs_interface.clone().into())
-            .unwrap();
-        let outer_cs_r_port = composition
-            .create_r_port("outer_cs_r_port", &cs_interface.clone().into())
-            .unwrap();
-        let inner_cs_r_port = swc_type
-            .create_r_port("inner_cs_r_port", &cs_interface.clone().into())
-            .unwrap();
-        let outer_cs_pr_port = composition
-            .create_pr_port("outer_cs_pr_port", &cs_interface.clone().into())
-            .unwrap();
-        let inner_cs_pr_port = swc_type
-            .create_pr_port("inner_cs_pr_port", &cs_interface.clone().into())
-            .unwrap();
+        let outer_cs_p_port = composition.create_p_port("outer_cs_p_port", &cs_interface).unwrap();
+        let inner_cs_p_port = swc_type.create_p_port("inner_cs_p_port", &cs_interface).unwrap();
+        let outer_cs_r_port = composition.create_r_port("outer_cs_r_port", &cs_interface).unwrap();
+        let inner_cs_r_port = swc_type.create_r_port("inner_cs_r_port", &cs_interface).unwrap();
+        let outer_cs_pr_port = composition.create_pr_port("outer_cs_pr_port", &cs_interface).unwrap();
+        let inner_cs_pr_port = swc_type.create_pr_port("inner_cs_pr_port", &cs_interface).unwrap();
 
         // add the application sw component type to the composition
-        let app_prototype = composition.add_component("app_prototype", &swc_type.into()).unwrap();
+        let app_prototype = composition.create_component("app_prototype", &swc_type).unwrap();
 
         // connect the outer port of the composition with the inner port of the application sw component type
         let sr_p_connector = composition
-            .create_delegation_connector(
-                "sr_p_connector",
-                &inner_sr_p_port.clone().into(),
-                &app_prototype,
-                &outer_sr_p_port.into(),
-            )
+            .create_delegation_connector("sr_p_connector", &inner_sr_p_port, &app_prototype, &outer_sr_p_port)
             .unwrap();
         let _sr_r_connector = composition
-            .create_delegation_connector(
-                "sr_r_connector",
-                &inner_sr_r_port.into(),
-                &app_prototype,
-                &outer_sr_r_port.into(),
-            )
+            .create_delegation_connector("sr_r_connector", &inner_sr_r_port, &app_prototype, &outer_sr_r_port)
             .unwrap();
         let _sr_pr_connector = composition
-            .create_delegation_connector(
-                "sr_pr_connector",
-                &inner_sr_pr_port.into(),
-                &app_prototype,
-                &outer_sr_pr_port.into(),
-            )
+            .create_delegation_connector("sr_pr_connector", &inner_sr_pr_port, &app_prototype, &outer_sr_pr_port)
             .unwrap();
         let _cs_p_connector = composition
-            .create_delegation_connector(
-                "cs_p_connector",
-                &inner_cs_p_port.into(),
-                &app_prototype,
-                &outer_cs_p_port.clone().into(),
-            )
+            .create_delegation_connector("cs_p_connector", &inner_cs_p_port, &app_prototype, &outer_cs_p_port)
             .unwrap();
         let _cs_r_connector = composition
-            .create_delegation_connector(
-                "cs_r_connector",
-                &inner_cs_r_port.into(),
-                &app_prototype,
-                &outer_cs_r_port.into(),
-            )
+            .create_delegation_connector("cs_r_connector", &inner_cs_r_port, &app_prototype, &outer_cs_r_port)
             .unwrap();
         // connecting a PR port to a PR port is not allowed for ClientServerInterfaces
         let cs_pr_connector_result = composition.create_delegation_connector(
             "cs_pr_connector",
-            &inner_cs_pr_port.into(),
+            &inner_cs_pr_port,
             &app_prototype,
-            &outer_cs_pr_port.into(),
+            &outer_cs_pr_port,
         );
         assert!(cs_pr_connector_result.is_err());
 
         // connecting different interfaces is not allowed
         let result = composition.create_delegation_connector(
             "invalid_connector",
-            &inner_sr_p_port.into(),
+            &inner_sr_p_port,
             &app_prototype,
-            &outer_cs_p_port.into(),
+            &outer_cs_p_port,
         );
         assert!(result.is_err());
 
@@ -399,59 +350,31 @@ mod test {
         let swc_type_2 = ApplicationSwComponentType::new("app_type_2", &package).unwrap();
 
         // create multiple ports with different interfaces and directions
-        let swc1_sr_p_port = swc_type_1
-            .create_p_port("swc1_sr_p_port", &sr_interface.clone().into())
-            .unwrap();
-        let swc2_sr_p_port = swc_type_2
-            .create_p_port("swc2_sr_p_port", &sr_interface.clone().into())
-            .unwrap();
-        let swc1_sr_r_port = swc_type_1
-            .create_r_port("swc1_sr_r_port", &sr_interface.clone().into())
-            .unwrap();
-        let swc2_sr_r_port = swc_type_2
-            .create_r_port("swc2_sr_r_port", &sr_interface.clone().into())
-            .unwrap();
-        let swc1_sr_pr_port = swc_type_1
-            .create_pr_port("swc1_sr_pr_port", &sr_interface.clone().into())
-            .unwrap();
-        let swc2_sr_pr_port = swc_type_2
-            .create_pr_port("swc2_sr_pr_port", &sr_interface.clone().into())
-            .unwrap();
-        let swc1_cs_p_port = swc_type_1
-            .create_p_port("swc1_cs_p_port", &cs_interface.clone().into())
-            .unwrap();
-        let swc2_cs_p_port = swc_type_2
-            .create_p_port("swc2_cs_p_port", &cs_interface.clone().into())
-            .unwrap();
-        let swc1_cs_r_port = swc_type_1
-            .create_r_port("swc1_cs_r_port", &cs_interface.clone().into())
-            .unwrap();
-        let swc2_cs_r_port = swc_type_2
-            .create_r_port("swc2_cs_r_port", &cs_interface.clone().into())
-            .unwrap();
-        let swc1_cs_pr_port = swc_type_1
-            .create_pr_port("swc1_cs_pr_port", &cs_interface.clone().into())
-            .unwrap();
-        let swc2_cs_pr_port = swc_type_2
-            .create_pr_port("swc2_cs_pr_port", &cs_interface.clone().into())
-            .unwrap();
+        let swc1_sr_p_port = swc_type_1.create_p_port("swc1_sr_p_port", &sr_interface).unwrap();
+        let swc2_sr_p_port = swc_type_2.create_p_port("swc2_sr_p_port", &sr_interface).unwrap();
+        let swc1_sr_r_port = swc_type_1.create_r_port("swc1_sr_r_port", &sr_interface).unwrap();
+        let swc2_sr_r_port = swc_type_2.create_r_port("swc2_sr_r_port", &sr_interface).unwrap();
+        let swc1_sr_pr_port = swc_type_1.create_pr_port("swc1_sr_pr_port", &sr_interface).unwrap();
+        let swc2_sr_pr_port = swc_type_2.create_pr_port("swc2_sr_pr_port", &sr_interface).unwrap();
+        let swc1_cs_p_port = swc_type_1.create_p_port("swc1_cs_p_port", &cs_interface).unwrap();
+        let swc2_cs_p_port = swc_type_2.create_p_port("swc2_cs_p_port", &cs_interface).unwrap();
+        let swc1_cs_r_port = swc_type_1.create_r_port("swc1_cs_r_port", &cs_interface).unwrap();
+        let swc2_cs_r_port = swc_type_2.create_r_port("swc2_cs_r_port", &cs_interface).unwrap();
+        let swc1_cs_pr_port = swc_type_1.create_pr_port("swc1_cs_pr_port", &cs_interface).unwrap();
+        let swc2_cs_pr_port = swc_type_2.create_pr_port("swc2_cs_pr_port", &cs_interface).unwrap();
 
         // add both application sw component types to the composition
-        let app_prototype_1 = composition
-            .add_component("app_prototype_1", &swc_type_1.into())
-            .unwrap();
-        let app_prototype_2 = composition
-            .add_component("app_prototype_2", &swc_type_2.into())
-            .unwrap();
+        let app_prototype_1 = composition.create_component("app_prototype_1", &swc_type_1).unwrap();
+        let app_prototype_2 = composition.create_component("app_prototype_2", &swc_type_2).unwrap();
 
         // connect the ports of the two application sw component types
         // SR: P -> R (valid)
         let _sr_p_r_connector = composition
             .create_assembly_connector(
                 "sr_p_r_connector",
-                &swc1_sr_p_port.clone().into(),
+                &swc1_sr_p_port,
                 &app_prototype_1,
-                &swc2_sr_r_port.clone().into(),
+                &swc2_sr_r_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -459,9 +382,9 @@ mod test {
         let _sr_r_p_connector = composition
             .create_assembly_connector(
                 "sr_r_p_connector",
-                &swc1_sr_r_port.clone().into(),
+                &swc1_sr_r_port,
                 &app_prototype_1,
-                &swc2_sr_p_port.clone().into(),
+                &swc2_sr_p_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -469,9 +392,9 @@ mod test {
         let _sr_p_pr_connector = composition
             .create_assembly_connector(
                 "sr_p_pr_connector",
-                &swc1_sr_p_port.clone().into(),
+                &swc1_sr_p_port,
                 &app_prototype_1,
-                &swc2_sr_pr_port.clone().into(),
+                &swc2_sr_pr_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -479,9 +402,9 @@ mod test {
         let _sr_r_pr_connector = composition
             .create_assembly_connector(
                 "sr_r_pr_connector",
-                &swc1_sr_r_port.clone().into(),
+                &swc1_sr_r_port,
                 &app_prototype_1,
-                &swc2_sr_pr_port.clone().into(),
+                &swc2_sr_pr_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -489,9 +412,9 @@ mod test {
         let _sr_pr_p_connector = composition
             .create_assembly_connector(
                 "sr_pr_p_connector",
-                &swc1_sr_pr_port.clone().into(),
+                &swc1_sr_pr_port,
                 &app_prototype_1,
-                &swc2_sr_p_port.clone().into(),
+                &swc2_sr_p_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -499,9 +422,9 @@ mod test {
         let _sr_pr_r_connector = composition
             .create_assembly_connector(
                 "sr_pr_r_connector",
-                &swc1_sr_pr_port.clone().into(),
+                &swc1_sr_pr_port,
                 &app_prototype_1,
-                &swc2_sr_r_port.clone().into(),
+                &swc2_sr_r_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -509,9 +432,9 @@ mod test {
         let _cs_p_r_connector = composition
             .create_assembly_connector(
                 "cs_p_r_connector",
-                &swc1_cs_p_port.clone().into(),
+                &swc1_cs_p_port,
                 &app_prototype_1,
-                &swc2_cs_r_port.clone().into(),
+                &swc2_cs_r_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -519,18 +442,18 @@ mod test {
         let _cs_r_p_connector = composition
             .create_assembly_connector(
                 "cs_r_p_connector",
-                &swc1_cs_r_port.clone().into(),
+                &swc1_cs_r_port,
                 &app_prototype_1,
-                &swc2_cs_p_port.clone().into(),
+                &swc2_cs_p_port,
                 &app_prototype_2,
             )
             .unwrap();
         // CS: P -> PR (invalid)
         let cs_p_pr_connector_result = composition.create_assembly_connector(
             "cs_p_pr_connector",
-            &swc1_cs_p_port.clone().into(),
+            &swc1_cs_p_port,
             &app_prototype_1,
-            &swc2_cs_pr_port.clone().into(),
+            &swc2_cs_pr_port,
             &app_prototype_2,
         );
         assert!(cs_p_pr_connector_result.is_err());
@@ -538,18 +461,18 @@ mod test {
         let _cs_r_pr_connector = composition
             .create_assembly_connector(
                 "cs_r_pr_connector",
-                &swc1_cs_r_port.clone().into(),
+                &swc1_cs_r_port,
                 &app_prototype_1,
-                &swc2_cs_pr_port.clone().into(),
+                &swc2_cs_pr_port,
                 &app_prototype_2,
             )
             .unwrap();
         // CS: PR -> P (invalid)
         let cs_pr_p_connector_result = composition.create_assembly_connector(
             "cs_pr_p_connector",
-            &swc1_cs_pr_port.clone().into(),
+            &swc1_cs_pr_port,
             &app_prototype_1,
-            &swc2_cs_p_port.clone().into(),
+            &swc2_cs_p_port,
             &app_prototype_2,
         );
         assert!(cs_pr_p_connector_result.is_err());
@@ -557,9 +480,9 @@ mod test {
         let _cs_pr_r_connector = composition
             .create_assembly_connector(
                 "cs_pr_r_connector",
-                &swc1_cs_pr_port.clone().into(),
+                &swc1_cs_pr_port,
                 &app_prototype_1,
-                &swc2_cs_r_port.clone().into(),
+                &swc2_cs_r_port,
                 &app_prototype_2,
             )
             .unwrap();
@@ -567,18 +490,18 @@ mod test {
         // SR: P -> P (invalid)
         let sr_p_p_connector_result = composition.create_assembly_connector(
             "sr_p_p_connector",
-            &swc1_sr_p_port.clone().into(),
+            &swc1_sr_p_port,
             &app_prototype_1,
-            &swc2_sr_p_port.clone().into(),
+            &swc2_sr_p_port,
             &app_prototype_2,
         );
         assert!(sr_p_p_connector_result.is_err());
         // SR: R -> R (invalid)
         let sr_r_r_connector_result = composition.create_assembly_connector(
             "sr_r_r_connector",
-            &swc1_sr_r_port.clone().into(),
+            &swc1_sr_r_port,
             &app_prototype_1,
-            &swc2_sr_r_port.clone().into(),
+            &swc2_sr_r_port,
             &app_prototype_2,
         );
         assert!(sr_r_r_connector_result.is_err());
@@ -586,9 +509,9 @@ mod test {
         // connecting different interfaces is not allowed
         let result = composition.create_assembly_connector(
             "invalid_connector",
-            &swc1_sr_p_port.into(),
+            &swc1_sr_p_port,
             &app_prototype_1,
-            &swc2_cs_r_port.into(),
+            &swc2_cs_r_port,
             &app_prototype_2,
         );
         assert!(result.is_err());
@@ -608,32 +531,23 @@ mod test {
         let composition = CompositionSwComponentType::new("composition", &package).unwrap();
 
         // create multiple ports with different interfaces and directions
-        let sr_p_port = composition
-            .create_p_port("sr_p_port", &sr_interface.clone().into())
-            .unwrap();
-        let sr_r_port = composition
-            .create_r_port("sr_r_port", &sr_interface.clone().into())
-            .unwrap();
-        let cs_p_port = composition
-            .create_p_port("cs_p_port", &cs_interface.clone().into())
-            .unwrap();
-        let cs_r_port = composition
-            .create_r_port("cs_r_port", &cs_interface.clone().into())
-            .unwrap();
+        let sr_p_port = composition.create_p_port("sr_p_port", &sr_interface).unwrap();
+        let sr_r_port = composition.create_r_port("sr_r_port", &sr_interface).unwrap();
+        let cs_p_port = composition.create_p_port("cs_p_port", &cs_interface).unwrap();
+        let cs_r_port = composition.create_r_port("cs_r_port", &cs_interface).unwrap();
 
         // connect the ports of the composition
         // SR: P -> R (valid)
         let _sr_p_r_connector = composition
-            .create_pass_through_connector("sr_p_r_connector", &sr_p_port.clone().into(), &sr_r_port.clone().into())
+            .create_pass_through_connector("sr_p_r_connector", &sr_p_port, &sr_r_port)
             .unwrap();
         // CS: R -> P (valid)
         let _cs_r_p_connector = composition
-            .create_pass_through_connector("cs_r_p_connector", &cs_r_port.clone().into(), &cs_p_port.clone().into())
+            .create_pass_through_connector("cs_r_p_connector", &cs_r_port, &cs_p_port)
             .unwrap();
 
         // connecting different interfaces is not allowed
-        let result =
-            composition.create_pass_through_connector("invalid_connector", &sr_p_port.into(), &cs_r_port.into());
+        let result = composition.create_pass_through_connector("invalid_connector", &sr_p_port, &cs_r_port);
         assert!(result.is_err());
     }
 }

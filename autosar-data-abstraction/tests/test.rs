@@ -255,7 +255,7 @@ mod test {
             .create_isignal("Signal_1", 8, &system_signal, None, &isignal_package)
             .unwrap();
 
-        let pdu_triggering = connection.add_pdu(&pdu.clone().into(), 0x1000, None, None).unwrap();
+        let pdu_triggering = connection.trigger_pdu(&pdu, 0x1000, None, None).unwrap();
         pdu.map_signal(
             &isignal,
             0,
@@ -284,7 +284,7 @@ mod test {
         // create a composition type and create a composition prototype from it for Ecu_A
         let ecu_a_composition = CompositionSwComponentType::new("Ecu_A_Composition", &swc_package).unwrap();
         let ecu_a_composition_prototype = root_composition
-            .add_component("Ecu_A_Composition_Prototype", &ecu_a_composition.clone().into())
+            .create_component("Ecu_A_Composition_Prototype", &ecu_a_composition)
             .unwrap();
         system_mapping
             .map_swc_to_ecu(
@@ -297,7 +297,7 @@ mod test {
         // create an application software component and a prototype from it for Ecu_A
         let application_swc_a = ApplicationSwComponentType::new("ApplicationSwComponent", &swc_package).unwrap();
         let application_swc_a_prototype = ecu_a_composition
-            .add_component("ApplicationSwComponent_Prototype", &application_swc_a.clone().into())
+            .create_component("ApplicationSwComponent_Prototype", &application_swc_a)
             .unwrap();
         system_mapping
             .map_swc_to_ecu(
@@ -325,7 +325,7 @@ mod test {
             &data_type_package,
             ImplementationDataTypeSettings::Value {
                 name: "ImplDataType".to_string(),
-                base_type: base_type_u8.clone(),
+                base_type: base_type_u8,
                 compu_method: None,
                 data_constraint: None,
             },
@@ -346,7 +346,7 @@ mod test {
         let type_mapping_package = ArPackage::get_or_create(&model, "/TypeMappings").unwrap();
         let type_mapping_set = DataTypeMappingSet::new("TypeMappingSet", &type_mapping_package).unwrap();
         type_mapping_set
-            .add_data_type_map(&implementation_data_type, &application_data_type.clone().into())
+            .create_data_type_map(&implementation_data_type, &application_data_type)
             .unwrap();
 
         // create a sender-receiver interface
@@ -354,41 +354,41 @@ mod test {
         let sender_receiver_interface =
             SenderReceiverInterface::new("SenderReceiverInterface", &sender_receiver_package).unwrap();
         let data_element = sender_receiver_interface
-            .add_data_element("DataElement", &application_data_type.clone().into())
+            .create_data_element("DataElement", &application_data_type)
             .unwrap();
 
         // create a port for the sender-receiver interface at every level of the component hierarchy
         let pport_prototype = application_swc_a
-            .create_p_port("provide_port", &sender_receiver_interface.clone().into())
+            .create_p_port("provide_port", &sender_receiver_interface)
             .unwrap();
         let pport_prototype_2 = ecu_a_composition
-            .create_p_port("provide_port", &sender_receiver_interface.clone().into())
+            .create_p_port("provide_port", &sender_receiver_interface)
             .unwrap();
         let pport_prototype_3 = root_composition
-            .create_p_port("provide_port", &sender_receiver_interface.into())
+            .create_p_port("provide_port", &sender_receiver_interface)
             .unwrap();
 
         // connect the ports to each other; this results in the creation of delegation connectors
         let _delegation_connector_1 = root_composition
             .create_delegation_connector(
                 "delegation_connector",
-                &pport_prototype_2.clone().into(),
-                &ecu_a_composition_prototype.clone().into(),
-                &pport_prototype_3.clone().into(),
+                &pport_prototype_2,
+                &ecu_a_composition_prototype,
+                &pport_prototype_3,
             )
             .unwrap();
         let _delegation_connector_2 = ecu_a_composition
             .create_delegation_connector(
                 "delegation_connector",
-                &pport_prototype.clone().into(),
-                &application_swc_a_prototype.clone().into(),
-                &pport_prototype_2.clone().into(),
+                &pport_prototype,
+                &application_swc_a_prototype,
+                &pport_prototype_2,
             )
             .unwrap();
 
         // map the sender-receiver interface to the signal
         system_mapping
-            .map_sender_receiver_to_signal(&system_signal, &data_element, &pport_prototype_3.into(), &[], None)
+            .map_sender_receiver_to_signal(&system_signal, &data_element, &pport_prototype_3, &[], None)
             .unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());
@@ -493,14 +493,7 @@ mod test {
         let socon_ipdu_identifier_set =
             SocketConnectionIpduIdentifierSet::new("IpduIdentifierSet", &ipdu_identifier_set_package).unwrap();
         let ipdu_identifier = socon_ipdu_identifier_set
-            .create_socon_ipdu_identifier(
-                "IpduIdentifier",
-                &pdu.clone().into(),
-                &eth_channel,
-                Some(0x1000),
-                None,
-                None,
-            )
+            .create_socon_ipdu_identifier("IpduIdentifier", &pdu, &eth_channel, Some(0x1000), None, None)
             .unwrap();
 
         static_socket_connection_a
@@ -538,7 +531,7 @@ mod test {
         // create a composition type and create a composition prototype from it for Ecu_A
         let ecu_a_composition = CompositionSwComponentType::new("Ecu_A_Composition", &swc_package).unwrap();
         let ecu_a_composition_prototype = root_composition
-            .add_component("Ecu_A_Composition_Prototype", &ecu_a_composition.clone().into())
+            .create_component("Ecu_A_Composition_Prototype", &ecu_a_composition)
             .unwrap();
         system_mapping
             .map_swc_to_ecu(
@@ -551,7 +544,7 @@ mod test {
         // create an application software component and a prototype from it for Ecu_A
         let application_swc_a = ApplicationSwComponentType::new("ApplicationSwComponent", &swc_package).unwrap();
         let application_swc_a_prototype = ecu_a_composition
-            .add_component("ApplicationSwComponent_Prototype", &application_swc_a.clone().into())
+            .create_component("ApplicationSwComponent_Prototype", &application_swc_a)
             .unwrap();
         system_mapping
             .map_swc_to_ecu(
@@ -579,7 +572,7 @@ mod test {
             &data_type_package,
             ImplementationDataTypeSettings::Value {
                 name: "ImplDataType".to_string(),
-                base_type: base_type_u8.clone(),
+                base_type: base_type_u8,
                 compu_method: None,
                 data_constraint: None,
             },
@@ -600,7 +593,7 @@ mod test {
         let type_mapping_package = ArPackage::get_or_create(&model, "/TypeMappings").unwrap();
         let type_mapping_set = DataTypeMappingSet::new("TypeMappingSet", &type_mapping_package).unwrap();
         type_mapping_set
-            .add_data_type_map(&implementation_data_type, &application_data_type.clone().into())
+            .create_data_type_map(&implementation_data_type, &application_data_type)
             .unwrap();
 
         // create a sender-receiver interface
@@ -608,41 +601,41 @@ mod test {
         let sender_receiver_interface =
             SenderReceiverInterface::new("SenderReceiverInterface", &sender_receiver_package).unwrap();
         let data_element = sender_receiver_interface
-            .add_data_element("DataElement", &application_data_type.clone().into())
+            .create_data_element("DataElement", &application_data_type)
             .unwrap();
 
         // create a port for the sender-receiver interface at every level of the component hierarchy
         let pport_prototype = application_swc_a
-            .create_p_port("provide_port", &sender_receiver_interface.clone().into())
+            .create_p_port("provide_port", &sender_receiver_interface)
             .unwrap();
         let pport_prototype_2 = ecu_a_composition
-            .create_p_port("provide_port", &sender_receiver_interface.clone().into())
+            .create_p_port("provide_port", &sender_receiver_interface)
             .unwrap();
         let pport_prototype_3 = root_composition
-            .create_p_port("provide_port", &sender_receiver_interface.into())
+            .create_p_port("provide_port", &sender_receiver_interface)
             .unwrap();
 
         // connect the ports to each other; this results in the creation of delegation connectors
         let _delegation_connector_1 = root_composition
             .create_delegation_connector(
                 "delegation_connector",
-                &pport_prototype_2.clone().into(),
-                &ecu_a_composition_prototype.clone().into(),
-                &pport_prototype_3.clone().into(),
+                &pport_prototype_2,
+                &ecu_a_composition_prototype,
+                &pport_prototype_3,
             )
             .unwrap();
         let _delegation_connector_2 = ecu_a_composition
             .create_delegation_connector(
                 "delegation_connector",
-                &pport_prototype.clone().into(),
-                &application_swc_a_prototype.clone().into(),
-                &pport_prototype_2.clone().into(),
+                &pport_prototype,
+                &application_swc_a_prototype,
+                &pport_prototype_2,
             )
             .unwrap();
 
         // map the sender-receiver interface to the signal
         system_mapping
-            .map_sender_receiver_to_signal(&system_signal, &data_element, &pport_prototype_3.into(), &[], None)
+            .map_sender_receiver_to_signal(&system_signal, &data_element, &pport_prototype_3, &[], None)
             .unwrap();
 
         println!("{}", model.files().next().unwrap().serialize().unwrap());

@@ -98,7 +98,23 @@ impl SystemMapping {
     ///
     /// `root_composition_prototype`: the root composition prototype that contains the swc_prototype.
     /// Rarely required, but may be needed if multiple root compositions use the same composition/component hierarchy.
-    pub fn map_sender_receiver_to_signal(
+    pub fn map_sender_receiver_to_signal<T: Into<PortPrototype> + Clone>(
+        &self,
+        signal: &SystemSignal,
+        data_element: &VariableDataPrototype,
+        port_prototype: &T,
+        context_components: &[&SwComponentPrototype],
+        root_composition_prototype: Option<&RootSwCompositionPrototype>,
+    ) -> Result<(), AutosarAbstractionError> {
+        self.map_sender_receiver_to_signal_internal(
+            signal,
+            data_element,
+            &port_prototype.clone().into(),
+            context_components,
+            root_composition_prototype,
+        )
+    }
+    fn map_sender_receiver_to_signal_internal(
         &self,
         signal: &SystemSignal,
         data_element: &VariableDataPrototype,

@@ -1,4 +1,4 @@
-use crate::communication::{ISignal, ISignalGroup, Pdu, PduTriggeringsIterator, TransferProperty};
+use crate::communication::{ISignal, ISignalGroup, Pdu, PduTriggering, PduTriggeringsIterator, TransferProperty};
 use crate::{
     abstraction_element, element_iterator, make_unique_name, AbstractionElement, ArPackage, AutosarAbstractionError,
     ByteOrder,
@@ -141,7 +141,7 @@ impl ISignalIPdu {
         ISignalToIPduMapping::new_group(&name, &mappings, signal_group)
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {

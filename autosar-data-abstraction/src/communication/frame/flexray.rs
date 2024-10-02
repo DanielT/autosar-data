@@ -1,6 +1,6 @@
 use crate::communication::{
-    CommunicationDirection, FlexrayPhysicalChannel, Frame, FramePort, FrameTriggering, FtPduTriggeringsIterator, Pdu,
-    PduToFrameMapping, PduToFrameMappingIterator, PduTriggering,
+    CommunicationDirection, FlexrayPhysicalChannel, Frame, FramePort, FrameTriggering, Pdu, PduToFrameMapping,
+    PduToFrameMappingIterator, PduTriggering,
 };
 use crate::{
     abstraction_element, make_unique_name, reflist_iterator, AbstractionElement, ArPackage, AutosarAbstractionError,
@@ -31,7 +31,7 @@ impl FlexrayFrame {
     }
 
     /// Iterator over all [`FlexrayFrameTriggering`]s using this frame
-    pub fn frame_triggerings(&self) -> FlexrayFrameTriggeringsIterator {
+    pub fn frame_triggerings(&self) -> impl Iterator<Item = FlexrayFrameTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -222,7 +222,7 @@ impl FlexrayFrameTriggering {
         FrameTriggering::Flexray(self.clone()).connect_to_ecu(ecu, direction)
     }
 
-    pub fn pdu_triggerings(&self) -> FtPduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         FrameTriggering::Flexray(self.clone()).pdu_triggerings()
     }
 }

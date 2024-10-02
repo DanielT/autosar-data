@@ -1,6 +1,6 @@
 use crate::communication::{
-    CanPhysicalChannel, CommunicationDirection, Frame, FramePort, FrameTriggering, FtPduTriggeringsIterator, Pdu,
-    PduToFrameMapping, PduToFrameMappingIterator, PduTriggering,
+    CanPhysicalChannel, CommunicationDirection, Frame, FramePort, FrameTriggering, Pdu, PduToFrameMapping,
+    PduToFrameMappingIterator, PduTriggering,
 };
 use crate::{
     abstraction_element, make_unique_name, reflist_iterator, AbstractionElement, ArPackage, AutosarAbstractionError,
@@ -26,12 +26,12 @@ impl CanFrame {
     }
 
     /// returns an iterator over all PDUs in the frame
-    pub fn mapped_pdus(&self) -> PduToFrameMappingIterator {
+    pub fn mapped_pdus(&self) -> impl Iterator<Item = PduToFrameMapping> {
         PduToFrameMappingIterator::new(self.element().get_sub_element(ElementName::PduToFrameMappings))
     }
 
     /// Iterator over all [`CanFrameTriggering`]s using this frame
-    pub fn frame_triggerings(&self) -> CanFrameTriggeringsIterator {
+    pub fn frame_triggerings(&self) -> impl Iterator<Item = CanFrameTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -205,7 +205,7 @@ impl CanFrameTriggering {
         FrameTriggering::Can(self.clone()).connect_to_ecu(ecu, direction)
     }
 
-    pub fn pdu_triggerings(&self) -> FtPduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         FrameTriggering::Can(self.clone()).pdu_triggerings()
     }
 }

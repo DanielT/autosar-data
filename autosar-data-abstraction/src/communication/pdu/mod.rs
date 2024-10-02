@@ -34,7 +34,7 @@ impl NmPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -77,7 +77,7 @@ impl NPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -120,7 +120,7 @@ impl DcmIPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -163,7 +163,7 @@ impl GeneralPurposePdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -206,7 +206,7 @@ impl GeneralPurposeIPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -249,7 +249,7 @@ impl ContainerIPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -292,7 +292,7 @@ impl SecuredIPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -335,7 +335,7 @@ impl MultiplexedIPdu {
             .parse_integer()
     }
 
-    pub fn pdu_triggerings(&self) -> PduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {

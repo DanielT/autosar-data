@@ -85,7 +85,7 @@ impl ISignal {
     ///
     /// Usually a signal should only be mapped to a single PDU,
     /// so this iterator is expected to return either zero or one item in ordinary cases.
-    pub fn mappings(&self) -> ISignalToIPduMappingsIterator {
+    pub fn mappings(&self) -> impl Iterator<Item = ISignalToIPduMapping> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -270,7 +270,7 @@ impl ISignalGroup {
     /// Iterator over all [`Signal`]s in this group
     ///
     /// # Example
-    pub fn signals(&self) -> ISignalsIterator {
+    pub fn signals(&self) -> impl Iterator<Item = ISignal> {
         ISignalsIterator::new(self.element().get_sub_element(ElementName::ISignalRefs))
     }
 }
@@ -414,7 +414,7 @@ impl ISignalTriggering {
     }
 
     /// create an iterator over all signal ports that are connected to this signal triggering
-    pub fn signal_ports(&self) -> ISignalPortIterator {
+    pub fn signal_ports(&self) -> impl Iterator<Item = ISignalPort> {
         ISignalPortIterator::new(self.element().get_sub_element(ElementName::ISignalPortRefs))
     }
 }

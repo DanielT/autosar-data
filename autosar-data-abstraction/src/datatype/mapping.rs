@@ -16,13 +16,14 @@ impl DataTypeMappingSet {
         Ok(Self(mapping_set))
     }
 
-    /// Add a new `DataTypeMap` to the `DataTypeMappingSet`
-    pub fn add_data_type_map(
+    /// Create a new `DataTypeMap` in the `DataTypeMappingSet`
+    pub fn create_data_type_map<T: Into<ApplicationDataType> + Clone>(
         &self,
         implementation_data_type: &ImplementationDataType,
-        application_data_type: &ApplicationDataType,
+        application_data_type: &T,
     ) -> Result<DataTypeMap, AutosarAbstractionError> {
-        let data_type_map = DataTypeMap::new(self.element(), implementation_data_type, application_data_type)?;
+        let application_data_type = application_data_type.clone().into();
+        let data_type_map = DataTypeMap::new(self.element(), implementation_data_type, &application_data_type)?;
         Ok(data_type_map)
     }
 
@@ -125,7 +126,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let data_type_map = mapping_set.add_data_type_map(&impl_data_type, &app_data_type).unwrap();
+        let data_type_map = mapping_set.create_data_type_map(&impl_data_type, &app_data_type).unwrap();
 
         assert_eq!(data_type_map.implementation_data_type().unwrap(), impl_data_type);
         assert_eq!(data_type_map.application_data_type().unwrap(), app_data_type);

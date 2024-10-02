@@ -39,7 +39,7 @@ impl Frame {
     }
 
     /// Iterator over all [`FrameTriggering`]s using this frame
-    pub fn frame_triggerings(&self) -> FrameTriggeringsIterator {
+    pub fn frame_triggerings(&self) -> impl Iterator<Item = FrameTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
         if let (Ok(model), Ok(path)) = (model_result, path_result) {
@@ -58,7 +58,17 @@ impl Frame {
         byte_order: ByteOrder,
         update_bit: Option<u32>,
     ) -> Result<PduToFrameMapping, AutosarAbstractionError> {
-        let pdu: Pdu = gen_pdu.clone().into();
+        let pdu = gen_pdu.clone().into();
+        self.map_pdu_internal(&pdu, start_position, byte_order, update_bit)
+    }
+
+    pub(crate) fn map_pdu_internal(
+        &self,
+        pdu: &Pdu,
+        start_position: u32,
+        byte_order: ByteOrder,
+        update_bit: Option<u32>,
+    ) -> Result<PduToFrameMapping, AutosarAbstractionError> {
         let pdu_name = pdu
             .name()
             .ok_or(AutosarAbstractionError::InvalidParameter("invalid PDU".to_string()))?;

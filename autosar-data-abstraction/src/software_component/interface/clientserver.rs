@@ -16,24 +16,24 @@ impl ClientServerInterface {
     }
 
     /// Add a possible error to the client server interface
-    pub fn add_possible_error(&self, name: &str, error_code: u64) -> Result<ApplicationError, AutosarAbstractionError> {
+    pub fn create_possible_error(&self, name: &str, error_code: u64) -> Result<ApplicationError, AutosarAbstractionError> {
         let possible_errors = self.element().get_or_create_sub_element(ElementName::PossibleErrors)?;
         ApplicationError::new(name, error_code, &possible_errors)
     }
 
     /// add an operation to the client server interface
-    pub fn add_operation(&self, name: &str) -> Result<ClientServerOperation, AutosarAbstractionError> {
+    pub fn create_operation(&self, name: &str) -> Result<ClientServerOperation, AutosarAbstractionError> {
         let operations = self.element().get_or_create_sub_element(ElementName::Operations)?;
         ClientServerOperation::new(name, &operations)
     }
 
     /// iterate over all operations
-    pub fn operations(&self) -> ClientServerOperationIterator {
+    pub fn operations(&self) -> impl Iterator<Item = ClientServerOperation> {
         ClientServerOperationIterator::new(self.element().get_sub_element(ElementName::Operations))
     }
 
     /// iterate over all application errors
-    pub fn possible_errors(&self) -> ApplicationErrorIterator {
+    pub fn possible_errors(&self) -> impl Iterator<Item = ApplicationError> {
         ApplicationErrorIterator::new(self.element().get_sub_element(ElementName::PossibleErrors))
     }
 }
@@ -69,7 +69,7 @@ impl ClientServerOperation {
     }
 
     /// Add an argument to the operation
-    pub fn add_argument(
+    pub fn create_argument(
         &self,
         name: &str,
         data_type: &AutosarDataType,

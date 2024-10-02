@@ -47,7 +47,7 @@ impl FlexrayCommunicationController {
     ///
     /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model
     #[must_use]
-    pub fn connected_channels(&self) -> FlexrayCtrlChannelsIterator {
+    pub fn connected_channels(&self) -> impl Iterator<Item = FlexrayPhysicalChannel> {
         if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element().clone()) {
             FlexrayCtrlChannelsIterator::new(self, &ecu)
         } else {

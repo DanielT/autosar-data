@@ -30,7 +30,7 @@ pub trait AbstractSwComponentType: AbstractionElement {
             .filter_map(|elem| CompositionSwComponentType::try_from(elem).ok())
     }
 
-    /// add a data type mapping, by referencing an existing DataTypeMappingSet
+    /// add a data type mapping to the SWC, by referencing an existing DataTypeMappingSet
     fn add_data_type_mapping(&self, data_type_mapping_set: &DataTypeMappingSet) -> Result<(), AutosarAbstractionError> {
         // this default implementation applies to component variants that have internal behaviors.
         // specifically, this means that it is NOT valid for the CompositionSwComponentType
@@ -47,30 +47,30 @@ pub trait AbstractSwComponentType: AbstractionElement {
     }
 
     /// create a new required port with the given name and port interface
-    fn create_r_port(
+    fn create_r_port<T: Into<PortInterface> + AbstractionElement>(
         &self,
         name: &str,
-        port_interface: &PortInterface,
+        port_interface: &T,
     ) -> Result<RPortPrototype, AutosarAbstractionError> {
         let ports = self.element().get_or_create_sub_element(ElementName::Ports)?;
         RPortPrototype::new(name, &ports, port_interface)
     }
 
     /// create a new provided port with the given name and port interface
-    fn create_p_port(
+    fn create_p_port<T: Into<PortInterface> + AbstractionElement>(
         &self,
         name: &str,
-        port_interface: &PortInterface,
+        port_interface: &T,
     ) -> Result<PPortPrototype, AutosarAbstractionError> {
         let ports = self.element().get_or_create_sub_element(ElementName::Ports)?;
         PPortPrototype::new(name, &ports, port_interface)
     }
 
     /// create a new provided required port with the given name and port interface
-    fn create_pr_port(
+    fn create_pr_port<T: Into<PortInterface> + AbstractionElement>(
         &self,
         name: &str,
-        port_interface: &PortInterface,
+        port_interface: &T,
     ) -> Result<PRPortPrototype, AutosarAbstractionError> {
         let ports = self.element().get_or_create_sub_element(ElementName::Ports)?;
         PRPortPrototype::new(name, &ports, port_interface)
@@ -121,15 +121,16 @@ impl CompositionSwComponentType {
         false
     }
 
-    /// add a component of type component_type to the composition
+    /// create a component of type component_type in the composition
     ///
     /// It is not allowed to form cycles in the composition hierarchy, and this will return an error
-    pub fn add_component(
+    pub fn create_component<T: Into<SwComponentType> + Clone>(
         &self,
         name: &str,
-        component_type: &SwComponentType,
+        component_type: &T,
     ) -> Result<SwComponentPrototype, AutosarAbstractionError> {
-        if let SwComponentType::Composition(composition_component) = component_type {
+        let component_type = component_type.clone().into();
+        if let SwComponentType::Composition(composition_component) = &component_type {
             if composition_component.is_parent_of(self) {
                 return Err(AutosarAbstractionError::InvalidParameter(
                     "Creating a cycle in the composition hierarchy".to_string(),
@@ -138,18 +139,35 @@ impl CompositionSwComponentType {
         }
 
         let components = self.element().get_or_create_sub_element(ElementName::Components)?;
-        SwComponentPrototype::new(name, &components, component_type)
+        SwComponentPrototype::new(name, &components, &component_type)
     }
 
     /// get an iterator over the components of the composition
-    pub fn components(&self) -> CompositionComponentsIter {
+    pub fn components(&self) -> impl Iterator<Item = SwComponentType> {
         CompositionComponentsIter::new(self.element().get_sub_element(ElementName::Components))
     }
 
     /// create a new delegation connector between an inner port and an outer port
     ///
     /// The two ports must be compatible.
-    pub fn create_delegation_connector(
+    pub fn create_delegation_connector<T1: Into<PortPrototype> + Clone, T2: Into<PortPrototype> + Clone>(
+        &self,
+        name: &str,
+        inner_port: &T1,
+        inner_sw_prototype: &SwComponentPrototype,
+        outer_port: &T2,
+    ) -> Result<DelegationSwConnector, AutosarAbstractionError> {
+        self.create_delegation_connector_internal(
+            name,
+            &inner_port.clone().into(),
+            inner_sw_prototype,
+            &outer_port.clone().into(),
+        )
+    }
+
+    /// create a new delegation connector between an inner port and an outer port
+    /// this is the actual implementation of the public method, but without the generic parameters
+    fn create_delegation_connector_internal(
         &self,
         name: &str,
         inner_port: &PortPrototype,
@@ -202,7 +220,24 @@ impl CompositionSwComponentType {
     /// create a new assembly connector between two ports of contained software components
     ///
     /// The two ports must be compatible.
-    pub fn create_assembly_connector(
+    pub fn create_assembly_connector<T1: Into<PortPrototype> + Clone, T2: Into<PortPrototype> + Clone>(
+        &self,
+        name: &str,
+        port_1: &T1,
+        sw_prototype_1: &SwComponentPrototype,
+        port_2: &T2,
+        sw_prototype_2: &SwComponentPrototype,
+    ) -> Result<AssemblySwConnector, AutosarAbstractionError> {
+        self.create_assembly_connector_internal(
+            name,
+            &port_1.clone().into(),
+            sw_prototype_1,
+            &port_2.clone().into(),
+            sw_prototype_2,
+        )
+    }
+
+    fn create_assembly_connector_internal(
         &self,
         name: &str,
         port_1: &PortPrototype,
@@ -264,7 +299,16 @@ impl CompositionSwComponentType {
     /// create a new passthrough connector between two outer ports of the composition
     ///
     /// The two ports must be compatible.
-    pub fn create_pass_through_connector(
+    pub fn create_pass_through_connector<T1: Into<PortPrototype> + Clone, T2: Into<PortPrototype> + Clone>(
+        &self,
+        name: &str,
+        port_1: &T1,
+        port_2: &T2,
+    ) -> Result<PassThroughSwConnector, AutosarAbstractionError> {
+        self.create_pass_through_connector_internal(name, &port_1.clone().into(), &port_2.clone().into())
+    }
+
+    fn create_pass_through_connector_internal(
         &self,
         name: &str,
         port_1: &PortPrototype,
@@ -649,9 +693,9 @@ mod test {
         let comp3 = CompositionSwComponentType::new("comp3", &package).unwrap();
         let comp4 = CompositionSwComponentType::new("comp4", &package).unwrap();
 
-        comp1.add_component("comp2", &comp2.clone().into()).unwrap();
-        comp2.add_component("comp3", &comp3.clone().into()).unwrap();
-        comp3.add_component("comp4", &comp4.clone().into()).unwrap();
+        comp1.create_component("comp2", &comp2.clone()).unwrap();
+        comp2.create_component("comp3", &comp3.clone()).unwrap();
+        comp3.create_component("comp4", &comp4.clone()).unwrap();
 
         assert_eq!(comp1.instances().count(), 0);
         assert_eq!(comp2.instances().count(), 1);
@@ -732,15 +776,15 @@ mod test {
         let ecu_abstraction = EcuAbstractionSwComponentType::new("ecu_abstraction", &package).unwrap();
 
         let container_comp = CompositionSwComponentType::new("container_comp", &package).unwrap();
-        let _comp_prototype = container_comp.add_component("comp", &comp.clone().into()).unwrap();
-        let _app_prototype = container_comp.add_component("app", &app.clone().into()).unwrap();
-        let _cdd_prototype = container_comp.add_component("cdd", &cdd.clone().into()).unwrap();
-        let _service_prototype = container_comp.add_component("service", &service.clone().into()).unwrap();
+        let _comp_prototype = container_comp.create_component("comp", &comp.clone()).unwrap();
+        let _app_prototype = container_comp.create_component("app", &app.clone()).unwrap();
+        let _cdd_prototype = container_comp.create_component("cdd", &cdd.clone()).unwrap();
+        let _service_prototype = container_comp.create_component("service", &service.clone()).unwrap();
         let _sensor_actuator_prototype = container_comp
-            .add_component("sensor_actuator", &sensor_actuator.clone().into())
+            .create_component("sensor_actuator", &sensor_actuator.clone())
             .unwrap();
         let _ecu_abstraction_prototype = container_comp
-            .add_component("ecu_abstraction", &ecu_abstraction.clone().into())
+            .create_component("ecu_abstraction", &ecu_abstraction.clone())
             .unwrap();
     }
 }
