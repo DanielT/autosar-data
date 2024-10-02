@@ -8,10 +8,10 @@ abstraction_element!(RPortPrototype, RPortPrototype);
 
 impl RPortPrototype {
     /// Create a new RPortPrototype
-    pub(crate) fn new(
+    pub(crate) fn new<T: Into<PortInterface> + AbstractionElement>(
         name: &str,
         parent_element: &Element,
-        interface: &PortInterface,
+        interface: &T,
     ) -> Result<Self, AutosarAbstractionError> {
         let r_port_prototype = parent_element.create_named_sub_element(ElementName::RPortPrototype, name)?;
         r_port_prototype
@@ -47,10 +47,10 @@ abstraction_element!(PPortPrototype, PPortPrototype);
 
 impl PPortPrototype {
     /// Create a new PPortPrototype
-    pub(crate) fn new(
+    pub(crate) fn new<T: Into<PortInterface> + AbstractionElement>(
         name: &str,
         parent_element: &Element,
-        interface: &PortInterface,
+        interface: &T,
     ) -> Result<Self, AutosarAbstractionError> {
         let p_port_prototype = parent_element.create_named_sub_element(ElementName::PPortPrototype, name)?;
         p_port_prototype
@@ -86,12 +86,12 @@ abstraction_element!(PRPortPrototype, PrPortPrototype);
 
 impl PRPortPrototype {
     /// Create a new PRPortPrototype
-    pub(crate) fn new(
+    pub(crate) fn new<T: Into<PortInterface> + AbstractionElement>(
         name: &str,
         parent_element: &Element,
-        interface: &PortInterface,
+        interface: &T,
     ) -> Result<Self, AutosarAbstractionError> {
-        if matches!(interface, PortInterface::ParameterInterface(_)) {
+        if interface.element().element_name() == ElementName::ParameterInterface {
             return Err(AutosarAbstractionError::InvalidParameter(
                 "ParameterInterface is not allowed for PRPortPrototype".to_string(),
             ));
@@ -227,11 +227,9 @@ mod test {
         let comp = CompositionSwComponentType::new("comp", &package).unwrap();
 
         let port_interface = SenderReceiverInterface::new("sr_interface", &package).unwrap();
-        let r_port = comp.create_r_port("sr_r_port", &port_interface.clone().into()).unwrap();
-        let p_port = comp.create_p_port("sr_p_port", &port_interface.clone().into()).unwrap();
-        let pr_port = comp
-            .create_pr_port("sr_pr_port", &port_interface.clone().into())
-            .unwrap();
+        let r_port = comp.create_r_port("sr_r_port", &port_interface).unwrap();
+        let p_port = comp.create_p_port("sr_p_port", &port_interface).unwrap();
+        let pr_port = comp.create_pr_port("sr_pr_port", &port_interface).unwrap();
 
         assert_eq!(comp.ports().count(), 3);
         let ports: Vec<PortPrototype> = comp.ports().collect();
@@ -240,11 +238,9 @@ mod test {
         assert_eq!(ports[2], pr_port.into());
 
         let port_interface = ClientServerInterface::new("cs_interface", &package).unwrap();
-        let r_port = comp.create_r_port("cs_r_port", &port_interface.clone().into()).unwrap();
-        let p_port = comp.create_p_port("cs_p_port", &port_interface.clone().into()).unwrap();
-        let pr_port = comp
-            .create_pr_port("cs_pr_port", &port_interface.clone().into())
-            .unwrap();
+        let r_port = comp.create_r_port("cs_r_port", &port_interface).unwrap();
+        let p_port = comp.create_p_port("cs_p_port", &port_interface).unwrap();
+        let pr_port = comp.create_pr_port("cs_pr_port", &port_interface).unwrap();
 
         assert_eq!(comp.ports().count(), 6);
         let ports: Vec<PortPrototype> = comp.ports().collect();
@@ -253,11 +249,9 @@ mod test {
         assert_eq!(ports[5], pr_port.into());
 
         let port_interface = ModeSwitchInterface::new("ms_interface", &package).unwrap();
-        let r_port = comp.create_r_port("ms_r_port", &port_interface.clone().into()).unwrap();
-        let p_port = comp.create_p_port("ms_p_port", &port_interface.clone().into()).unwrap();
-        let pr_port = comp
-            .create_pr_port("ms_pr_port", &port_interface.clone().into())
-            .unwrap();
+        let r_port = comp.create_r_port("ms_r_port", &port_interface).unwrap();
+        let p_port = comp.create_p_port("ms_p_port", &port_interface).unwrap();
+        let pr_port = comp.create_pr_port("ms_pr_port", &port_interface).unwrap();
 
         assert_eq!(comp.ports().count(), 9);
         let ports: Vec<PortPrototype> = comp.ports().collect();
@@ -266,11 +260,9 @@ mod test {
         assert_eq!(ports[8], pr_port.into());
 
         let port_interface = NvDataInterface::new("nv_interface", &package).unwrap();
-        let r_port = comp.create_r_port("nv_r_port", &port_interface.clone().into()).unwrap();
-        let p_port = comp.create_p_port("nv_p_port", &port_interface.clone().into()).unwrap();
-        let pr_port = comp
-            .create_pr_port("nv_pr_port", &port_interface.clone().into())
-            .unwrap();
+        let r_port = comp.create_r_port("nv_r_port", &port_interface).unwrap();
+        let p_port = comp.create_p_port("nv_p_port", &port_interface).unwrap();
+        let pr_port = comp.create_pr_port("nv_pr_port", &port_interface).unwrap();
 
         assert_eq!(comp.ports().count(), 12);
         let ports: Vec<PortPrototype> = comp.ports().collect();
@@ -279,13 +271,9 @@ mod test {
         assert_eq!(ports[11], pr_port.into());
 
         let port_interface = ParameterInterface::new("param_interface", &package).unwrap();
-        let r_port = comp
-            .create_r_port("param_r_port", &port_interface.clone().into())
-            .unwrap();
-        let p_port = comp
-            .create_p_port("param_p_port", &port_interface.clone().into())
-            .unwrap();
-        let pr_port_result = comp.create_pr_port("param_pr_port", &port_interface.clone().into());
+        let r_port = comp.create_r_port("param_r_port", &port_interface).unwrap();
+        let p_port = comp.create_p_port("param_p_port", &port_interface).unwrap();
+        let pr_port_result = comp.create_pr_port("param_pr_port", &port_interface);
         assert!(pr_port_result.is_err());
 
         assert_eq!(comp.ports().count(), 14);
@@ -294,15 +282,9 @@ mod test {
         assert_eq!(ports[13], p_port.into());
 
         let port_interface = TriggerInterface::new("trigger_interface", &package).unwrap();
-        let r_port = comp
-            .create_r_port("trigger_r_port", &port_interface.clone().into())
-            .unwrap();
-        let p_port = comp
-            .create_p_port("trigger_p_port", &port_interface.clone().into())
-            .unwrap();
-        let pr_port = comp
-            .create_pr_port("trigger_pr_port", &port_interface.clone().into())
-            .unwrap();
+        let r_port = comp.create_r_port("trigger_r_port", &port_interface).unwrap();
+        let p_port = comp.create_p_port("trigger_p_port", &port_interface).unwrap();
+        let pr_port = comp.create_pr_port("trigger_pr_port", &port_interface).unwrap();
 
         assert_eq!(comp.ports().count(), 17);
         let ports: Vec<PortPrototype> = comp.ports().collect();

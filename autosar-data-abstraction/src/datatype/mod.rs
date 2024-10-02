@@ -95,8 +95,8 @@ impl DataConstr {
         Ok(Self(data_constr))
     }
 
-    /// Add a data constraint rule
-    pub fn add_data_constr_rule(
+    /// Create a data constraint rule
+    pub fn create_data_constr_rule(
         &self,
         rule_type: DataConstrType,
         lower_limit: Option<f64>,
@@ -108,7 +108,7 @@ impl DataConstr {
     }
 
     /// Get all data constraint rules
-    pub fn data_constr_rules(&self) -> DataConstrRulesIterator {
+    pub fn data_constr_rules(&self) -> impl Iterator<Item = DataConstrRule> {
         DataConstrRulesIterator::new(self.element().get_sub_element(ElementName::DataConstrRules))
     }
 }
@@ -217,14 +217,14 @@ mod test {
         let data_constr = DataConstr::new("DataConstr", &package).unwrap();
 
         let rule1 = data_constr
-            .add_data_constr_rule(DataConstrType::Internal, Some(1.0), Some(100.0))
+            .create_data_constr_rule(DataConstrType::Internal, Some(1.0), Some(100.0))
             .unwrap();
         assert_eq!(rule1.rule_type(), DataConstrType::Internal);
         assert_eq!(rule1.lower_limit(), Some(1.0));
         assert_eq!(rule1.upper_limit(), Some(100.0));
 
         let rule2 = data_constr
-            .add_data_constr_rule(DataConstrType::Physical, Some(2.0), Some(200.0))
+            .create_data_constr_rule(DataConstrType::Physical, Some(2.0), Some(200.0))
             .unwrap();
         assert_eq!(rule2.rule_type(), DataConstrType::Physical);
         assert_eq!(rule2.lower_limit(), Some(2.0));

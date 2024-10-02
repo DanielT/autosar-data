@@ -51,8 +51,8 @@ impl From<FlexrayCommunicationController> for CommunicationController {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ArPackage, EcuInstance};
     use super::*;
+    use crate::{ArPackage, EcuInstance};
     use autosar_data::{AutosarModel, AutosarVersion};
 
     #[test]

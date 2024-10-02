@@ -119,7 +119,7 @@ impl System {
     /// assert_eq!(system.ecu_instances().count(), 2);
     /// ```
     #[must_use]
-    pub fn ecu_instances(&self) -> EcuInstanceIterator {
+    pub fn ecu_instances(&self) -> impl Iterator<Item = EcuInstance> {
         EcuInstanceIterator::new(self)
     }
 
@@ -628,7 +628,7 @@ impl System {
     /// assert_eq!(system.clusters().count(), 2);
     /// ```
     #[must_use]
-    pub fn clusters(&self) -> ClusterIterator {
+    pub fn clusters(&self) -> impl Iterator<Item = Cluster> {
         ClusterIterator::new(self)
     }
 
@@ -1023,10 +1023,10 @@ mod test {
         assert_eq!(system.root_composition().unwrap(), _root_proto);
 
         let context_proto = root_composition
-            .add_component("ContextComposition", &context_composition.clone().into())
+            .create_component("ContextComposition", &context_composition.clone())
             .unwrap();
         let ecu_proto = context_composition
-            .add_component("EcuComposition", &ecu_composition.into())
+            .create_component("EcuComposition", &ecu_composition)
             .unwrap();
         let ecu = system.create_ecu_instance("Ecu", &package_3).unwrap();
 

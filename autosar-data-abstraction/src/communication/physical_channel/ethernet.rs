@@ -171,7 +171,7 @@ impl EthernetPhysicalChannel {
     /// # assert_eq!(channel.network_endpoints().count(), 1)
     /// ```
     #[must_use]
-    pub fn network_endpoints(&self) -> NetworkEndpointIterator {
+    pub fn network_endpoints(&self) -> impl Iterator<Item = NetworkEndpoint> {
         NetworkEndpointIterator::new(self.element().get_sub_element(ElementName::NetworkEndpoints))
     }
 
@@ -256,7 +256,7 @@ impl EthernetPhysicalChannel {
     /// channel.create_socket_address("SocketName", &network_endpoint, &tcp_port, socket_type).unwrap();
     /// assert_eq!(channel.socket_addresses().count(), 1);
     /// ```
-    pub fn socket_addresses(&self) -> SocketAddressIterator {
+    pub fn socket_addresses(&self) -> impl Iterator<Item = SocketAddress> {
         SocketAddressIterator::new(
             self.element()
                 .get_sub_element(ElementName::SoAdConfig)
@@ -510,7 +510,20 @@ impl SocketConnection {
     }
 
     /// add a PDU to the socket connection, returning a PduTriggering
-    pub fn add_pdu(
+    pub fn trigger_pdu<T: Into<Pdu> + Clone>(
+        &self,
+        pdu: &T,
+        header_id: u32,
+        timeout: Option<f64>,
+        collection_trigger: Option<PduCollectionTrigger>,
+    ) -> Result<PduTriggering, AutosarAbstractionError> {
+        let pdu: Pdu = pdu.clone().into();
+        self.trigger_pdu_internal(&pdu, header_id, timeout, collection_trigger)
+    }
+
+    /// add a PDU to the socket connection, returning a PduTriggering
+    /// Split off an internal function to keep the binary size down, since the rust compiler duplicates the generic functions for each type
+    fn trigger_pdu_internal(
         &self,
         pdu: &Pdu,
         header_id: u32,
@@ -669,7 +682,7 @@ impl SocketConnection {
     }
 
     /// create an iterator over all PDU triggerings in this socket connection
-    pub fn pdu_triggerings(&self) -> SCPduTriggeringsIterator {
+    pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         SCPduTriggeringsIterator::new(self.element().get_sub_element(ElementName::Pdus))
     }
 }
@@ -677,7 +690,7 @@ impl SocketConnection {
 //##################################################################
 
 /// A static socket connection is a connection between two sockets.
-/// 
+///
 /// This is the new way to establish a connection. It was introduced in Autosar 4.5.0 (AUTOSAR_00048).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StaticSocketConnection(Element);
@@ -734,7 +747,7 @@ impl StaticSocketConnection {
     }
 
     /// create an iterator over all SoConIPduIdentifiers in this static socket connection
-    pub fn i_pdu_identifiers(&self) -> SoConIPduIdentifiersIterator {
+    pub fn i_pdu_identifiers(&self) -> impl Iterator<Item = SoConIPduIdentifier> {
         SoConIPduIdentifiersIterator::new(self.element().get_sub_element(ElementName::IPduIdentifiers))
     }
 }
@@ -756,10 +769,10 @@ impl SocketConnectionIpduIdentifierSet {
     }
 
     /// create a new SoConIPduIdentifier in this set
-    pub fn create_socon_ipdu_identifier(
+    pub fn create_socon_ipdu_identifier<T: Into<Pdu> + Clone>(
         &self,
         name: &str,
-        pdu: &Pdu,
+        pdu: &T,
         channel: &EthernetPhysicalChannel,
         header_id: Option<u64>,
         timeout: Option<f64>,
@@ -769,7 +782,7 @@ impl SocketConnectionIpduIdentifierSet {
         SoConIPduIdentifier::new(
             name,
             &ipdu_identifiers,
-            pdu,
+            &pdu.clone().into(),
             channel,
             header_id,
             timeout,
@@ -815,7 +828,16 @@ impl SoConIPduIdentifier {
     }
 
     /// create a new PduTriggering for the pdu and reference it in this SoConIPduIdentifier
-    pub fn set_pdu(&self, pdu: &Pdu, channel: &EthernetPhysicalChannel) -> Result<(), AutosarAbstractionError> {
+    pub fn set_pdu<T: Into<Pdu> + Clone>(
+        &self,
+        pdu: &T,
+        channel: &EthernetPhysicalChannel,
+    ) -> Result<(), AutosarAbstractionError> {
+        let pdu: Pdu = pdu.clone().into();
+        self.set_pdu_internal(&pdu, channel)
+    }
+
+    fn set_pdu_internal(&self, pdu: &Pdu, channel: &EthernetPhysicalChannel) -> Result<(), AutosarAbstractionError> {
         if let Some(pt_old) = self
             .element()
             .get_sub_element(ElementName::PduTriggeringRef)
