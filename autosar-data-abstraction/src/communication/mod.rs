@@ -2,6 +2,7 @@ use crate::AutosarAbstractionError;
 use autosar_data::EnumItem;
 
 mod cluster;
+mod datatransformation;
 mod controller;
 mod frame;
 mod networkendpoint;
@@ -11,6 +12,7 @@ mod signal;
 mod socketaddress;
 
 pub use cluster::*;
+pub use datatransformation::*;
 pub use controller::*;
 pub use frame::*;
 pub use networkendpoint::*;
