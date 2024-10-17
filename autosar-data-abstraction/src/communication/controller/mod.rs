@@ -1,4 +1,5 @@
-use crate::AbstractionElement;
+use crate::{AbstractionElement, AutosarAbstractionError};
+use autosar_data::{Element, ElementName};
 
 mod can;
 mod ethernet;
@@ -25,6 +26,26 @@ impl AbstractionElement for CommunicationController {
             CommunicationController::Can(ccc) => ccc.element(),
             CommunicationController::Ethernet(ecc) => ecc.element(),
             CommunicationController::Flexray(fcc) => fcc.element(),
+        }
+    }
+}
+
+impl TryFrom<Element> for CommunicationController {
+    type Error = AutosarAbstractionError;
+
+    fn try_from(element: Element) -> Result<Self, Self::Error> {
+        match element.element_name() {
+            ElementName::CanCommunicationController => Ok(CanCommunicationController::try_from(element)?.into()),
+            ElementName::EthernetCommunicationController => {
+                Ok(EthernetCommunicationController::try_from(element)?.into())
+            }
+            ElementName::FlexrayCommunicationController => {
+                Ok(FlexrayCommunicationController::try_from(element)?.into())
+            }
+            _ => Err(AutosarAbstractionError::ConversionError {
+                element,
+                dest: "CommunicationController".to_string(),
+            }),
         }
     }
 }
