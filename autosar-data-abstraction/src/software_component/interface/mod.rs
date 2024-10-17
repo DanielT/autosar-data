@@ -148,7 +148,7 @@ impl TryFrom<Element> for PortInterface {
             ElementName::NvDataInterface => Ok(PortInterface::NvDataInterface(NvDataInterface(element))),
             ElementName::TriggerInterface => Ok(PortInterface::TriggerInterface(TriggerInterface(element))),
             _ => Err(AutosarAbstractionError::ConversionError {
-                element: element,
+                element,
                 dest: "PortInterface".to_string(),
             }),
         }

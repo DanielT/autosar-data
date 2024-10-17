@@ -1,12 +1,13 @@
-use crate::communication::{EthernetPhysicalChannel, NetworkEndpoint};
+use crate::communication::{
+    ConsumedServiceInstanceV1, EthernetPhysicalChannel, NetworkEndpoint, ProvidedServiceInstanceV1,
+    StaticSocketConnection, TcpRole,
+};
 use crate::{abstraction_element, AbstractionElement, AutosarAbstractionError, EcuInstance};
 use autosar_data::{Element, ElementName};
 
-use super::{StaticSocketConnection, TcpRole};
-
 //##################################################################
 
-/// A socket address estapblishes the link between one or more ECUs and a NetworkEndpoint.
+/// A socket address establishes the link between one or more ECUs and a NetworkEndpoint.
 /// It contains all settings that are relevant for this combination.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SocketAddress(Element);
@@ -81,12 +82,13 @@ impl SocketAddress {
             } => {
                 let tcptp = tp_configuration.create_sub_element(ElementName::TcpTp)?;
                 let tcptp_port = tcptp.create_sub_element(ElementName::TcpTpPort)?;
+                // PortNumber and DynamicallyAssigned are mutually exclusive.
+                // The attribute DynamicallyAssigned is deprecated starting in Autosar 4.5.0
                 if let Some(portnum) = port_number {
                     tcptp_port
                         .create_sub_element(ElementName::PortNumber)?
                         .set_character_data(portnum.to_string())?;
-                }
-                if let Some(dyn_assign) = port_dynamically_assigned {
+                } else if let Some(dyn_assign) = port_dynamically_assigned {
                     let boolstr = if *dyn_assign { "true" } else { "false" };
                     tcptp_port
                         .create_sub_element(ElementName::DynamicallyAssigned)?
@@ -100,12 +102,13 @@ impl SocketAddress {
                 let udptp_port = tp_configuration
                     .create_sub_element(ElementName::UdpTp)?
                     .create_sub_element(ElementName::UdpTpPort)?;
+                // PortNumber and DynamicallyAssigned are mutually exclusive.
+                // The attribute DynamicallyAssigned is deprecated starting in Autosar 4.5.0
                 if let Some(portnum) = port_number {
                     udptp_port
                         .create_sub_element(ElementName::PortNumber)?
                         .set_character_data(portnum.to_string())?;
-                }
-                if let Some(dyn_assign) = port_dynamically_assigned {
+                } else if let Some(dyn_assign) = port_dynamically_assigned {
                     let boolstr = if *dyn_assign { "true" } else { "false" };
                     udptp_port
                         .create_sub_element(ElementName::DynamicallyAssigned)?
@@ -115,6 +118,17 @@ impl SocketAddress {
         }
 
         Ok(Self(elem))
+    }
+
+    /// get the network endpoint of this `SocketAddress`
+    pub fn network_endpoint(&self) -> Option<NetworkEndpoint> {
+        let ne = self
+            .element()
+            .get_sub_element(ElementName::ApplicationEndpoint)?
+            .get_sub_element(ElementName::NetworkEndpointRef)?
+            .get_reference_target()
+            .ok()?;
+        ne.try_into().ok()
     }
 
     /// get the socket address type: unicast / multicast, as well as the connected ecus
@@ -136,6 +150,53 @@ impl SocketAddress {
         } else {
             None
         }
+    }
+
+    /// add an EcuInstance to this multicast `SocketAddress`
+    pub fn add_multicast_ecu(&self, ecu: &EcuInstance) -> Result<(), AutosarAbstractionError> {
+        let socket_type = self.get_type();
+        match socket_type {
+            Some(SocketAddressType::Multicast(multicast_ecus)) => {
+                // extend the list of multicast EcuInstances if needed
+                if !multicast_ecus.contains(ecu) {
+                    let mcr = self.0.get_or_create_sub_element(ElementName::MulticastConnectorRefs)?;
+                    let mc_ref = mcr.create_sub_element(ElementName::MulticastConnectorRef)?;
+                    mc_ref.set_reference_target(ecu.element())?;
+                }
+            }
+            None => {
+                // add the first EcuInstance to this multicast SocketAddress
+                let mcr = self.0.get_or_create_sub_element(ElementName::MulticastConnectorRefs)?;
+                let mc_ref = mcr.create_sub_element(ElementName::MulticastConnectorRef)?;
+                mc_ref.set_reference_target(ecu.element())?;
+            }
+            Some(SocketAddressType::Unicast(_)) => {
+                return Err(AutosarAbstractionError::InvalidParameter(
+                    "This SocketAddress is not a multicast socket".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// set the EcuInstance for this unicast `SocketAddress`
+    pub fn set_unicast_ecu(&self, ecu: &EcuInstance) -> Result<(), AutosarAbstractionError> {
+        let socket_type = self.get_type();
+        match socket_type {
+            None | Some(SocketAddressType::Unicast(_)) => {
+                self.0
+                    .get_or_create_sub_element(ElementName::ConnectorRef)?
+                    .set_reference_target(ecu.element())?;
+            }
+            Some(SocketAddressType::Multicast(_)) => {
+                return Err(AutosarAbstractionError::InvalidParameter(
+                    "This SocketAddress is not a unicast socket".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     /// get the transport protocol settings for this `SocketAddress`
@@ -164,6 +225,7 @@ impl SocketAddress {
         }
     }
 
+    // get the port number and dynamic assignment setting from a port element
     fn get_port_config(port_element: &Element) -> (Option<u16>, Option<bool>) {
         let port_number = port_element
             .get_sub_element(ElementName::PortNumber)
@@ -177,6 +239,7 @@ impl SocketAddress {
         (port_number, port_dynamically_assigned)
     }
 
+    /// create a new `StaticSocketConnection` from this `SocketAddress` to a remote `SocketAddress`
     pub fn create_static_socket_connection(
         &self,
         name: &str,
@@ -197,6 +260,83 @@ impl SocketAddress {
                 "Both SocketAddresses must use the same transport protocol".to_string(),
             )),
         }
+    }
+
+    /// get the `PhysicalChannel` containing this `SocketAddress`
+    pub fn physical_channel(&self) -> Result<EthernetPhysicalChannel, AutosarAbstractionError> {
+        let named_parent = self.0.named_parent()?.unwrap();
+        named_parent.try_into()
+    }
+
+    /// iterate over all `StaticSocketConnection`s in this `SocketAddress`
+    pub fn static_socket_connections(&self) -> impl Iterator<Item = StaticSocketConnection> {
+        self.0
+            .get_sub_element(ElementName::StaticSocketConnections)
+            .into_iter()
+            .flat_map(|ssc| ssc.sub_elements())
+            .filter_map(|ssc| StaticSocketConnection::try_from(ssc).ok())
+    }
+
+    /// create a `ProvidedServiceInstanceV1` in this `SocketAddress`
+    ///
+    /// Creating a `ProvidedServiceInstanceV1` in a `SocketAddress` is part of the old way of defining services (<= Autosar 4.5.0).
+    /// It is obsolete in newer versions of the standard.
+    ///
+    /// When using the new way of defining services, a `ProvidedServiceInstance` should be created in a `ServiceInstanceCollectionSet` instead.
+    pub fn create_provided_service_instance(
+        &self,
+        name: &str,
+        service_identifier: u16,
+        instance_identifier: u16,
+    ) -> Result<ProvidedServiceInstanceV1, AutosarAbstractionError> {
+        let socket_name = self.name().unwrap_or("".to_string());
+        let ae_name = format!("{socket_name}_AE");
+        let ae = self
+            .element()
+            .get_or_create_named_sub_element(ElementName::ApplicationEndpoint, &ae_name)?;
+        let psis = ae.get_or_create_sub_element(ElementName::ProvidedServiceInstances)?;
+
+        ProvidedServiceInstanceV1::new(name, &psis, service_identifier, instance_identifier)
+    }
+
+    /// get the `ProvidedServiceInstanceV1`s in this `SocketAddress`
+    pub fn provided_service_instances(&self) -> impl Iterator<Item = ProvidedServiceInstanceV1> {
+        self.element()
+            .get_sub_element(ElementName::ApplicationEndpoint)
+            .and_then(|ae| ae.get_sub_element(ElementName::ProvidedServiceInstances))
+            .into_iter()
+            .flat_map(|psis| psis.sub_elements())
+            .filter_map(|psi| ProvidedServiceInstanceV1::try_from(psi).ok())
+    }
+
+    /// create a `ConsumedServiceInstanceV1` in this `SocketAddress`
+    ///
+    /// Creating a `ConsumedServiceInstanceV1` in a `SocketAddress` is part of the old way of defining services (<= Autosar 4.5.0).
+    /// It is obsolete in newer versions of the standard.
+    ///
+    /// When using the new way of defining services, a `ConsumedServiceInstance` should be created in a `ServiceInstanceCollectionSet` instead.
+    pub fn create_consumed_service_instance(
+        &self,
+        name: &str,
+        provided_service_instance: &ProvidedServiceInstanceV1,
+    ) -> Result<ConsumedServiceInstanceV1, AutosarAbstractionError> {
+        let socket_name = self.name().unwrap_or("".to_string());
+        let ae_name = format!("{socket_name}_AE");
+        let ae = self
+            .element()
+            .get_or_create_named_sub_element(ElementName::ApplicationEndpoint, &ae_name)?;
+        let csis = ae.get_or_create_sub_element(ElementName::ConsumedServiceInstances)?;
+        ConsumedServiceInstanceV1::new(name, &csis, provided_service_instance)
+    }
+
+    /// get the `ConsumedServiceInstance`s in this `SocketAddress`
+    pub fn consumed_service_instances(&self) -> impl Iterator<Item = ConsumedServiceInstanceV1> {
+        self.element()
+            .get_sub_element(ElementName::ApplicationEndpoint)
+            .and_then(|ae| ae.get_sub_element(ElementName::ConsumedServiceInstances))
+            .into_iter()
+            .flat_map(|csis| csis.sub_elements())
+            .filter_map(|csi| ConsumedServiceInstanceV1::try_from(csi).ok())
     }
 }
 

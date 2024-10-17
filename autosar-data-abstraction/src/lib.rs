@@ -54,7 +54,7 @@ impl From<AutosarDataError> for AutosarAbstractionError {
 
 //#########################################################
 
-pub trait AbstractionElement: Clone + PartialEq {
+pub trait AbstractionElement: Clone + PartialEq + TryFrom<autosar_data::Element> {
     #[must_use]
     fn element(&self) -> &Element;
 

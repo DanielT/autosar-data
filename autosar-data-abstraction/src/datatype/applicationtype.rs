@@ -7,7 +7,17 @@ pub struct ApplicationArrayDataType(Element);
 abstraction_element!(ApplicationArrayDataType, ApplicationArrayDataType);
 
 impl ApplicationArrayDataType {
-    pub fn new(
+    pub fn new<T: Into<ApplicationDataType> + Clone + AbstractionElement>(
+        name: &str,
+        package: &ArPackage,
+        element_type: &T,
+        max_num_elements: u64,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let element_type = element_type.clone().into();
+        Self::new_internal(name, package, &element_type, max_num_elements)
+    }
+
+    fn new_internal(
         name: &str,
         package: &ArPackage,
         element_type: &ApplicationDataType,
@@ -124,12 +134,12 @@ impl ApplicationRecordDataType {
     }
 
     /// add a new element to the record data type
-    pub fn add_record_element(
+    pub fn add_record_element<T: Into<ApplicationDataType> + Clone>(
         &self,
         name: &str,
-        data_type: &ApplicationDataType,
+        data_type: &T,
     ) -> Result<ApplicationRecordElement, AutosarAbstractionError> {
-        ApplicationRecordElement::new(name, self, data_type)
+        ApplicationRecordElement::new(name, self, &data_type.clone().into())
     }
 
     ///get an iterator over the record elements of the record data type
@@ -417,8 +427,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let array_data_type =
-            ApplicationArrayDataType::new("Array", &package, &element_type.clone().into(), 10).unwrap();
+        let array_data_type = ApplicationArrayDataType::new("Array", &package, &element_type, 10).unwrap();
 
         assert_eq!(
             array_data_type.array_element().unwrap().data_type().unwrap(),
@@ -442,9 +451,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let record_element = record_data_type
-            .add_record_element("Element", &element_type.clone().into())
-            .unwrap();
+        let record_element = record_data_type.add_record_element("Element", &element_type).unwrap();
 
         assert_eq!(
             record_element.data_type().unwrap(),

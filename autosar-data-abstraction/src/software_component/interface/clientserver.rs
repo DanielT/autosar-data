@@ -16,7 +16,11 @@ impl ClientServerInterface {
     }
 
     /// Add a possible error to the client server interface
-    pub fn create_possible_error(&self, name: &str, error_code: u64) -> Result<ApplicationError, AutosarAbstractionError> {
+    pub fn create_possible_error(
+        &self,
+        name: &str,
+        error_code: u64,
+    ) -> Result<ApplicationError, AutosarAbstractionError> {
         let possible_errors = self.element().get_or_create_sub_element(ElementName::PossibleErrors)?;
         ApplicationError::new(name, error_code, &possible_errors)
     }

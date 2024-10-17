@@ -2,24 +2,20 @@ use crate::AutosarAbstractionError;
 use autosar_data::EnumItem;
 
 mod cluster;
-mod datatransformation;
 mod controller;
+mod datatransformation;
 mod frame;
-mod networkendpoint;
 mod pdu;
 mod physical_channel;
 mod signal;
-mod socketaddress;
 
 pub use cluster::*;
-pub use datatransformation::*;
 pub use controller::*;
+pub use datatransformation::*;
 pub use frame::*;
-pub use networkendpoint::*;
 pub use pdu::*;
 pub use physical_channel::*;
 pub use signal::*;
-pub use socketaddress::*;
 
 //#########################################################
 

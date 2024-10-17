@@ -126,7 +126,9 @@ mod tests {
         .unwrap()
         .into();
 
-        let data_type_map = mapping_set.create_data_type_map(&impl_data_type, &app_data_type).unwrap();
+        let data_type_map = mapping_set
+            .create_data_type_map(&impl_data_type, &app_data_type)
+            .unwrap();
 
         assert_eq!(data_type_map.implementation_data_type().unwrap(), impl_data_type);
         assert_eq!(data_type_map.application_data_type().unwrap(), app_data_type);

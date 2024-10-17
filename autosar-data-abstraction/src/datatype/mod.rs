@@ -35,6 +35,23 @@ impl AbstractionElement for AutosarDataType {
     }
 }
 
+impl TryFrom<Element> for AutosarDataType {
+    type Error = AutosarAbstractionError;
+
+    fn try_from(element: Element) -> Result<Self, Self::Error> {
+        match element.element_name() {
+            ElementName::ApplicationPrimitiveDataType => Ok(ApplicationPrimitiveDataType::try_from(element)?.into()),
+            ElementName::ApplicationArrayDataType => Ok(ApplicationArrayDataType::try_from(element)?.into()),
+            ElementName::ApplicationRecordDataType => Ok(ApplicationRecordDataType::try_from(element)?.into()),
+            ElementName::ImplementationDataType => Ok(ImplementationDataType::try_from(element)?.into()),
+            _ => Err(AutosarAbstractionError::ConversionError {
+                element,
+                dest: "AutosarDataType".to_string(),
+            }),
+        }
+    }
+}
+
 impl From<ApplicationPrimitiveDataType> for AutosarDataType {
     fn from(data_type: ApplicationPrimitiveDataType) -> Self {
         AutosarDataType::ApplicationPrimitiveDataType(data_type)

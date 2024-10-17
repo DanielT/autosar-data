@@ -39,12 +39,15 @@ impl DelegationSwConnector {
                 // P                     | yes | no  | no
                 // R                     | no  | yes | no
                 // PR                    | no  | yes | no
-                if !(matches!(inner_port, PortPrototype::R(_)) && matches!(outer_port, PortPrototype::R(_)))
-                    && !(matches!(inner_port, PortPrototype::P(_)) && !matches!(outer_port, PortPrototype::R(_)))
-                {
-                    return Err(AutosarAbstractionError::InvalidParameter(
-                        "Invalid combination of provide and require ports".to_string(),
-                    ));
+                match (inner_port, outer_port) {
+                    (PortPrototype::P(_), PortPrototype::P(_))
+                    | (PortPrototype::R(_), PortPrototype::R(_))
+                    | (PortPrototype::PR(_), PortPrototype::P(_)) => {}
+                    _ => {
+                        return Err(AutosarAbstractionError::InvalidParameter(
+                            "Invalid combination of provide and require ports".to_string(),
+                        ));
+                    }
                 }
             }
             PortInterface::ParameterInterface(_) => { /* no specific restrictions on ParameterInterfaces */ }

@@ -87,7 +87,7 @@ impl Frame {
 
         // add a pdu triggering for the newly mapped PDU to each frame triggering of this frame
         for ft in self.frame_triggerings() {
-            let pt = ft.add_pdu_triggering(&pdu)?;
+            let pt = ft.add_pdu_triggering(pdu)?;
             for frame_port in ft.frame_ports() {
                 if let (Some(ecu), Some(direction)) = (frame_port.ecu(), frame_port.communication_direction()) {
                     pt.create_pdu_port(&ecu, direction)?;
@@ -104,7 +104,7 @@ impl Frame {
             .element()
             .get_or_create_sub_element(ElementName::PduToFrameMappings)?;
 
-        PduToFrameMapping::new(&name, &mappings, &pdu, start_position, byte_order, update_bit)
+        PduToFrameMapping::new(&name, &mappings, pdu, start_position, byte_order, update_bit)
     }
 }
 

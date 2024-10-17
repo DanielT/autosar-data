@@ -781,24 +781,24 @@ pub enum E2EProfileBehavior {
     R4_2,
 }
 
-impl Into<EnumItem> for E2EProfileBehavior {
-    fn into(self) -> EnumItem {
-        match self {
+impl From<E2EProfileBehavior> for EnumItem {
+    fn from(e2e_profile_behavior: E2EProfileBehavior) -> EnumItem {
+        match e2e_profile_behavior {
             E2EProfileBehavior::PreR4_2 => EnumItem::PreR4_2,
             E2EProfileBehavior::R4_2 => EnumItem::R4_2,
         }
     }
 }
 
-impl TryInto<E2EProfileBehavior> for EnumItem {
+impl TryFrom<EnumItem> for E2EProfileBehavior {
     type Error = AutosarAbstractionError;
 
-    fn try_into(self) -> Result<E2EProfileBehavior, AutosarAbstractionError> {
-        match self {
+    fn try_from(value: EnumItem) -> Result<E2EProfileBehavior, AutosarAbstractionError> {
+        match value {
             EnumItem::PreR4_2 => Ok(E2EProfileBehavior::PreR4_2),
             EnumItem::R4_2 => Ok(E2EProfileBehavior::R4_2),
             _ => Err(AutosarAbstractionError::ValueConversionError {
-                value: self.to_string(),
+                value: value.to_string(),
                 dest: "E2EProfileBehavior".to_string(),
             }),
         }
@@ -816,9 +816,9 @@ pub enum DataIdMode {
     Lower8Bit,
 }
 
-impl Into<EnumItem> for DataIdMode {
-    fn into(self) -> EnumItem {
-        match self {
+impl From<DataIdMode> for EnumItem {
+    fn from(data_id_mode: DataIdMode) -> EnumItem {
+        match data_id_mode {
             DataIdMode::All16Bit => EnumItem::All16Bit,
             DataIdMode::Alternating8Bit => EnumItem::Alternating8Bit,
             DataIdMode::Lower12Bit => EnumItem::Lower12Bit,
@@ -827,17 +827,17 @@ impl Into<EnumItem> for DataIdMode {
     }
 }
 
-impl TryInto<DataIdMode> for EnumItem {
+impl TryFrom<EnumItem> for DataIdMode {
     type Error = AutosarAbstractionError;
 
-    fn try_into(self) -> Result<DataIdMode, AutosarAbstractionError> {
-        match self {
+    fn try_from(value: EnumItem) -> Result<DataIdMode, AutosarAbstractionError> {
+        match value {
             EnumItem::All16Bit => Ok(DataIdMode::All16Bit),
             EnumItem::Alternating8Bit => Ok(DataIdMode::Alternating8Bit),
             EnumItem::Lower12Bit => Ok(DataIdMode::Lower12Bit),
             EnumItem::Lower8Bit => Ok(DataIdMode::Lower8Bit),
             _ => Err(AutosarAbstractionError::ValueConversionError {
-                value: self.to_string(),
+                value: value.to_string(),
                 dest: "DataIdMode".to_string(),
             }),
         }
@@ -891,9 +891,9 @@ pub enum SomeIpMessageType {
     Response,
 }
 
-impl Into<EnumItem> for SomeIpMessageType {
-    fn into(self) -> EnumItem {
-        match self {
+impl From<SomeIpMessageType> for EnumItem {
+    fn from(someip_msg_type: SomeIpMessageType) -> EnumItem {
+        match someip_msg_type {
             SomeIpMessageType::Notification => EnumItem::Notification,
             SomeIpMessageType::Request => EnumItem::Request,
             SomeIpMessageType::RequestNoReturn => EnumItem::RequestNoReturn,
@@ -902,17 +902,17 @@ impl Into<EnumItem> for SomeIpMessageType {
     }
 }
 
-impl TryInto<SomeIpMessageType> for EnumItem {
+impl TryFrom<EnumItem> for SomeIpMessageType {
     type Error = AutosarAbstractionError;
 
-    fn try_into(self) -> Result<SomeIpMessageType, AutosarAbstractionError> {
-        match self {
+    fn try_from(value: EnumItem) -> Result<SomeIpMessageType, AutosarAbstractionError> {
+        match value {
             EnumItem::Notification => Ok(SomeIpMessageType::Notification),
             EnumItem::Request => Ok(SomeIpMessageType::Request),
             EnumItem::RequestNoReturn => Ok(SomeIpMessageType::RequestNoReturn),
             EnumItem::Response => Ok(SomeIpMessageType::Response),
             _ => Err(AutosarAbstractionError::ValueConversionError {
-                value: self.to_string(),
+                value: value.to_string(),
                 dest: "SomeIpMessageType".to_string(),
             }),
         }

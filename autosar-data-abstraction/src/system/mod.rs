@@ -1,7 +1,9 @@
 use crate::communication::{
-    CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, FlexrayCluster,
-    FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposePdu, ISignal, ISignalGroup, ISignalIPdu,
-    MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, SystemSignal, SystemSignalGroup,
+    CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, EventGroupControlType,
+    FlexrayCluster, FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposeIPduCategory,
+    GeneralPurposePdu, GeneralPurposePduCategory, ISignal, ISignalGroup, ISignalIPdu, MultiplexedIPdu, NPdu, NmPdu,
+    SecuredIPdu, ServiceInstanceCollectionSet, SoAdRoutingGroup, SocketConnectionIpduIdentifierSet, SomeipTpConfig,
+    SystemSignal, SystemSignalGroup,
 };
 use crate::datatype::SwBaseType;
 use crate::software_component::{CompositionSwComponentType, RootSwCompositionPrototype};
@@ -118,7 +120,6 @@ impl System {
     /// }
     /// assert_eq!(system.ecu_instances().count(), 2);
     /// ```
-    #[must_use]
     pub fn ecu_instances(&self) -> impl Iterator<Item = EcuInstance> {
         EcuInstanceIterator::new(self)
     }
@@ -466,7 +467,7 @@ impl System {
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
     /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
     /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
-    /// system.create_general_purpose_pdu("pdu", &package, 42).unwrap();
+    /// system.create_general_purpose_pdu("pdu", &package, 42, GeneralPurposePduCategory::GlobalTime).unwrap();
     /// ```
     ///
     /// # Errors
@@ -477,8 +478,9 @@ impl System {
         name: &str,
         package: &ArPackage,
         length: u32,
+        category: GeneralPurposePduCategory,
     ) -> Result<GeneralPurposePdu, AutosarAbstractionError> {
-        let pdu = GeneralPurposePdu::new(name, package, length)?;
+        let pdu = GeneralPurposePdu::new(name, package, length, category)?;
         self.create_fibex_element_ref_unchecked(pdu.element())?;
 
         Ok(pdu)
@@ -497,7 +499,7 @@ impl System {
     /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
     /// # let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
     /// let package = ArPackage::get_or_create(&model, "/Pdus").unwrap();
-    /// system.create_general_purpose_ipdu("pdu", &package, 42).unwrap();
+    /// system.create_general_purpose_ipdu("pdu", &package, 42, GeneralPurposeIPduCategory::Xcp).unwrap();
     /// ```
     ///
     /// # Errors
@@ -508,8 +510,9 @@ impl System {
         name: &str,
         package: &ArPackage,
         length: u32,
+        category: GeneralPurposeIPduCategory,
     ) -> Result<GeneralPurposeIPdu, AutosarAbstractionError> {
-        let pdu = GeneralPurposeIPdu::new(name, package, length)?;
+        let pdu = GeneralPurposeIPdu::new(name, package, length, category)?;
         self.create_fibex_element_ref_unchecked(pdu.element())?;
 
         Ok(pdu)
@@ -627,9 +630,81 @@ impl System {
     /// }
     /// assert_eq!(system.clusters().count(), 2);
     /// ```
-    #[must_use]
     pub fn clusters(&self) -> impl Iterator<Item = Cluster> {
         ClusterIterator::new(self)
+    }
+
+    /// Create a SocketConnectionIpduIdentifierSet in the SYSTEM
+    ///
+    /// `SocketConnectionIpduIdentifierSet` are part of the new ethernet modeling that was introduced in Autosar 4.5.0 (AUTOSAR_00048).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # use autosar_data_abstraction::*;
+    /// # use autosar_data_abstraction::communication::*;
+    /// # let model = AutosarModel::new();
+    /// # model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+    /// # let package = ArPackage::get_or_create(&model, "/pkg1").unwrap();
+    /// let system = System::new("System", &package, SystemCategory::SystemExtract).unwrap();
+    /// let set = system.create_socket_connection_ipdu_identifier_set("set", &package).unwrap();
+    /// ```
+    pub fn create_socket_connection_ipdu_identifier_set(
+        &self,
+        name: &str,
+        package: &ArPackage,
+    ) -> Result<SocketConnectionIpduIdentifierSet, AutosarAbstractionError> {
+        let set = SocketConnectionIpduIdentifierSet::new(name, package)?;
+        self.create_fibex_element_ref_unchecked(set.element())?;
+
+        Ok(set)
+    }
+
+    /// Create a SoAdRoutingGroup in the SYSTEM
+    ///
+    /// `SoAdRoutingGroup` are part of the old ethernet modeling that was used prior to Autosar 4.5.0 (AUTOSAR_00048).
+    /// The elements are still present (but obsolete) in newer versions of the standard.
+    /// Old and new elements may not be mixed in the same model.
+    pub fn create_so_ad_routing_group(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        control_type: Option<EventGroupControlType>,
+    ) -> Result<SoAdRoutingGroup, AutosarAbstractionError> {
+        let group = SoAdRoutingGroup::new(name, package, control_type)?;
+        self.create_fibex_element_ref_unchecked(group.element())?;
+
+        Ok(group)
+    }
+
+    /// Create a ServiceInstanceCollectionSet in the SYSTEM
+    ///
+    /// `ServiceInstanceCollectionSet`s are part of the new ethernet modeling that was introduced in Autosar 4.5.0 (AUTOSAR_00048).
+    pub fn create_service_instance_collection_set(
+        &self,
+        name: &str,
+        package: &ArPackage,
+    ) -> Result<ServiceInstanceCollectionSet, AutosarAbstractionError> {
+        let set = ServiceInstanceCollectionSet::new(name, package)?;
+        self.create_fibex_element_ref_unchecked(set.element())?;
+
+        Ok(set)
+    }
+
+    /// Create a SomipTpConfig in the SYSTEM
+    ///
+    /// `SomeipTpConfig`s contain the configuration how to segment or reassemble large SomipTp PDUs.
+    pub fn create_somip_tp_config<T: Into<Cluster> + Clone>(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        cluster: &T,
+    ) -> Result<SomeipTpConfig, AutosarAbstractionError> {
+        let config = SomeipTpConfig::new(name, package, &cluster.clone().into())?;
+        self.create_fibex_element_ref_unchecked(config.element())?;
+
+        Ok(config)
     }
 
     /// connect an element to the SYSTEM by creating a FIBEX-ELEMENT-REF

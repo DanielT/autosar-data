@@ -1,10 +1,10 @@
-use crate::{AbstractionElement, System};
+use crate::{AbstractionElement, AutosarAbstractionError, System};
+use autosar_data::{Element, ElementName};
 
 mod can;
 mod ethernet;
 mod flexray;
 
-use autosar_data::ElementName;
 pub use can::*;
 pub use ethernet::*;
 pub use flexray::*;
@@ -59,6 +59,22 @@ impl AbstractionElement for Cluster {
 }
 
 impl AbstractCluster for Cluster {}
+
+impl TryFrom<Element> for Cluster {
+    type Error = AutosarAbstractionError;
+
+    fn try_from(element: Element) -> Result<Self, Self::Error> {
+        match element.element_name() {
+            ElementName::CanCluster => Ok(CanCluster::try_from(element)?.into()),
+            ElementName::EthernetCluster => Ok(EthernetCluster::try_from(element)?.into()),
+            ElementName::FlexrayCluster => Ok(FlexrayCluster::try_from(element)?.into()),
+            _ => Err(AutosarAbstractionError::ConversionError {
+                element,
+                dest: "Cluster".to_string(),
+            }),
+        }
+    }
+}
 
 impl From<CanCluster> for Cluster {
     fn from(value: CanCluster) -> Self {

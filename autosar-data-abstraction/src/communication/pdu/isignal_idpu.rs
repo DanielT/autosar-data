@@ -141,6 +141,7 @@ impl ISignalIPdu {
         ISignalToIPduMapping::new_group(&name, &mappings, signal_group)
     }
 
+    /// returns an iterator over all PduTriggerings that use this PDU
     pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
@@ -150,6 +151,139 @@ impl ISignalIPdu {
         } else {
             PduTriggeringsIterator::new(vec![])
         }
+    }
+
+    /// set the transmission timing of the PDU
+    pub fn set_timing(&self, timing_spec: &IpduTiming) -> Result<(), AutosarAbstractionError> {
+        if let Some(timing_elem) = self.element().get_sub_element(ElementName::IPduTimingSpecifications) {
+            self.element().remove_sub_element(timing_elem)?;
+        }
+
+        let timing_elem = self
+            .element()
+            .create_sub_element(ElementName::IPduTimingSpecifications)?
+            .create_sub_element(ElementName::IPduTiming)?;
+        if let Some(min_delay) = timing_spec.minimum_delay {
+            timing_elem
+                .create_sub_element(ElementName::MinimumDelay)?
+                .set_character_data(min_delay)?;
+        }
+        if let Some(transmission_mode_true_timing) = &timing_spec.transmission_mode_true_timing {
+            let tmtt_elem = timing_elem
+                .get_or_create_sub_element(ElementName::TransmissionModeDeclaration)?
+                .create_sub_element(ElementName::TransmissionModeTrueTiming)?;
+            Self::set_transmission_mode_timinig(tmtt_elem, transmission_mode_true_timing)?;
+        }
+        if let Some(transmission_mode_false_timing) = &timing_spec.transmission_mode_false_timing {
+            let tmtf_elem = timing_elem
+                .get_or_create_sub_element(ElementName::TransmissionModeDeclaration)?
+                .create_sub_element(ElementName::TransmissionModeFalseTiming)?;
+            Self::set_transmission_mode_timinig(tmtf_elem, transmission_mode_false_timing)?;
+        }
+
+        Ok(())
+    }
+
+    /// Helper function to set the transmission mode timing, used by ISignalIPdu::set_timing for both true and false timing
+    fn set_transmission_mode_timinig(
+        timing_element: Element,
+        transmission_mode_timing: &TransmissionModeTiming,
+    ) -> Result<(), AutosarAbstractionError> {
+        if let Some(cyclic_timing) = &transmission_mode_timing.cyclic_timing {
+            let ct_elem = timing_element.create_sub_element(ElementName::CyclicTiming)?;
+            ct_elem
+                .create_sub_element(ElementName::TimePeriod)?
+                .create_sub_element(ElementName::Value)?
+                .set_character_data(cyclic_timing.time_period)?;
+            if let Some(time_offset) = cyclic_timing.time_offset {
+                ct_elem
+                    .create_sub_element(ElementName::TimeOffset)?
+                    .create_sub_element(ElementName::Value)?
+                    .set_character_data(time_offset)?;
+            }
+        }
+        if let Some(event_controlled_timing) = &transmission_mode_timing.event_controlled_timing {
+            let ect_elem = timing_element.create_sub_element(ElementName::EventControlledTiming)?;
+            ect_elem
+                .create_sub_element(ElementName::NumberOfRepetitions)?
+                .set_character_data(event_controlled_timing.number_of_repetitions as u64)?;
+            if let Some(repetition_period) = event_controlled_timing.repetition_period {
+                ect_elem
+                    .create_sub_element(ElementName::RepetitionPeriod)?
+                    .create_sub_element(ElementName::Value)?
+                    .set_character_data(repetition_period)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// get the transmission timing of the PDU
+    pub fn timing(&self) -> Option<IpduTiming> {
+        let timing_elem = self
+            .element()
+            .get_sub_element(ElementName::IPduTimingSpecifications)?
+            .get_sub_element(ElementName::IPduTiming)?;
+        let minimum_delay = timing_elem
+            .get_sub_element(ElementName::MinimumDelay)
+            .and_then(|md| md.character_data())
+            .and_then(|cdata| cdata.parse_float());
+        let transmission_mode_true_timing = timing_elem
+            .get_sub_element(ElementName::TransmissionModeDeclaration)
+            .and_then(|tmd| tmd.get_sub_element(ElementName::TransmissionModeTrueTiming))
+            .and_then(|tmtt| Self::transmission_mode_timing(&tmtt));
+        let transmission_mode_false_timing = timing_elem
+            .get_sub_element(ElementName::TransmissionModeDeclaration)
+            .and_then(|tmd| tmd.get_sub_element(ElementName::TransmissionModeFalseTiming))
+            .and_then(|tmtf| Self::transmission_mode_timing(&tmtf));
+
+        Some(IpduTiming {
+            minimum_delay,
+            transmission_mode_true_timing,
+            transmission_mode_false_timing,
+        })
+    }
+
+    /// Helper function to get the transmission mode timing, used by ISignalIPdu::timing for both true and false modes
+    fn transmission_mode_timing(timing_elem: &Element) -> Option<TransmissionModeTiming> {
+        let cyclic_timing = timing_elem.get_sub_element(ElementName::CyclicTiming).and_then(|ct| {
+            let time_period = ct
+                .get_sub_element(ElementName::TimePeriod)
+                .and_then(|tp| tp.get_sub_element(ElementName::Value))
+                .and_then(|val| val.character_data())
+                .and_then(|cdata| cdata.parse_float());
+            let time_offset = ct
+                .get_sub_element(ElementName::TimeOffset)
+                .and_then(|to| to.get_sub_element(ElementName::Value))
+                .and_then(|val| val.character_data())
+                .and_then(|cdata| cdata.parse_float());
+            time_period.map(|tp| CyclicTiming {
+                time_period: tp,
+                time_offset,
+            })
+        });
+        let event_controlled_timing = timing_elem
+            .get_sub_element(ElementName::EventControlledTiming)
+            .and_then(|ect| {
+                let number_of_repetitions = ect
+                    .get_sub_element(ElementName::NumberOfRepetitions)
+                    .and_then(|nr| nr.character_data())
+                    .and_then(|cdata| cdata.parse_integer());
+                let repetition_period = ect
+                    .get_sub_element(ElementName::RepetitionPeriod)
+                    .and_then(|rp| rp.get_sub_element(ElementName::Value))
+                    .and_then(|val| val.character_data())
+                    .and_then(|cdata| cdata.parse_float());
+                number_of_repetitions.map(|nr| EventControlledTiming {
+                    number_of_repetitions: nr,
+                    repetition_period,
+                })
+            });
+
+        Some(TransmissionModeTiming {
+            cyclic_timing,
+            event_controlled_timing,
+        })
     }
 }
 
@@ -265,6 +399,41 @@ impl ISignalToIPduMapping {
 
 //##################################################################
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct IpduTiming {
+    /// minimum delay in seconds between two transmissions of the PDU
+    pub minimum_delay: Option<f64>,
+    /// timing specification if the COM transmission mode is true
+    pub transmission_mode_true_timing: Option<TransmissionModeTiming>,
+    /// timing specification if the COM transmission mode is false
+    pub transmission_mode_false_timing: Option<TransmissionModeTiming>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransmissionModeTiming {
+    pub cyclic_timing: Option<CyclicTiming>,
+    pub event_controlled_timing: Option<EventControlledTiming>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CyclicTiming {
+    /// period of repetition in seconds
+    pub time_period: f64,
+    /// delay until the first transmission of the PDU in seconds
+    pub time_offset: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventControlledTiming {
+    /// The PDU will be sent (number of repetitions + 1) times. If number of repetitions is 0, then the PDU is sent exactly once.
+    pub number_of_repetitions: u32,
+    /// time in seconds between two transmissions of the PDU
+    pub repetition_period: Option<f64>,
+}
+
+//##################################################################
+
+/// Helper struct to validate signal mappings
 pub struct SignalMappingValidator {
     bitmap: Vec<u8>,
 }
@@ -377,8 +546,9 @@ element_iterator!(ISIgnalToIPduMappingsIterator, ISignalToIPduMapping, Some);
 
 #[cfg(test)]
 mod test {
-    use super::SignalMappingValidator;
+    use super::*;
     use crate::ByteOrder;
+    use autosar_data::{AutosarModel, AutosarVersion};
 
     #[test]
     fn validate_signal_mapping() {
@@ -440,5 +610,40 @@ mod test {
         let result = validator.add_signal(59, 4, ByteOrder::MostSignificantByteFirst, None);
         assert!(result);
         assert_eq!(validator.bitmap, [0xFF; 8]);
+    }
+
+    #[test]
+    fn ipdu_timing() {
+        let model = AutosarModel::new();
+        let _file = model.create_file("filename", AutosarVersion::Autosar_00048).unwrap();
+        let package = ArPackage::get_or_create(&model, "/pkg").unwrap();
+        let pdu = ISignalIPdu::new("pdu_name", &package, 8).unwrap();
+
+        let timing_spec = IpduTiming {
+            minimum_delay: Some(0.1),
+            transmission_mode_true_timing: Some(TransmissionModeTiming {
+                cyclic_timing: Some(CyclicTiming {
+                    time_period: 0.2,
+                    time_offset: Some(0.3),
+                }),
+                event_controlled_timing: Some(EventControlledTiming {
+                    number_of_repetitions: 4,
+                    repetition_period: Some(0.5),
+                }),
+            }),
+            transmission_mode_false_timing: Some(TransmissionModeTiming {
+                cyclic_timing: Some(CyclicTiming {
+                    time_period: 0.6,
+                    time_offset: Some(0.7),
+                }),
+                event_controlled_timing: Some(EventControlledTiming {
+                    number_of_repetitions: 8,
+                    repetition_period: Some(0.9),
+                }),
+            }),
+        };
+        pdu.set_timing(&timing_spec).unwrap();
+        let timing_spec2 = pdu.timing().unwrap();
+        assert_eq!(timing_spec, timing_spec2);
     }
 }

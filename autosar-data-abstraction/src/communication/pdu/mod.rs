@@ -1,3 +1,6 @@
+use std::fmt::Display;
+use std::str::FromStr;
+
 use crate::communication::{CommunicationDirection, ISignal, ISignalGroup, ISignalTriggering, PhysicalChannel};
 use crate::{
     abstraction_element, element_iterator, make_unique_name, reflist_iterator, AbstractionElement, ArPackage,
@@ -146,9 +149,17 @@ pub struct GeneralPurposePdu(Element);
 abstraction_element!(GeneralPurposePdu, GeneralPurposePdu);
 
 impl GeneralPurposePdu {
-    pub(crate) fn new(name: &str, package: &ArPackage, length: u32) -> Result<Self, AutosarAbstractionError> {
+    pub(crate) fn new(
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+        category: GeneralPurposePduCategory,
+    ) -> Result<Self, AutosarAbstractionError> {
         let pkg_elements = package.element().get_or_create_sub_element(ElementName::Elements)?;
         let elem_pdu = pkg_elements.create_named_sub_element(ElementName::GeneralPurposePdu, name)?;
+        elem_pdu
+            .create_sub_element(ElementName::Category)?
+            .set_character_data(category.to_string())?;
         elem_pdu
             .create_sub_element(ElementName::Length)?
             .set_character_data(length.to_string())?;
@@ -156,6 +167,7 @@ impl GeneralPurposePdu {
         Ok(Self(elem_pdu))
     }
 
+    /// get the length of this PDU
     pub fn length(&self) -> Option<u32> {
         self.element()
             .get_sub_element(ElementName::Length)?
@@ -163,6 +175,7 @@ impl GeneralPurposePdu {
             .parse_integer()
     }
 
+    /// get the PduTriggerings that trigger this Pdu
     pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
@@ -172,6 +185,16 @@ impl GeneralPurposePdu {
         } else {
             PduTriggeringsIterator::new(vec![])
         }
+    }
+
+    /// get the category of this PDU
+    pub fn category(&self) -> Option<GeneralPurposePduCategory> {
+        let category_string = self
+            .element()
+            .get_sub_element(ElementName::Category)?
+            .character_data()?
+            .string_value()?;
+        GeneralPurposePduCategory::from_str(&category_string).ok()
     }
 }
 
@@ -183,22 +206,63 @@ impl From<GeneralPurposePdu> for Pdu {
 
 //##################################################################
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GeneralPurposePduCategory {
+    Sd,
+    GlobalTime,
+    DoIp,
+}
+
+impl Display for GeneralPurposePduCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GeneralPurposePduCategory::Sd => write!(f, "SD"),
+            GeneralPurposePduCategory::GlobalTime => write!(f, "GLOBAL_TIME"),
+            GeneralPurposePduCategory::DoIp => write!(f, "DOIP"),
+        }
+    }
+}
+
+impl FromStr for GeneralPurposePduCategory {
+    type Err = AutosarAbstractionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "SD" => Ok(GeneralPurposePduCategory::Sd),
+            "GLOBAL_TIME" => Ok(GeneralPurposePduCategory::GlobalTime),
+            "DOIP" => Ok(GeneralPurposePduCategory::DoIp),
+            _ => Err(AutosarAbstractionError::InvalidParameter(s.to_string())),
+        }
+    }
+}
+
+//##################################################################
+
 /// This element is used for AUTOSAR Pdus without attributes that are routed by the PduR
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GeneralPurposeIPdu(Element);
 abstraction_element!(GeneralPurposeIPdu, GeneralPurposeIPdu);
 
 impl GeneralPurposeIPdu {
-    pub(crate) fn new(name: &str, package: &ArPackage, length: u32) -> Result<Self, AutosarAbstractionError> {
+    pub(crate) fn new(
+        name: &str,
+        package: &ArPackage,
+        length: u32,
+        category: GeneralPurposeIPduCategory,
+    ) -> Result<Self, AutosarAbstractionError> {
         let pkg_elements = package.element().get_or_create_sub_element(ElementName::Elements)?;
         let elem_pdu = pkg_elements.create_named_sub_element(ElementName::GeneralPurposeIPdu, name)?;
         elem_pdu
             .create_sub_element(ElementName::Length)?
             .set_character_data(length.to_string())?;
+        elem_pdu
+            .create_sub_element(ElementName::Category)?
+            .set_character_data(category.to_string())?;
 
         Ok(Self(elem_pdu))
     }
 
+    /// get the length of this PDU
     pub fn length(&self) -> Option<u32> {
         self.element()
             .get_sub_element(ElementName::Length)?
@@ -206,6 +270,17 @@ impl GeneralPurposeIPdu {
             .parse_integer()
     }
 
+    /// get the category of this PDU
+    pub fn category(&self) -> Option<GeneralPurposeIPduCategory> {
+        let category_string = self
+            .element()
+            .get_sub_element(ElementName::Category)?
+            .character_data()?
+            .string_value()?;
+        GeneralPurposeIPduCategory::from_str(&category_string).ok()
+    }
+
+    /// get the PduTriggerings that trigger this Pdu
     pub fn pdu_triggerings(&self) -> impl Iterator<Item = PduTriggering> {
         let model_result = self.element().model();
         let path_result = self.element().path();
@@ -221,6 +296,38 @@ impl GeneralPurposeIPdu {
 impl From<GeneralPurposeIPdu> for Pdu {
     fn from(value: GeneralPurposeIPdu) -> Self {
         Pdu::GeneralPurposeIPdu(value)
+    }
+}
+
+//##################################################################
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GeneralPurposeIPduCategory {
+    Xcp,
+    SomeipSegmentedIpdu,
+    Dlt,
+}
+
+impl Display for GeneralPurposeIPduCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GeneralPurposeIPduCategory::Xcp => write!(f, "XCP"),
+            GeneralPurposeIPduCategory::SomeipSegmentedIpdu => write!(f, "SOMEIP_SEGMENTED_IPDU"),
+            GeneralPurposeIPduCategory::Dlt => write!(f, "DLT"),
+        }
+    }
+}
+
+impl FromStr for GeneralPurposeIPduCategory {
+    type Err = AutosarAbstractionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "XCP" => Ok(GeneralPurposeIPduCategory::Xcp),
+            "SOMEIP_SEGMENTED_IPDU" => Ok(GeneralPurposeIPduCategory::SomeipSegmentedIpdu),
+            "DLT" => Ok(GeneralPurposeIPduCategory::Dlt),
+            _ => Err(AutosarAbstractionError::InvalidParameter(s.to_string())),
+        }
     }
 }
 
