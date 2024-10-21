@@ -4028,13 +4028,14 @@ mod test {
         let ar_packages_lvl2_count = ar_packages_elem.elements_dfs_with_max_depth(2).count();
         assert_eq!(root_lvl3_count, ar_packages_lvl2_count + 1);
 
-        root_elem.elements_dfs_with_max_depth(3).skip(1).zip(
-            ar_packages_elem.elements_dfs_with_max_depth(2)
-        ).for_each(|((_, x), (_, y))| assert_eq!(x, y));
+        root_elem
+            .elements_dfs_with_max_depth(3)
+            .skip(1)
+            .zip(ar_packages_elem.elements_dfs_with_max_depth(2))
+            .for_each(|((_, x), (_, y))| assert_eq!(x, y));
 
         for elem in ar_packages_elem.elements_dfs_with_max_depth(2) {
             assert!(elem.0 <= 2);
         }
     }
 }
-

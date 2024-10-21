@@ -206,16 +206,16 @@ pub enum AutosarDataError {
     IncorrectContentType { element: ElementName },
 
     /// Could not insert a sub element, because it conflicts with an existing sub element
-    #[error("Element insertion conflict")]
-    ElementInsertionConflict,
+    #[error("Element insertion conflict: {}", .element)]
+    ElementInsertionConflict { element: ElementName },
 
     /// The `ElementName` is not a valid sub element according to the specification.
     #[error("Invalid sub element: {}", .element)]
     InvalidSubElement { element: ElementName },
 
     /// Remove operation failed: the given element is not a sub element of the element from which it was supposed to be removed
-    #[error("element not found")]
-    ElementNotFound,
+    #[error("element {} not found in parent {}", .target, .parent)]
+    ElementNotFound { target: ElementName, parent: ElementName },
 
     /// [`Element::remove_sub_element`] cannot remove the SHORT-NAME of identifiable elements, as this would render the data invalid
     #[error("the SHORT-NAME sub element may not be removed")]
@@ -230,7 +230,7 @@ pub enum AutosarDataError {
     InvalidReference,
 
     /// An element could not be renamed, since this item name is already used by a different element
-    #[error("Duplicate item name")]
+    #[error("Duplicate item name {} in {}", .item_name, .element)]
     DuplicateItemName { element: ElementName, item_name: String },
 
     /// Cannot move an element into its own sub element

@@ -1000,7 +1000,9 @@ impl ElementRaw {
                                     {
                                         if multiplicity != ElementMultiplicity::Any {
                                             // the new element is identical to an existing one, but repetitions are not allowed
-                                            return Err(AutosarDataError::ElementInsertionConflict);
+                                            return Err(AutosarDataError::ElementInsertionConflict {
+                                                element: element_name,
+                                            });
                                         }
                                     }
                                 }
@@ -1020,7 +1022,9 @@ impl ElementRaw {
                                 {
                                     if multiplicity != ElementMultiplicity::Any {
                                         // the new element is identical to an existing one, but repetitions are not allowed
-                                        return Err(AutosarDataError::ElementInsertionConflict);
+                                        return Err(AutosarDataError::ElementInsertionConflict {
+                                            element: element_name,
+                                        });
                                     }
                                 }
                                 // the existing element and the new element are equal in positioning
@@ -1028,7 +1032,7 @@ impl ElementRaw {
                                 // end_pos is increased to allow inserting before or after this element
                                 end_pos = idx + 1;
                             } else {
-                                return Err(AutosarDataError::ElementInsertionConflict);
+                                return Err(AutosarDataError::ElementInsertionConflict { element: element_name });
                             }
                         }
                         ContentMode::Bag | ContentMode::Mixed => {
@@ -1075,7 +1079,10 @@ impl ElementRaw {
                     false
                 }
             })
-            .ok_or(AutosarDataError::ElementNotFound)?;
+            .ok_or(AutosarDataError::ElementNotFound {
+                target: sub_element_locked.element_name(),
+                parent: self.element_name(),
+            })?;
         if self.elemtype.is_named() && sub_element_locked.elemname == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
             return Err(AutosarDataError::ShortNameRemovalForbidden);
@@ -1130,7 +1137,11 @@ impl ElementRaw {
     }
 
     // set the character data of this element - separated out since this part is not generic
-    fn set_character_data_internal(&mut self, chardata: CharacterData, version: AutosarVersion) -> Result<(), AutosarDataError> {
+    fn set_character_data_internal(
+        &mut self,
+        chardata: CharacterData,
+        version: AutosarVersion,
+    ) -> Result<(), AutosarDataError> {
         if self.elemtype.content_mode() == ContentMode::Characters
             || (self.elemtype.content_mode() == ContentMode::Mixed && self.content.len() <= 1)
         {
