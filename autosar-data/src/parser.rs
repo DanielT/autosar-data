@@ -83,6 +83,12 @@ pub enum ArxmlParserError {
         sub_element: ElementName,
     },
 
+    #[error("Could not parse the attribute text \"{attribute_text}\" in element {element}")]
+    AttributeValueError {
+        element: ElementName,
+        attribute_text: String,
+    },
+
     #[error("Element {element} contains unknown attribute {attribute}")]
     UnknownAttributeError { element: ElementName, attribute: String },
 
@@ -565,17 +571,26 @@ impl<'a> ArxmlParser<'a> {
         let mut attributes = SmallVec::new();
         // attributes_text is a byte string containig all the attributes of an element
         // for example: xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-2-2.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        // when this string is split on ", there will be an odd number of parts, with the last part being empty
-        let mut attr_part_iter = attributes_text.split(|c| *c == b'"');
-        while let (Some(attr_name_part), Some(attr_value_part)) = (attr_part_iter.next(), attr_part_iter.next()) {
-            // attr_name_part may have leading whitespace and will always have a trailing '='
-            // these need to be stripped
-            let name_len = attr_name_part.len() - 1; // exclude the trailing =
-            let name_start = attr_name_part
-                .iter()
-                .position(|c| !c.is_ascii_whitespace())
-                .unwrap_or(name_len);
-            if let Ok(attr_name) = AttributeName::from_bytes(&attr_name_part[name_start..name_len]) {
+        let mut rem = attributes_text;
+        while let Some(equals_pos) = rem.iter().position(|c| *c == b'=') {
+            let attr_name_part = &rem[..equals_pos];
+            if rem.len() - equals_pos < 3 {
+                // minimally the attribute name should be followed by an equals sign and two quotes (empty string)
+                break;
+            }
+            let quote_char = rem[equals_pos + 1];
+            if quote_char != b'"' && quote_char != b'\'' {
+                // the attribute value should be enclosed in quotes
+                break;
+            }
+            rem = &rem[equals_pos + 2..];
+            let Some(endquote_pos) = rem.iter().position(|c| c == &quote_char) else {
+                // failed to find the end of the attribute value
+                break;
+            };
+            let attr_value_part = &rem[..endquote_pos];
+
+            if let Ok(attr_name) = AttributeName::from_bytes(attr_name_part) {
                 if let Some(AttributeSpec {
                     spec: ctype,
                     version: version_mask,
@@ -604,9 +619,29 @@ impl<'a> ArxmlParser<'a> {
             } else {
                 self.optional_error(ArxmlParserError::UnknownAttributeError {
                     element: self.current_element,
-                    attribute: String::from_utf8_lossy(&attr_name_part[name_start..name_len]).to_string(),
+                    attribute: String::from_utf8_lossy(attr_name_part).to_string(),
                 })?;
             }
+
+            // skip whitespace and move to the next attribute
+            let mut nextattr_start = endquote_pos + 1;
+            while nextattr_start < rem.len() && rem[nextattr_start].is_ascii_whitespace() {
+                nextattr_start += 1;
+            }
+
+            // verify that there was at least one whitespace character after the end quote
+            if nextattr_start < rem.len() && nextattr_start == endquote_pos + 1 {
+                // the attributes should be separated by whitespace; if not then there is a problem in the file
+                break;
+            }
+            rem = &rem[nextattr_start..];
+        }
+
+        if !rem.is_empty() && !rem.iter().all(|c| c.is_ascii_whitespace()) {
+            self.optional_error(ArxmlParserError::AttributeValueError {
+                element: self.current_element,
+                attribute_text: String::from_utf8_lossy(attributes_text).into_owned(),
+            })?;
         }
 
         for (name, _ctype, required) in elemtype.attribute_spec_iter() {
@@ -862,6 +897,8 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
 
 #[cfg(test)]
 mod test {
+    use std::u32;
+
     use crate::parser::*;
     use crate::*;
 
@@ -925,6 +962,17 @@ mod test {
             std::mem::discriminant(&ArxmlParserError::InvalidArxmlFileHeader),
             false,
         );
+    }
+
+    const HDR_SINGLE_QUOTE: &str = r#"<?xml version='1.0' encoding='utf-8'?>
+    <AUTOSAR xsi:schemaLocation='http://autosar.org/schema/r4.0 autosar_4-3-0.xsd' xmlns='http://autosar.org/schema/r4.0' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'>
+    </AUTOSAR>"#;
+
+    #[test]
+    fn single_quotes_in_header() {
+        let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), HDR_SINGLE_QUOTE.as_bytes(), true);
+        let result = parser.parse_arxml();
+        assert!(result.is_ok());
     }
 
     const SCHEMA_VERSION_LC: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -1499,5 +1547,71 @@ mod test {
 <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#.as_bytes();
         let mut parser = ArxmlParser::new(PathBuf::from("test"), buffer, true);
         assert!(parser.check_arxml_header());
+    }
+
+    #[test]
+    fn parse_attribute_text() {
+        let mut parser = ArxmlParser::new(PathBuf::from("test"), &[], true);
+        // find the element type of AR-PACKAGE
+        let etype_arpackage = ElementType::ROOT
+            .find_sub_element(ElementName::ArPackages, u32::MAX)
+            .unwrap()
+            .0
+            .find_sub_element(ElementName::ArPackage, u32::MAX)
+            .unwrap()
+            .0;
+
+        // whitespace only, should not return an error
+        let result = parser.parse_attribute_text(etype_arpackage, br#"   "#);
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        assert!(value.is_empty());
+
+        // invalid string
+        let result = parser.parse_attribute_text(etype_arpackage, br#"   abc   "#);
+        assert!(result.is_err());
+
+        // invalid attribute name, and no value after the '='
+        let result = parser.parse_attribute_text(etype_arpackage, br#"abc="#);
+        assert!(result.is_err());
+
+        // Attribute name without a value after the '='
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="#);
+        assert!(result.is_err());
+
+        // valid UUID attribute
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678""#);
+        assert!(result.is_ok());
+        let value = result.unwrap();
+        assert_eq!(value.len(), 1);
+        assert_eq!(value[0].attrname, AttributeName::Uuid);
+
+        // whitespace after the attribute value
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678"   "#);
+        assert!(result.is_ok());
+
+        // junk after the attribute value
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678"   abc   "#);
+        assert!(result.is_err());
+
+        // attribute enclosed in single quotes
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID='12345678'"#);
+        assert!(result.is_ok());
+
+        // missing final quote
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID='12345678"#);
+        assert!(result.is_err());
+
+        // mixed quotes ' -> ", error
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID='12345678""#);
+        assert!(result.is_err());
+
+        // two attributes without whitespace between them
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678"T="2024-01-01""#);
+        assert!(result.is_err());
+
+        // two attributes with whitespace between them
+        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678" T="2024-01-01""#);
+        assert!(result.is_ok());
     }
 }
