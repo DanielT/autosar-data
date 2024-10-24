@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 0.15
+
+Released 2024-10-24
+
+### Api
+
+- Allow specifying a max depth for elements_dfs - Thanks @shahn
+- Add additional info the the errors `ElementInsertionConflict` and `ElementNotFound`
+
+### Fixes
+
+- when loading two or more files, the model merging code could hang in an endless loop
+- XML allows attributes in single quotes, but the parser did not accept this 
+
 ## Version 0.14
 
 Released 2024-08-16
