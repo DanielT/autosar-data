@@ -350,8 +350,8 @@ impl AutosarModel {
                     // b: <parent> | <b = child 1> <child 2>
                     if !elements_merge.iter().any(|(_, merge_b)| merge_b == elem_b) {
                         elements_b_only.push((elem_b.clone(), *pos_a));
-                        item_b = iter_b.next();
                     }
+                    item_b = iter_b.next();
                 }
             }
         }
@@ -1537,5 +1537,93 @@ mod test {
         for elem in model.elements_dfs_with_max_depth(2) {
             assert!(elem.0 <= 2);
         }
+    }
+
+    #[test]
+    fn model_merge() {
+        // from github issue #24; test files provided by FlTr
+        const FILE_A: &[u8] = br#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns="http://autosar.org/schema/r4.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>EcucModuleConfigurationValuess</SHORT-NAME>
+      <ELEMENTS>
+        <ECUC-MODULE-CONFIGURATION-VALUES>
+          <SHORT-NAME>A</SHORT-NAME>
+          <DEFINITION-REF DEST="ECUC-MODULE-DEF">/AUTOSAR_A</DEFINITION-REF>
+          <CONTAINERS>
+            <ECUC-CONTAINER-VALUE>
+              <SHORT-NAME>AB</SHORT-NAME>
+              <DEFINITION-REF DEST="ECUC-PARAM-CONF-CONTAINER-DEF">/AUTOSAR_A/B</DEFINITION-REF>
+              <PARAMETER-VALUES>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-FLOAT-PARAM-DEF">/AUTOSAR_A/B/D</DEFINITION-REF>
+                  <VALUE>0.01</VALUE>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-TEXTUAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-ENUMERATION-PARAM-DEF">/AUTOSAR_A/B/E</DEFINITION-REF>
+                  <VALUE>ABC42</VALUE>
+                </ECUC-TEXTUAL-PARAM-VALUE>
+              </PARAMETER-VALUES>
+            </ECUC-CONTAINER-VALUE>
+          </CONTAINERS>
+        </ECUC-MODULE-CONFIGURATION-VALUES>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>
+        "#;
+
+        const FILE_B: &[u8] = br#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns="http://autosar.org/schema/r4.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>EcucModuleConfigurationValuess</SHORT-NAME>
+      <ELEMENTS>
+        <ECUC-MODULE-CONFIGURATION-VALUES>
+          <SHORT-NAME>A</SHORT-NAME>
+          <DEFINITION-REF DEST="ECUC-MODULE-DEF">/AUTOSAR_A</DEFINITION-REF>
+          <CONTAINERS>
+            <ECUC-CONTAINER-VALUE>
+              <SHORT-NAME>AB</SHORT-NAME>
+              <DEFINITION-REF DEST="ECUC-PARAM-CONF-CONTAINER-DEF">/AUTOSAR_A/B</DEFINITION-REF>
+              <PARAMETER-VALUES>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-INTEGER-PARAM-DEF">/AUTOSAR_A/B/C</DEFINITION-REF>
+                  <VALUE>0</VALUE>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+                <ECUC-NUMERICAL-PARAM-VALUE>
+                  <DEFINITION-REF DEST="ECUC-FLOAT-PARAM-DEF">/AUTOSAR_A/B/D</DEFINITION-REF>
+                  <VALUE>0.01</VALUE>
+                </ECUC-NUMERICAL-PARAM-VALUE>
+              </PARAMETER-VALUES>
+            </ECUC-CONTAINER-VALUE>
+          </CONTAINERS>
+        </ECUC-MODULE-CONFIGURATION-VALUES>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#;
+
+        // loading these files must not hang, regardless of the order
+        let model = AutosarModel::new();
+        let (_, _) = model.load_buffer(FILE_A, "file_a", true).unwrap();
+        let (_, _) = model.load_buffer(FILE_B, "file_b", true).unwrap();
+        // sort the model to ensure that the serialized text is the same
+        model.sort();
+        let model_txt = model.root_element().serialize();
+
+        let model2 = AutosarModel::new();
+        let (_, _) = model2.load_buffer(FILE_B, "file_b", true).unwrap();
+        let (_, _) = model2.load_buffer(FILE_A, "file_a", true).unwrap();
+        // sort the model to ensure that the serialized text is the same
+        model2.sort();
+        let model2_txt = model2.root_element().serialize();
+
+        assert_eq!(model_txt, model2_txt);
     }
 }
