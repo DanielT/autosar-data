@@ -571,7 +571,11 @@ impl<'a> ArxmlParser<'a> {
         let mut attributes = SmallVec::new();
         // attributes_text is a byte string containig all the attributes of an element
         // for example: xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-2-2.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        let mut rem = attributes_text;
+        let startpos = attributes_text
+            .iter()
+            .position(|c| !c.is_ascii_whitespace())
+            .unwrap_or(0);
+        let mut rem = &attributes_text[startpos..];
         while let Some(equals_pos) = rem.iter().position(|c| *c == b'=') {
             let attr_name_part = &rem[..equals_pos];
             if rem.len() - equals_pos < 3 {
@@ -1580,23 +1584,27 @@ mod test {
         assert!(result.is_err());
 
         // valid UUID attribute
-        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678""#);
-        assert!(result.is_ok());
-        let value = result.unwrap();
+        let value = parser
+            .parse_attribute_text(etype_arpackage, br#"UUID="12345678""#)
+            .unwrap();
         assert_eq!(value.len(), 1);
         assert_eq!(value[0].attrname, AttributeName::Uuid);
 
         // whitespace after the attribute value
-        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678"   "#);
-        assert!(result.is_ok());
+        let value = parser
+            .parse_attribute_text(etype_arpackage, br#"UUID="12345678"   "#)
+            .unwrap();
+        assert_eq!(value.len(), 1);
 
         // junk after the attribute value
         let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678"   abc   "#);
         assert!(result.is_err());
 
         // attribute enclosed in single quotes
-        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID='12345678'"#);
-        assert!(result.is_ok());
+        let value = parser
+            .parse_attribute_text(etype_arpackage, br#"UUID='12345678'"#)
+            .unwrap();
+        assert_eq!(value.len(), 1);
 
         // missing final quote
         let result = parser.parse_attribute_text(etype_arpackage, br#"UUID='12345678"#);
@@ -1611,7 +1619,21 @@ mod test {
         assert!(result.is_err());
 
         // two attributes with whitespace between them
-        let result = parser.parse_attribute_text(etype_arpackage, br#"UUID="12345678" T="2024-01-01""#);
-        assert!(result.is_ok());
+        let value = parser
+            .parse_attribute_text(etype_arpackage, br#"UUID="12345678" T="2024-01-01""#)
+            .unwrap();
+        assert_eq!(value.len(), 2);
+
+        // two attributes with extra whitespace between them
+        let value = parser
+            .parse_attribute_text(etype_arpackage, br#"UUID="12345678"  T="2024-01-01""#)
+            .unwrap();
+        assert_eq!(value.len(), 2);
+
+        // two attributes with leading whitespace and extra whitespace between them
+        let value = parser
+            .parse_attribute_text(etype_arpackage, br#"  UUID="12345678"  T="2024-01-01""#)
+            .unwrap();
+        assert_eq!(value.len(), 2);
     }
 }
