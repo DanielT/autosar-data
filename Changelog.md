@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 0.15.1
+
+Released 2024-10-28
+
+### Fixes
+
+- Fix a regression in the attribute parsing code, introduced in 0.15
+
 ## Version 0.15
 
 Released 2024-10-24
