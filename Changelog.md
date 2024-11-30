@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 0.16.0
+
+Released 2024-11-30
+
+### Feature
+
+- Support Autosar version 24-11
+
 ## Version 0.15.1
 
 Released 2024-10-28
