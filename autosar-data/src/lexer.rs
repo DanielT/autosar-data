@@ -188,12 +188,12 @@ impl<'a> ArxmlLexer<'a> {
     }
 }
 
-impl<'a> ArxmlLexer<'a> {
+impl ArxmlLexer<'_> {
     pub(crate) fn next(&mut self) -> Result<(usize, ArxmlEvent), AutosarDataError> {
         // if an <element/> was found, then a BeginElement event is returned first, and the EndElement is deferred and must be returned next
         if let Some((startpos, endpos)) = self.deferred_end {
             self.deferred_end = None;
-            return Ok((self.line, ArxmlEvent::EndElement(&self.buffer[startpos..endpos])));
+            Ok((self.line, ArxmlEvent::EndElement(&self.buffer[startpos..endpos])))
         } else {
             loop {
                 if self.bufpos == self.buffer.len() {
