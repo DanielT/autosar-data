@@ -8,7 +8,7 @@ This crate exists to support the autosar-data crate.
 
 The Autosar data model is originally specified as .xsd files - one for each version of the standard.
 All these separate xsd files were parsed into data structures and combined; this crate contains the
-combined specification data of all 20 Autosar 4 standard revisions.
+combined specification data of all 21 Autosar 4 standard revisions.
 
 ## Supported standards
 
@@ -34,6 +34,7 @@ combined specification data of all 20 Autosar 4 standard revisions.
 | AUTOSAR_00050.xsd | AUTOSAR R21-11            |
 | AUTOSAR_00051.xsd | AUTOSAR R22-11            |
 | AUTOSAR_00052.xsd | AUTOSAR R23-11            |
+| AUTOSAR_00053.xsd | AUTOSAR R24-11            |
 
 ## Using the crate
 

@@ -4,7 +4,7 @@
 //!
 //! The Autosar data model is originally specified as .xsd files - one for each version of the standard.
 //! All these separate xsd files were parsed into data structures and combined; this crate contains the
-//! combined specification data of all 20 Autosar 4 standard revisions.
+//! combined specification data of all 21 Autosar 4 standard revisions.
 //!
 //! ## Supported standards:
 //!
@@ -30,6 +30,7 @@
 //! | `AUTOSAR_00050.xsd` | AUTOSAR R21-11            |
 //! | `AUTOSAR_00051.xsd` | AUTOSAR R22-11            |
 //! | `AUTOSAR_00052.xsd` | AUTOSAR R23-11            |
+//! | `AUTOSAR_00053.xsd` | AUTOSAR R24-11            |
 //!
 //! ## Using the crate
 //!
@@ -889,7 +890,7 @@ mod test {
             .unwrap();
 
         let se_iter = elements_type.sub_element_spec_iter();
-        assert_eq!(se_iter.count(), 629); // this test breaks when support for new versions is added
+        assert_eq!(se_iter.count(), 664); // this test breaks when support for new versions is added
 
         let prm_char_type = get_prm_char_element_type();
         let pc_iter = prm_char_type.sub_element_spec_iter();
@@ -983,6 +984,10 @@ mod test {
             AutosarVersion::from_str("AUTOSAR_00052.xsd").unwrap(),
             AutosarVersion::Autosar_00052
         );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00053.xsd").unwrap(),
+            AutosarVersion::Autosar_00053
+        );
 
         // do all the version descriptions exist & make sense?
         assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));
@@ -1005,6 +1010,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00050.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00051.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00052.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00053.describe().starts_with("AUTOSAR"));
 
         // do all the xsd file names exist?
         assert!(AutosarVersion::Autosar_4_0_1.filename().ends_with(".xsd"));
@@ -1027,6 +1033,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00050.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00051.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00052.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00053.filename().ends_with(".xsd"));
 
         // to_string() should give the same result as describe()
         assert_eq!(
@@ -1316,6 +1323,7 @@ mod test {
                 AutosarVersion::Autosar_00050,
                 AutosarVersion::Autosar_00051,
                 AutosarVersion::Autosar_00052,
+                AutosarVersion::Autosar_00053,
             ],
             &*expand_version_mask(version_mask)
         );

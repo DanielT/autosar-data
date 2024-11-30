@@ -1037,7 +1037,7 @@ impl ElementRaw {
                         }
                         ContentMode::Bag | ContentMode::Mixed => {
                             // Can insert before or after the current element.
-                            // Currently (R23-11) there is no case where ContentMode::Bag/Mixed is
+                            // Currently (R24-11) there is no case where ContentMode::Bag/Mixed is
                             // nested inside another ContentMode, so this code won't be reached.
                             // It remains here since this may change in future versions of AUTOSAR
                             end_pos = idx + 1;
