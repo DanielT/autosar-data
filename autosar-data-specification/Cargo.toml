@@ -13,5 +13,4 @@ repository = "https://github.com/DanielT/autosar-data"
 docstrings = []
 
 [dependencies]
-num-derive = "0.4.0"
 num-traits = "0.2.16"

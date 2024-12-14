@@ -1,4 +1,3 @@
-use num_derive::FromPrimitive;
 use num_traits::cast::FromPrimitive;
 
 #[derive(Debug)]
@@ -6,7 +5,7 @@ use num_traits::cast::FromPrimitive;
 pub struct ParseAutosarVersionError;
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash, FromPrimitive)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
 #[repr(u32)]
 #[non_exhaustive]
 /// Enum of all Autosar versions
@@ -81,7 +80,6 @@ impl AutosarVersion {
             Self::Autosar_00051 => "AUTOSAR_00051.xsd",
             Self::Autosar_00052 => "AUTOSAR_00052.xsd",
             Self::Autosar_00053 => "AUTOSAR_00053.xsd",
-
         }
     }
 
@@ -113,7 +111,6 @@ impl AutosarVersion {
             Self::Autosar_00051 => "AUTOSAR R22-11",
             Self::Autosar_00052 => "AUTOSAR R23-11",
             Self::Autosar_00053 => "AUTOSAR R24-11",
-
         }
     }
 
@@ -157,7 +154,6 @@ impl std::str::FromStr for AutosarVersion {
             "AUTOSAR_00051.xsd" => Ok(Self::Autosar_00051),
             "AUTOSAR_00052.xsd" => Ok(Self::Autosar_00052),
             "AUTOSAR_00053.xsd" => Ok(Self::Autosar_00053),
-
             _ => Err(ParseAutosarVersionError),
         }
     }
@@ -169,3 +165,40 @@ impl std::fmt::Display for AutosarVersion {
     }
 }
 
+impl FromPrimitive for AutosarVersion {
+    #[inline]
+    fn from_i64(n: i64) -> Option<Self> {
+        if n < 0 {
+            return None;
+        }
+        Self::from_u64(n as u64)
+    }
+
+    #[inline]
+    fn from_u64(n: u64) -> Option<Self> {
+        match n {
+            0x1 => Some(Self::Autosar_4_0_1),
+            0x2 => Some(Self::Autosar_4_0_2),
+            0x4 => Some(Self::Autosar_4_0_3),
+            0x8 => Some(Self::Autosar_4_1_1),
+            0x10 => Some(Self::Autosar_4_1_2),
+            0x20 => Some(Self::Autosar_4_1_3),
+            0x40 => Some(Self::Autosar_4_2_1),
+            0x80 => Some(Self::Autosar_4_2_2),
+            0x100 => Some(Self::Autosar_4_3_0),
+            0x200 => Some(Self::Autosar_00042),
+            0x400 => Some(Self::Autosar_00043),
+            0x800 => Some(Self::Autosar_00044),
+            0x1000 => Some(Self::Autosar_00045),
+            0x2000 => Some(Self::Autosar_00046),
+            0x4000 => Some(Self::Autosar_00047),
+            0x8000 => Some(Self::Autosar_00048),
+            0x10000 => Some(Self::Autosar_00049),
+            0x20000 => Some(Self::Autosar_00050),
+            0x40000 => Some(Self::Autosar_00051),
+            0x80000 => Some(Self::Autosar_00052),
+            0x100000 => Some(Self::Autosar_00053),
+            _ => None,
+        }
+    }
+}
