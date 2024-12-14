@@ -77,8 +77,8 @@ fn create_elements_b() {
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("create_elements (a)", |b| b.iter(|| create_elements_a()));
-    c.bench_function("create_elements (b)", |b| b.iter(|| create_elements_b()));
+    c.bench_function("create_elements (a)", |b| b.iter(create_elements_a));
+    c.bench_function("create_elements (b)", |b| b.iter(create_elements_b));
 }
 
 criterion_group!(benches, criterion_benchmark);

@@ -1170,12 +1170,12 @@ mod test {
         assert!(file1_elemcount > file2_elemcount);
         // verify file membership after merging
         let (local, fileset) = model.root_element().file_membership().unwrap();
-        assert_eq!(local, true);
+        assert!(local);
         assert_eq!(fileset.len(), 2);
 
         let el_pkg_c = model.get_element_by_path("/Pkg_C").unwrap();
         let (local, fileset) = el_pkg_c.file_membership().unwrap();
-        assert_eq!(local, true);
+        assert!(local);
         assert_eq!(fileset.len(), 1);
         let el_npv2 = model
             .get_element_by_path("/Pkg_A/BswModule/BswModuleValues")
@@ -1183,7 +1183,7 @@ mod test {
             .and_then(|pv| pv.get_sub_element_at(2))
             .unwrap();
         let (loc, fm) = el_npv2.file_membership().unwrap();
-        assert_eq!(loc, true);
+        assert!(loc);
         assert_eq!(fm.len(), 1);
 
         // the following two files diverge on the TIMING-RESOURCE element
@@ -1500,7 +1500,7 @@ mod test {
 
         // ContentType
         let ct: ContentType = ContentType::Elements;
-        let ct2 = ct.clone();
+        let ct2 = ct;
         assert_eq!(ct, ct2);
         assert_eq!(format!("{ct:#?}"), format!("{ct2:#?}"));
     }

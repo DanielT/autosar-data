@@ -3333,12 +3333,11 @@ mod test {
             .reference_origins
             .get("/PackageRenamed/EcuInstance2")
             .unwrap();
-        assert!(model
+        assert!(!model
             .0
             .read()
             .reference_origins
-            .get("/PackageRenamed/EcuInstance1")
-            .is_none());
+            .contains_key("/PackageRenamed/EcuInstance1"));
 
         // can only set character data that are specified with ContentMode::Characters
         assert!(el_autosar.set_character_data("text").is_err());
@@ -3352,12 +3351,11 @@ mod test {
 
         // remove the character data of a reference
         assert!(el_fibex_element_ref.remove_character_data().is_ok());
-        assert!(model
+        assert!(!model
             .0
             .read()
             .reference_origins
-            .get("/PackageRenamed/EcuInstance2")
-            .is_none());
+            .contains_key("/PackageRenamed/EcuInstance2"));
 
         // remove on an element whose character data has already been removed is not an error
         assert!(el_fibex_element_ref.remove_character_data().is_ok());
@@ -3542,7 +3540,7 @@ mod test {
 </AUTOSAR>"#;
         let model = AutosarModel::new();
         let (file, _) = model
-            .load_buffer(FILEBUF.as_bytes(), &OsString::from("test"), true)
+            .load_buffer(FILEBUF.as_bytes(), OsString::from("test"), true)
             .unwrap();
         model.files().next().unwrap();
         let el_autosar = model.root_element();
@@ -3790,7 +3788,7 @@ mod test {
             .unwrap();
         el_ar_package.create_sub_element(ElementName::Elements).unwrap();
 
-        let fm: HashSet<WeakArxmlFile> = vec![file1.downgrade()].iter().cloned().collect();
+        let fm: HashSet<WeakArxmlFile> = [file1.downgrade()].iter().cloned().collect();
         // setting the file membership of el_ar_packages should fail
         // its parent is not splittable, so this is not allowed
         el_ar_packages.set_file_membership(fm.clone());
@@ -3904,7 +3902,7 @@ mod test {
 
         let mut hs2 = HashSet::new();
         hs2.insert(weak1);
-        assert_eq!(hs2.insert(weak2), false);
+        assert!(!hs2.insert(weak2));
         assert_eq!(hs2.len(), 1);
 
         // traits of elementcontent

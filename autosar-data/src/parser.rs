@@ -901,8 +901,6 @@ fn trim_byte_string(input: &[u8]) -> &[u8] {
 
 #[cfg(test)]
 mod test {
-    use std::u32;
-
     use crate::parser::*;
     use crate::*;
 
@@ -923,7 +921,7 @@ mod test {
         if optional {
             let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), buffer, false);
             let _result = parser.parse_arxml();
-            if let Some(AutosarDataError::ParserError { source, .. }) = parser.warnings.get(0) {
+            if let Some(AutosarDataError::ParserError { source, .. }) = parser.warnings.first() {
                 println!("Warnings result: {source:?}");
                 assert_eq!(
                     std::mem::discriminant(source),
@@ -1316,7 +1314,7 @@ mod test {
 
         let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), UTF8_ERROR, false);
         let _ = parser.parse_arxml();
-        let warning = parser.warnings.get(0);
+        let warning = parser.warnings.first();
         assert!(
             matches!(
                 warning,

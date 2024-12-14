@@ -367,7 +367,7 @@ mod test {
     fn traits() {
         // ArxmlLexerError: Debug, Error, Eq, PartialEq, Clone
         let err = ArxmlLexerError::IncompleteData;
-        let err2 = err.clone();
+        let err2 = err;
         assert_eq!(err, err2);
         assert_eq!(format!("{err:#?}"), format!("{err2:#?}"));
         assert_eq!(format!("{err}"), format!("{err2}"));

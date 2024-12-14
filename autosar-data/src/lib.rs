@@ -495,7 +495,7 @@ mod test {
         let dir = tempdir().unwrap();
 
         // called on a directory rather than a file -> false
-        assert!(!check_file(dir.path().to_path_buf()));
+        assert!(!check_file(dir.path()));
 
         // nonexistent file -> false
         let nonexistent = dir.path().with_file_name("nonexistent.arxml");

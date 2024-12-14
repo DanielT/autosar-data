@@ -564,9 +564,9 @@ impl ElementType {
 
     #[cfg(feature = "docstrings")]
     #[must_use]
-    pub const fn docstring(&self) -> &'static str {
+    pub const fn docstring(&self) -> &str {
         if let Some(docstring_id) = ELEMENTS[self.def as usize].docstring {
-            &specification::ELEMENT_DOCSTRINGS[docstring_id as usize]
+            specification::ELEMENT_DOCSTRINGS[docstring_id as usize]
         } else {
             ""
         }
