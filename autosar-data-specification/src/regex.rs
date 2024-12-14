@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 /// validate ^(0[xX][0-9a-fA-F]+)$
 pub(crate) fn validate_regex_1(s: &[u8]) -> bool {
     s.len() >= 2 && (s.starts_with(b"0x") || s.starts_with(b"0X")) && s[2..].iter().all(u8::is_ascii_hexdigit)

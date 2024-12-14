@@ -12953,7 +12953,7 @@ impl ElementName {
         if ElementName::STRING_TABLE[item_idx].as_bytes() != input {
             return Err(ParseElementNameError);
         }
-        Ok(unsafe { std::mem::transmute::<u16, Self>(item_idx as u16) })
+        Ok(unsafe { core::mem::transmute::<u16, Self>(item_idx as u16) })
     }
 
     /// get the str corresponding to an item
@@ -12965,21 +12965,21 @@ impl ElementName {
     }
 }
 
-impl std::str::FromStr for ElementName {
+impl core::str::FromStr for ElementName {
     type Err = ParseElementNameError;
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Self::from_bytes(input.as_bytes())
     }
 }
 
-impl std::fmt::Debug for ElementName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for ElementName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(ElementName::STRING_TABLE[*self as usize])
     }
 }
 
-impl std::fmt::Display for ElementName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ElementName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(ElementName::STRING_TABLE[*self as usize])
     }
 }

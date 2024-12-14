@@ -74,6 +74,12 @@
 //!     // ...
 //! }
 //! ```
+#![no_std]
+
+#[macro_use]
+extern crate alloc;
+use alloc::vec::Vec;
+use core::ops::BitXor;
 
 mod attributename;
 mod autosarversion;
@@ -81,8 +87,6 @@ mod elementname;
 mod enumitem;
 mod regex;
 mod specification;
-
-use std::ops::BitXor;
 
 pub use attributename::{AttributeName, ParseAttributeNameError};
 pub use autosarversion::{AutosarVersion, ParseAutosarVersionError};
@@ -662,8 +666,8 @@ impl Iterator for SubelemDefinitionsIter {
 
 // manually implement Debug for CharacterDataSpec; deriving it is not possible, because that fails on the check_fn field in ::Pattern.
 // The check_fn field is simply omitted here.
-impl std::fmt::Debug for CharacterDataSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for CharacterDataSpec {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Enum { items } => f.debug_struct("Enum").field("items", items).finish(),
             Self::Pattern { regex, max_length, .. } => f
@@ -729,7 +733,10 @@ pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashSet, str::FromStr};
+    extern crate std;
+    use alloc::string::ToString;
+    use core::str::FromStr;
+    use std::collections::HashSet;
 
     use super::*;
 

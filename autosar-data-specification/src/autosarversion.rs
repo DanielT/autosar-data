@@ -129,7 +129,7 @@ impl AutosarVersion {
     pub const LATEST: AutosarVersion = AutosarVersion::Autosar_00053;
 }
 
-impl std::str::FromStr for AutosarVersion {
+impl core::str::FromStr for AutosarVersion {
     type Err = ParseAutosarVersionError;
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
@@ -159,8 +159,8 @@ impl std::str::FromStr for AutosarVersion {
     }
 }
 
-impl std::fmt::Display for AutosarVersion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for AutosarVersion {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.describe())
     }
 }
