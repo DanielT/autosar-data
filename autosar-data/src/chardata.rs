@@ -276,6 +276,34 @@ impl CharacterData {
             None
         }
     }
+
+    /// parse the stored character data value as a boolean
+    ///
+    /// `CharacterData` doesn't store a boolean type natively: Autosar describes booleans as strings with the values
+    /// "true" or "1" for true, and "false" or "0" for false.
+    ///
+    /// Returns the value if the conversion succeeds, or None otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::CharacterData;
+    /// let data = CharacterData::String("true".to_string());
+    /// let value = data.parse_bool().unwrap();
+    /// assert_eq!(value, true);
+    /// ```
+    #[must_use]
+    pub fn parse_bool(&self) -> Option<bool> {
+        if let CharacterData::String(text) = self {
+            match text.as_str() {
+                "true" | "1" => Some(true),
+                "false" | "0" => Some(false),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl From<String> for CharacterData {
@@ -305,6 +333,12 @@ impl From<u64> for CharacterData {
 impl From<f64> for CharacterData {
     fn from(value: f64) -> Self {
         Self::Float(value)
+    }
+}
+
+impl From<bool> for CharacterData {
+    fn from(value: bool) -> Self {
+        Self::String(value.to_string())
     }
 }
 
@@ -721,6 +755,33 @@ mod test {
         // enum value
         let data = CharacterData::Enum(EnumItem::Abstract);
         let result = data.parse_float();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_bool() {
+        let data = CharacterData::String("true".to_string());
+        let result = data.parse_bool().unwrap();
+        assert!(result);
+
+        let data = CharacterData::String("1".to_string());
+        let result = data.parse_bool().unwrap();
+        assert!(result);
+
+        let data = CharacterData::String("false".to_string());
+        let result = data.parse_bool().unwrap();
+        assert!(!result);
+
+        let data = CharacterData::String("0".to_string());
+        let result = data.parse_bool().unwrap();
+        assert!(!result);
+
+        let data = CharacterData::String("text".to_string());
+        let result = data.parse_bool();
+        assert!(result.is_none());
+
+        let data = CharacterData::UnsignedInteger(0);
+        let result = data.parse_bool();
         assert!(result.is_none());
     }
 
