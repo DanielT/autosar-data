@@ -6,18 +6,23 @@ use thiserror::Error;
 #[non_exhaustive]
 /// `ArxmlLexerError` contains all errors that can occur while reading data
 pub enum ArxmlLexerError {
+    /// Incomplete data, closing '>' was not found
     #[error("Incomplete data, closing '>' was not found")]
     IncompleteData,
 
+    /// Invalid element: '<>'
     #[error("Invalid element: '<>'")]
     InvalidElement,
 
+    /// A processing instruction was started with '<?', but it did not end with '?>'
     #[error("A processing instruction was started with '<?', but it did not end with '?>'")]
     InvalidProcessingInstruction,
 
+    /// Invalid arxml header: The xml header of an arxml file must specify version="1.0" encoding="utf-8"
     #[error("Invalid arxml header: The xml header of an arxml file must specify version=\"1.0\" encoding=\"utf-8\"")]
     InvalidXmlHeader,
 
+    /// Invalid comment: Comments must start with '<!--' and end with '-->'
     #[error("Invalid comment")]
     InvalidComment,
 }

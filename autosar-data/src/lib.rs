@@ -72,6 +72,8 @@
 //!  - `generate_files`, which for each Autosar version generates an arxml file containing a least one instance of every specified element
 //!
 
+#![warn(missing_docs)]
+
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
 use fxhash::{FxBuildHasher, FxHashMap};
 use indexmap::IndexMap;
@@ -140,39 +142,70 @@ pub(crate) struct AutosarModelRaw {
 pub enum AutosarDataError {
     /// `IoErrorRead`: An `IoError` that occurred while reading a file
     #[error("Failed to read {}: {ioerror}", .filename.to_string_lossy())]
-    IoErrorRead { filename: PathBuf, ioerror: std::io::Error },
+    IoErrorRead {
+        /// The filename that caused the error
+        filename: PathBuf,
+        /// The underlying `std::io::Error`
+        ioerror: std::io::Error,
+    },
 
     /// `IoErrorOpen`: an `IoError` that occurres while opening a file
     #[error("Failed to open {}: {ioerror}", .filename.to_string_lossy())]
-    IoErrorOpen { filename: PathBuf, ioerror: std::io::Error },
+    IoErrorOpen {
+        /// The filename that caused the error
+        filename: PathBuf,
+        /// The underlying `std::io::Error`
+        ioerror: std::io::Error,
+    },
 
     /// `IoErrorWrite`: An `IoError` that occurred while writing a file
     #[error("Failed to write {}: {ioerror}", .filename.to_string_lossy())]
-    IoErrorWrite { filename: PathBuf, ioerror: std::io::Error },
+    IoErrorWrite {
+        /// The filename that caused the error
+        filename: PathBuf,
+        /// The underlying `std::io::Error`
+        ioerror: std::io::Error,
+    },
 
     /// `DuplicateFilenameError`: The model can'#'t contain two files with identical names
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
-    DuplicateFilenameError { verb: &'static str, filename: PathBuf },
+    DuplicateFilenameError {
+        /// description of the operation that failed
+        verb: &'static str,
+        /// The filename that caused the error
+        filename: PathBuf,
+    },
 
     /// `LexerError`: An error originating in the lexer, such as unclodes strings, mismatched '<' and '>', etc
     #[error("Failed to tokenize {} on line {line}: {source}", .filename.to_string_lossy())]
     LexerError {
+        /// The filename that caused the error
         filename: PathBuf,
+        /// The line number where the error occurred
         line: usize,
+        /// The underlying `ArxmlLexerError`
         source: ArxmlLexerError,
     },
 
     /// `ParserError`: A parser error
     #[error("Failed to parse {}:{line}: {source}", .filename.to_string_lossy())]
     ParserError {
+        /// The filename that caused the error
         filename: PathBuf,
+        /// The line number where the error occurred
         line: usize,
+        /// The underlying `ArxmlParserError`
         source: ArxmlParserError,
     },
 
     /// A file could not be loaded into the model, because the Autosar paths of the new data overlapped with the Autosar paths of the existing data
     #[error("Loading failed: element path {path} of new data in {} overlaps with the existing loaded data", .filename.to_string_lossy())]
-    OverlappingDataError { filename: PathBuf, path: String },
+    OverlappingDataError {
+        /// The filename that caused the error
+        filename: PathBuf,
+        /// Autosar path of the element that caused the error
+        path: String,
+    },
 
     /// An operation failed because one of the elements involved is in the deleted state and will be freed once its reference count reaches zero
     #[error("Operation failed: the item has been deleted")]
@@ -182,40 +215,65 @@ pub enum AutosarDataError {
     #[error("Invalid position for an element of this kind")]
     InvalidPosition,
 
-    /// The Autosar version of the new file did not match the version already in use
+    /// The Autosar version of the new file or element did not match the version already in use
     #[error("Version mismatch between existing {} and new {}", .version_cur, .version_new)]
     VersionMismatch {
+        /// The current version of the model
         version_cur: AutosarVersion,
+        /// The version of the new file or element
         version_new: AutosarVersion,
     },
 
     /// The Autosar version is not compatible with the data
     #[error("Version {} is not compatible with the element data", .version)]
-    VersionIncompatibleData { version: AutosarVersion },
+    VersionIncompatibleData {
+        /// The incompatible version
+        version: AutosarVersion,
+    },
 
     /// A function that only applies to identifiable elements was called on an element which is not identifiable
     #[error("The element at {} is not identifiable", .xmlpath)]
-    ElementNotIdentifiable { xmlpath: String },
+    ElementNotIdentifiable {
+        /// The "xml path" (a string representation of the path to the element) where the error occurred
+        xmlpath: String,
+    },
 
     /// An item name is required to perform this action
     #[error("An item name is required for element {}", .element)]
-    ItemNameRequired { element: ElementName },
+    ItemNameRequired {
+        /// The element where the item name is required
+        element: ElementName,
+    },
 
     /// The element has the wrong content type for the requested operation, e.g. inserting elements when the content type only allows character data
     #[error("Incorrect content type for element {}", .element)]
-    IncorrectContentType { element: ElementName },
+    IncorrectContentType {
+        /// The element where the content type is incorrect
+        element: ElementName,
+    },
 
     /// Could not insert a sub element, because it conflicts with an existing sub element
     #[error("Element insertion conflict: {}", .element)]
-    ElementInsertionConflict { element: ElementName },
+    ElementInsertionConflict {
+        /// The name of the element that could not be inserted
+        element: ElementName,
+    },
 
     /// The `ElementName` is not a valid sub element according to the specification.
     #[error("Invalid sub element: {}", .element)]
-    InvalidSubElement { element: ElementName },
+    InvalidSubElement {
+        /// The name of the element that is not a valid sub element
+        element: ElementName,
+    },
 
     /// Remove operation failed: the given element is not a sub element of the element from which it was supposed to be removed
     #[error("element {} not found in parent {}", .target, .parent)]
-    ElementNotFound { target: ElementName, parent: ElementName },
+    ElementNotFound {
+        /// The name of the element that was not found
+        target: ElementName,
+        /// The name of the parent element
+        parent: ElementName,
+    },
 
     /// [`Element::remove_sub_element`] cannot remove the SHORT-NAME of identifiable elements, as this would render the data invalid
     #[error("the SHORT-NAME sub element may not be removed")]
@@ -231,7 +289,12 @@ pub enum AutosarDataError {
 
     /// An element could not be renamed, since this item name is already used by a different element
     #[error("Duplicate item name {} in {}", .item_name, .element)]
-    DuplicateItemName { element: ElementName, item_name: String },
+    DuplicateItemName {
+        /// The name of the element that could not be renamed
+        element: ElementName,
+        /// The target name that caused the error
+        item_name: String,
+    },
 
     /// Cannot move an element into its own sub element
     #[error("Cannot move an element into its own sub element")]
@@ -263,7 +326,10 @@ pub enum AutosarDataError {
 
     /// The newly loaded file diverges from the combined model on an element which is not splittable according to the metamodel
     #[error("The new file could not be merged, because it diverges from the model on non-splittable element {}", .path)]
-    InvalidFileMerge { path: String },
+    InvalidFileMerge {
+        /// The path of the element where the merge failed
+        path: String,
+    },
 
     /// The operation cannot be completed because the model does not contain any files
     #[error("The operation cannot be completed because the model does not contain any files")]
@@ -321,7 +387,9 @@ pub(crate) struct ElementRaw {
 /// A single attribute of an arxml element
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
+    /// The name of the attribute
     pub attrname: AttributeName,
+    /// The content of the attribute
     pub content: CharacterData,
 }
 
@@ -330,7 +398,9 @@ pub struct Attribute {
 /// Elements may contain other elements, character data, or a mixture of both, depending on their type.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ElementContent {
+    /// A sub element
     Element(Element),
+    /// Character data
     CharacterData(CharacterData),
 }
 
@@ -343,9 +413,13 @@ pub enum ElementContent {
 /// attribute <... DEST="UNIT"> will be loaded as `CharacterData::Enum(EnumItem::Unit`)
 #[derive(Debug, PartialEq, Clone)]
 pub enum CharacterData {
+    /// Character data is an enum value
     Enum(EnumItem),
+    /// Character data is a string
     String(String),
+    /// Character data is an unsigned integer
     UnsignedInteger(u64),
+    /// Character data is a floating point number
     Float(f64),
 }
 
@@ -374,18 +448,30 @@ pub(crate) enum ElementOrModel {
 /// Possible kinds of compatibility errors that can be found by `ArxmlFile::check_version_compatibility()`
 pub enum CompatibilityError {
     /// The element is not allowed in the target version
-    IncompatibleElement { element: Element, version_mask: u32 },
+    IncompatibleElement {
+        /// The element that is not allowed
+        element: Element,
+        /// The version mask of the element which indicates all allowed versions
+        version_mask: u32,
+    },
     /// The attribute is not allowed in the target version
     IncompatibleAttribute {
+        /// The element that contains the incompatible attribute
         element: Element,
+        /// The incompatible attribute
         attribute: AttributeName,
+        /// The version mask of the element which indicates all versions where the attribute is allowed
         version_mask: u32,
     },
     /// The attribute value is not allowed in the target version
     IncompatibleAttributeValue {
+        /// The element that contains the incompatible attribute
         element: Element,
+        /// The incompatible attribute
         attribute: AttributeName,
+        /// The incompatible attribute value
         attribute_value: String,
+        /// The version mask of the element which indicates all versions where the attribute value is allowed
         version_mask: u32,
     },
 }

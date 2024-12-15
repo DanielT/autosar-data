@@ -19,128 +19,226 @@ use crate::{
 #[non_exhaustive]
 /// `ArxmlParserError` contains all the errors that can occur while parsing a file
 pub enum ArxmlParserError {
+    /// The arxml file header is invalid
     #[error("Invalid arxml file: bad file header")]
     InvalidArxmlFileHeader,
 
+    /// An XML file header was unexpectedly found inside the ARXML data
     #[error("Unexpeded XML file header found inside ARXML data")]
-    UnexpectedXmlFileHeader { element: ElementName },
+    UnexpectedXmlFileHeader {
+        /// The element that was open when the unexpected XML file header was found
+        element: ElementName,
+    },
 
+    /// The file version in the xsi:schemaLocation attribute is unknown
     #[error("Unknown Autosar xsd file {input_verstring} referenced in the file header")]
-    UnknownAutosarVersion { input_verstring: String },
+    UnknownAutosarVersion {
+        /// The version string that was found in the file header
+        input_verstring: String,
+    },
 
+    /// The file version in the xsi:schemaLocation attribute is invalid, but can be corrected
     #[error("Invalid Autosar xsd file {input_verstring} referenced in the file header should be replaced with {}", .replacement.filename())]
     InvalidAutosarVersion {
+        /// The version string that was found in the file header
         input_verstring: String,
+        /// The corrected version
         replacement: AutosarVersion,
     },
 
+    /// A valid name of an Autosar element was found, but it is not allowed in the current context
     #[error("Encountered unexpected child element {sub_element} inside element {element}")]
     IncorrectBeginElement {
+        /// The parent element where the error occurred
         element: ElementName,
+        /// The unexpected child element
         sub_element: ElementName,
     },
 
+    /// An xml element was found, but it is not a valid Autosar element
     #[error("Encountered invalid child element {invalid_element} inside parent element {element}. {invalid_element} is not a known Autosar element.")]
     InvalidBeginElement {
+        /// The parent element where the error occurred
         element: ElementName,
+        /// The name of the invalid child element
         invalid_element: String,
     },
 
+    /// An element was opened, but the closing tag for a different element was found
     #[error("Encountered the closing tag for element {other_element}, but element {element} was open.")]
     IncorrectEndElement {
+        /// The element that was open when the incorrect closing tag was found
         element: ElementName,
+        /// The name of the element that was closed
         other_element: ElementName,
     },
 
+    /// An xml element was closed, but it is not a valid Autosar element
     #[error("Encountered invalid end tag for element {invalid_element} inside parent element {parent_element}. {invalid_element} is not a known Autosar element.")]
     InvalidEndElement {
+        /// The parent element where the error occurred
         parent_element: ElementName,
+        /// The name of the invalid element that was closed
         invalid_element: String,
     },
 
+    /// A parent element contains multiple sub elements which are mutually exclusive
     #[error("Multiple conflicting sub elements have been added to element {element}. The latest was {sub_element}.")]
     ElementChoiceConflict {
+        /// The parent element where the error occurred
         element: ElementName,
+        /// The name of the conflicting sub element
         sub_element: ElementName,
     },
 
+    /// The element contains a sub element that is not allowed in the current Autosar version
     #[error("Element {sub_element} exists in {element}, but is not allowed in {version}")]
     ElementVersionError {
+        /// The parent element where the error occurred
         element: ElementName,
+        /// The sub element that is not allowed
         sub_element: ElementName,
+        /// The Autosar version in which the sub element is not allowed
         version: AutosarVersion,
     },
 
+    /// A sub element is only allowed to be present once inside a parent element, but another occurrence was found
     #[error("Only one {sub_element} is allowed inside {element}, but another occurrence was found")]
     TooManySubElements {
+        /// The parent element where the error occurred
         element: ElementName,
+        /// The name of the sub element that was found multiple times
         sub_element: ElementName,
     },
 
+    /// A required sub element is missing from a parent element
     #[error("The required sub element {sub_element} was not found in element {element}")]
     RequiredSubelementMissing {
+        /// The parent element where the error occurred
         element: ElementName,
+        /// The name of the missing sub element
         sub_element: ElementName,
     },
 
+    /// An attribute value yould not be parsed
     #[error("Could not parse the attribute text \"{attribute_text}\" in element {element}")]
     AttributeValueError {
+        /// The element where the error occurred
         element: ElementName,
+        /// The attribute text that could not be parsed
         attribute_text: String,
     },
 
+    /// An unknown attribute was found in an element
     #[error("Element {element} contains unknown attribute {attribute}")]
-    UnknownAttributeError { element: ElementName, attribute: String },
+    UnknownAttributeError {
+        /// The element where the error occurred
+        element: ElementName,
+        /// The name of the unknown attribute
+        attribute: String,
+    },
 
+    /// A known attribute was found, but it is not allowed in the current Autosar version
     #[error("Attribute {attribute} exists in element {element}, but is not allowed in {version}")]
     AttributeVersionError {
+        /// The element where the error occurred
         element: ElementName,
+        /// The name of the attribute that is not allowed
         attribute: AttributeName,
+        /// The Autosar version in which the attribute is not allowed
         version: AutosarVersion,
     },
 
+    /// An attribute is required in an element, but it was not found
     #[error("Attribute {attribute} is required in element {element}, but was not found")]
     RequiredAttributeMissing {
+        /// The element where the error occurred
         element: ElementName,
+        /// The name of the missing attribute
         attribute: AttributeName,
     },
 
+    /// Character content was found inside an element that does not allow it
     #[error("Character content found, which is not allowed inside element {element}")]
-    CharacterContentForbidden { element: ElementName },
+    CharacterContentForbidden {
+        /// The element where the error occurred
+        element: ElementName,
+    },
 
+    /// A valid enum item was found, but it is not allowed in the current autosar version
     #[error("enum item {enum_item} is a valid value in element {element}, but is not allowed in {version}")]
     EnumItemVersionError {
+        /// The element where the error occurred
         element: ElementName,
+        /// The enum item that is not allowed
         enum_item: EnumItem,
+        /// The Autosar version in which the enum item is not allowed
         version: AutosarVersion,
     },
 
+    /// A string could not be parsed as a valid enum item
     #[error("string {value} is not a valid enum item")]
-    UnknownEnumItem { value: String },
+    UnknownEnumItem {
+        /// The string that could not be parsed as an enum item
+        value: String,
+    },
 
+    /// The string is a valid enum item, but it is not part of the enum in the current context
     #[error("string {value} is not a valid enum item in this context")]
-    InvalidEnumItem { value: String },
+    InvalidEnumItem {
+        /// The string of the invalid enum item
+        value: String,
+    },
 
+    /// The string value is too long
     #[error("string value {value} is too long: max length is {length}")]
-    StringValueTooLong { value: String, length: usize },
+    StringValueTooLong {
+        /// The string that is too long
+        value: String,
+        /// The maximum allowed length
+        length: usize,
+    },
 
+    /// The string value does not match the validation regex
     #[error("string value {value} is not matched by the validation regex {regex}")]
-    RegexMatchError { value: String, regex: String },
+    RegexMatchError {
+        /// The string that does not match the regex
+        value: String,
+        /// The regex that the string should match
+        regex: String,
+    },
 
+    /// Some bytes from the input could not be converted to a utf-8 string
     #[error("could not convert value to utf-8: {source}")]
-    Utf8Error { source: Utf8Error },
+    Utf8Error {
+        /// The original error returned by std::str::from_utf8
+        source: Utf8Error,
+    },
 
+    /// The end of the input was reached unexpectedly while parsing an element
     #[error("Unexpected end of file while parsing element {element}")]
-    UnexpectedEndOfFile { element: ElementName },
+    UnexpectedEndOfFile {
+        /// The element that was open when the end of the file was reached
+        element: ElementName,
+    },
 
+    /// A number was expected, but the input could not be parsed as a number
     #[error("Failed to parse {input} as a number")]
-    InvalidNumber { input: String },
+    InvalidNumber {
+        /// The input that could not be parsed as a number
+        input: String,
+    },
 
+    /// The input contains additional data after the final `</AUTOSAR>` element
     #[error("Additional data found in the input after the final </AUTOSAR> element")]
     AdditionalDataError,
 
+    /// The input contains an invalid XML entity
     #[error("Invalid XML entity in {input}")]
-    InvalidXmlEntity { input: String },
+    InvalidXmlEntity {
+        /// The invalid XML entity
+        input: String,
+    },
 }
 
 pub(crate) struct ArxmlParser<'a> {
