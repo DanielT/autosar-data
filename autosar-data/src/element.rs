@@ -716,6 +716,45 @@ impl Element {
         self.0.write().remove_sub_element(sub_element, &model)
     }
 
+    /// Remove a sub element identified by an ElementName
+    ///
+    /// If multiple sub elements with the same ElementName exist, only the first one will be removed.
+    ///
+    /// A sub element with the given ElementName will be unlinked from the hierarchy of elements.
+    /// All of the sub-sub-elements nested under the removed element will also be recusively removed.
+    ///
+    /// This is a convenience function that is equivalent to calling `get_sub_element()` followed by `remove_sub_element()`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let packages = model.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// model.root_element().remove_sub_element_kind(ElementName::ArPackages)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [`AutosarDataError::ElementNotFound`]: The sub element was not found in this element
+    ///  - [`AutosarDataError::ShortNameRemovalForbidden`]: It is not permitted to remove the SHORT-NAME of identifiable elements since this would result in invalid data
+    pub fn remove_sub_element_kind(&self, element_name: ElementName) -> Result<(), AutosarDataError> {
+        let Some(sub_element) = self.get_sub_element(element_name) else {
+            return Err(AutosarDataError::ElementNotFound {
+                target: element_name,
+                parent: self.element_name(),
+            });
+        };
+        self.remove_sub_element(sub_element)
+    }
+
     /// Set the reference target for the element to target
     ///
     /// When the reference is updated, the DEST attribute is also updated to match the referenced element.
@@ -2816,6 +2855,17 @@ mod test {
         // deleting identifiable elements should also cause the cached references to them to be removed
         assert_eq!(model.0.read().identifiables.len(), 0);
         assert!(result.is_ok());
+
+        // alternative: remove_sub_element_kind
+        el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "SecondPackage")
+            .unwrap();
+        assert_eq!(el_ar_packages.content_item_count(), 1);
+        let result = el_ar_packages.remove_sub_element_kind(ElementName::ArPackage);
+        assert!(result.is_ok());
+        assert_eq!(el_ar_packages.content_item_count(), 0);
+        let result = el_ar_packages.remove_sub_element_kind(ElementName::ArPackage);
+        assert!(result.is_err());
 
         // the removed element may still exist if there were other references to it, but it is no longer usable
         let result = el_ar_package_clone.parent();
