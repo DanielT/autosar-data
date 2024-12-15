@@ -837,5 +837,8 @@ mod test {
 
         let cdata: CharacterData = EnumItem::Abstract.into();
         assert_eq!(cdata, CharacterData::Enum(EnumItem::Abstract));
+
+        let cdata: CharacterData = true.into();
+        assert_eq!(cdata, CharacterData::String("true".to_string()));
     }
 }

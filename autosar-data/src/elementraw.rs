@@ -1309,3 +1309,32 @@ impl ElementRaw {
         Element(Arc::new(RwLock::new(self)))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_xml_path() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let elem_ar_packages = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
+        let elem_ar_package = elem_ar_packages.create_named_sub_element(ElementName::ArPackage, "Pkg").unwrap();
+        let elem_elements = elem_ar_package.create_sub_element(ElementName::Elements).unwrap();
+
+        // test the xml_path() method in anormal situation
+        let xml_path = elem_elements.xml_path();
+        assert_eq!(xml_path, "/<AUTOSAR>/<AR-PACKAGES>/Pkg/<ELEMENTS>");
+
+        // a parent element is write-locked, so the xml_path() can't reach parent elements beyond the locked one
+        let pkg_lock = elem_ar_packages.0.write();
+        let xml_path = elem_elements.xml_path();
+        assert_eq!(xml_path, "/(LOCKED)/Pkg/<ELEMENTS>");
+        drop(pkg_lock);
+
+        // the parent element is deleted
+        elem_ar_packages.remove_sub_element(elem_ar_package).unwrap();
+        let xml_path = elem_elements.xml_path();
+        assert_eq!(xml_path, "/(DELETED)/<ELEMENTS>");
+    }
+}

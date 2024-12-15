@@ -1318,6 +1318,32 @@ mod test {
         let result = model.load_buffer(ERRFILE4, "test4", true);
         let error = result.unwrap_err();
         assert!(matches!(error, AutosarDataError::InvalidFileMerge { .. }));
+
+        // non-overlapping files
+        const FILEBUF3: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+          <AR-PACKAGE><SHORT-NAME>Package</SHORT-NAME></AR-PACKAGE>
+          <AR-PACKAGE><SHORT-NAME>Package2</SHORT-NAME></AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        const FILEBUF4: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+        </AR-PACKAGES></AUTOSAR>"#.as_bytes();
+        let model_a = AutosarModel::new();
+        model_a.load_buffer(FILEBUF3, "test5", true).unwrap();
+        model_a.load_buffer(FILEBUF4, "test6", true).unwrap();
+        // load the files into model_b in reverse order
+        let model_b = AutosarModel::new();
+        model_b.load_buffer(FILEBUF4, "test5", true).unwrap();
+        model_b.load_buffer(FILEBUF3, "test6", true).unwrap();
+        // the two models should be equal
+        model_a.sort();
+        let model_a_txt = model_a.root_element().serialize();
+        model_b.sort();
+        let model_b_txt = model_b.root_element().serialize();
+        assert_eq!(model_a_txt, model_b_txt);
+
     }
 
     #[test]

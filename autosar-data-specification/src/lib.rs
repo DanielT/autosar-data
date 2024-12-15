@@ -169,7 +169,9 @@ pub struct AttributeSpec {
 /// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
 pub struct ElementType {
+    /// index into the `ELEMENTS` array
     def: u16,
+    /// index into the `DATATYPES` array
     typ: u16,
 }
 
@@ -736,6 +738,7 @@ mod test {
     extern crate std;
     use alloc::string::ToString;
     use core::str::FromStr;
+    use num_traits::FromPrimitive;
     use std::collections::HashSet;
 
     use super::*;
@@ -1334,6 +1337,37 @@ mod test {
             ],
             &*expand_version_mask(version_mask)
         );
+    }
+
+    #[test]
+    fn test_version_masks() {
+        assert_eq!(AutosarVersion::from_u64(0x1), Some(AutosarVersion::Autosar_4_0_1));
+        assert_eq!(AutosarVersion::from_u64(0x2), Some(AutosarVersion::Autosar_4_0_2));
+        assert_eq!(AutosarVersion::from_u64(0x4), Some(AutosarVersion::Autosar_4_0_3));
+        assert_eq!(AutosarVersion::from_u64(0x8), Some(AutosarVersion::Autosar_4_1_1));
+        assert_eq!(AutosarVersion::from_u64(0x10), Some(AutosarVersion::Autosar_4_1_2));
+        assert_eq!(AutosarVersion::from_u64(0x20), Some(AutosarVersion::Autosar_4_1_3));
+        assert_eq!(AutosarVersion::from_u64(0x40), Some(AutosarVersion::Autosar_4_2_1));
+        assert_eq!(AutosarVersion::from_u64(0x80), Some(AutosarVersion::Autosar_4_2_2));
+        assert_eq!(AutosarVersion::from_u64(0x100), Some(AutosarVersion::Autosar_4_3_0));
+        assert_eq!(AutosarVersion::from_u64(0x200), Some(AutosarVersion::Autosar_00042));
+        assert_eq!(AutosarVersion::from_u64(0x400), Some(AutosarVersion::Autosar_00043));
+        assert_eq!(AutosarVersion::from_u64(0x800), Some(AutosarVersion::Autosar_00044));
+        assert_eq!(AutosarVersion::from_u64(0x1000), Some(AutosarVersion::Autosar_00045));
+        assert_eq!(AutosarVersion::from_u64(0x2000), Some(AutosarVersion::Autosar_00046));
+        assert_eq!(AutosarVersion::from_u64(0x4000), Some(AutosarVersion::Autosar_00047));
+        assert_eq!(AutosarVersion::from_u64(0x8000), Some(AutosarVersion::Autosar_00048));
+        assert_eq!(AutosarVersion::from_u64(0x10000), Some(AutosarVersion::Autosar_00049));
+        assert_eq!(AutosarVersion::from_u64(0x20000), Some(AutosarVersion::Autosar_00050));
+        assert_eq!(AutosarVersion::from_u64(0x40000), Some(AutosarVersion::Autosar_00051));
+        assert_eq!(AutosarVersion::from_u64(0x80000), Some(AutosarVersion::Autosar_00052));
+        assert_eq!(AutosarVersion::from_u64(0x100000), Some(AutosarVersion::Autosar_00053));
+        // invalid version mask: more than one bit set
+        assert_eq!(AutosarVersion::from_u64(0xF), None);
+
+        // FromPrimitive also provides from_i64
+        assert_eq!(AutosarVersion::from_i64(0x1), Some(AutosarVersion::Autosar_4_0_1));
+        assert_eq!(AutosarVersion::from_i64(-1), None);
     }
 
     #[cfg(feature = "docstrings")]
