@@ -2,6 +2,14 @@ use std::{collections::HashMap, hash::Hash};
 
 use crate::*;
 
+// actions to be taken when merging two elements
+enum MergeAction {
+    MergeEqual,
+    MergeUnequal(Element),
+    AOnly,
+    BOnly(usize),
+}
+
 impl AutosarModel {
     /// Create an `AutosarData` model
     ///
@@ -224,7 +232,7 @@ impl AutosarModel {
         let root = self.root_element();
         let files: HashSet<WeakArxmlFile> = self.files().map(|f| f.downgrade()).collect();
 
-        AutosarModel::merge_element(&root, &files, new_root, &new_file)?;
+        Self::merge_element(&root, &files, new_root, &new_file)?;
         self.root_element().0.write().file_membership.insert(new_file);
 
         Ok(())
@@ -253,80 +261,11 @@ impl AutosarModel {
         let splitable = parent_a.element_type().splittable_in(version);
 
         while let (Some((pos_a, elem_a)), Some(elem_b)) = (&item_a, &item_b) {
-            if elem_a.element_name() == elem_b.element_name() {
+            let merge_action = if elem_a.element_name() == elem_b.element_name() {
                 if elem_a.is_identifiable() {
-                    if elem_a.item_name() == elem_b.item_name() {
-                        // equal
-                        // advance both iterators
-                        elements_merge.push((elem_a.clone(), elem_b.clone()));
-                        item_a = iter_a.next();
-                        item_b = iter_b.next();
-                    } else {
-                        // assume that the ordering on both sides is different
-                        // find a match for a among the siblings of b
-                        if let Some(sibling) = parent_b
-                            .sub_elements()
-                            .find(|e| e.element_name() == elem_a.element_name() && e.item_name() == elem_a.item_name())
-                        {
-                            // matching item found
-                            elements_merge.push((elem_a.clone(), sibling.clone()));
-                        } else {
-                            // element is unique in a
-                            if splitable {
-                                elements_a_only.push(elem_a.clone());
-                            } else {
-                                return Err(AutosarDataError::InvalidFileMerge {
-                                    path: parent_a.xml_path(),
-                                });
-                            }
-                        }
-                        item_a = iter_a.next();
-                    }
+                    Self::calc_identifiables_merge(parent_a, parent_b, elem_a, elem_b, splitable)?
                 } else {
-                    // special case for BSW parameters - many elements used here don't have a SHORT-NAME, but they do have a DEFINITION-REF
-                    let defref_a = elem_a
-                        .get_sub_element(ElementName::DefinitionRef)
-                        .and_then(|dr| dr.character_data())
-                        .and_then(|cdata| cdata.string_value());
-                    let defref_b = elem_b
-                        .get_sub_element(ElementName::DefinitionRef)
-                        .and_then(|dr| dr.character_data())
-                        .and_then(|cdata| cdata.string_value());
-                    // defref_a and _b are simply none for all other elements which don't have a definition-ref
-                    if defref_a == defref_b {
-                        // either: defrefs exist and are identical, OR they are both None
-                        // if they are None, then there is nothing else that can be compared, so we just assume the elements are identical
-                        // advance both iterators
-                        elements_merge.push((elem_a.clone(), elem_b.clone()));
-                        item_a = iter_a.next();
-                        item_b = iter_b.next();
-                    } else {
-                        // check if a sibling of elem_b has the same definiton-ref as elem_a
-                        // this handles the case where the the elements on both sides are ordered differently
-                        if let Some(sibling) = parent_b
-                            .sub_elements()
-                            .filter(|e| e.element_name() == elem_a.element_name())
-                            .find(|e| {
-                                e.get_sub_element(ElementName::DefinitionRef)
-                                    .and_then(|dr| dr.character_data())
-                                    .and_then(|cdata| cdata.string_value())
-                                    == defref_a
-                            })
-                        {
-                            // a match for item_a exists
-                            elements_merge.push((elem_a.clone(), sibling.clone()));
-                        } else {
-                            // element is unique in a
-                            if splitable {
-                                elements_a_only.push(elem_a.clone());
-                            } else {
-                                return Err(AutosarDataError::InvalidFileMerge {
-                                    path: parent_a.xml_path(),
-                                });
-                            }
-                        }
-                        item_a = iter_a.next();
-                    }
+                    Self::calc_element_merge(parent_b, elem_a, elem_b)
                 }
             } else {
                 // a and b are different kinds of elements. This is only allowed if parent is splittable
@@ -342,14 +281,32 @@ impl AutosarModel {
                     // elem_a comes before elem_b, advance only a
                     // a: <parent> | <a = child 1> <child 2>
                     // b: <parent> |               <b = child 2>
-                    elements_a_only.push(elem_a.clone());
-                    item_a = iter_a.next();
+                    MergeAction::AOnly
                 } else {
                     // elem_b comes before elem_a, advance only b
                     // a: <parent> |               <a = child 2>
                     // b: <parent> | <b = child 1> <child 2>
+                    MergeAction::BOnly(*pos_a)
+                }
+            };
+
+            match merge_action {
+                MergeAction::MergeEqual => {
+                    elements_merge.push((elem_a.clone(), elem_b.clone()));
+                    item_a = iter_a.next();
+                    item_b = iter_b.next();
+                }
+                MergeAction::MergeUnequal(other_b) => {
+                    elements_merge.push((elem_a.clone(), other_b));
+                    item_a = iter_a.next();
+                }
+                MergeAction::AOnly => {
+                    elements_a_only.push(elem_a.clone());
+                    item_a = iter_a.next();
+                }
+                MergeAction::BOnly(position) => {
                     if !elements_merge.iter().any(|(_, merge_b)| merge_b == elem_b) {
-                        elements_b_only.push((elem_b.clone(), *pos_a));
+                        elements_b_only.push((elem_b.clone(), position));
                     }
                     item_b = iter_b.next();
                 }
@@ -383,12 +340,105 @@ impl AutosarModel {
                 files.clone_into(&mut elem_locked.file_membership);
             }
         }
-        // elements in elements_b_only are not present in the model. They need to be moved over and inserted at a reasonable position
+        // elements in elements_b_only are not present in the model yet, so they need to be added
+        Self::import_new_items(parent_a, elements_b_only, new_file, min_ver_b)?;
+
+        // recurse for sub elements that are present on both sides: these need to be checked and merged
+        Self::merge_sub_elements(elements_merge, files, new_file)?;
+
+        Ok(())
+    }
+
+    // calculate how to merge two identifiable elements
+    // precondition: both elements have the same element_name
+    fn calc_identifiables_merge(
+        parent_a: &Element,
+        parent_b: &Element,
+        elem_a: &Element,
+        elem_b: &Element,
+        splitable: bool,
+    ) -> Result<MergeAction, AutosarDataError> {
+        Ok(if elem_a.item_name() == elem_b.item_name() {
+            // equal
+            // advance both iterators
+            MergeAction::MergeEqual
+        } else {
+            // assume that the ordering on both sides is different
+            // find a match for a among the siblings of b
+            if let Some(sibling) = parent_b
+                .sub_elements()
+                .find(|e| e.element_name() == elem_a.element_name() && e.item_name() == elem_a.item_name())
+            {
+                // matching item found
+                MergeAction::MergeUnequal(sibling)
+            } else {
+                // element is unique in a
+                if splitable {
+                    MergeAction::AOnly
+                } else {
+                    return Err(AutosarDataError::InvalidFileMerge {
+                        path: parent_a.xml_path(),
+                    });
+                }
+            }
+        })
+    }
+
+    // calculate how to merge two elements which are not identifiable
+    // precondition: both elements have the same element_name
+    fn calc_element_merge(parent_b: &Element, elem_a: &Element, elem_b: &Element) -> MergeAction {
+        // special case for BSW parameters - many elements used here don't have a SHORT-NAME, but they do have a DEFINITION-REF
+        let defref_a = elem_a
+            .get_sub_element(ElementName::DefinitionRef)
+            .and_then(|dr| dr.character_data())
+            .and_then(|cdata| cdata.string_value());
+        let defref_b = elem_b
+            .get_sub_element(ElementName::DefinitionRef)
+            .and_then(|dr| dr.character_data())
+            .and_then(|cdata| cdata.string_value());
+        // defref_a and _b are simply None for all other elements which don't have a definition-ref
+
+        if defref_a == defref_b {
+            // either: defrefs exist and are identical, OR they are both None.
+            // if they are None, then there is nothing else that can be compared, so we just assume the elements are identical.
+            // Merge them and advance both iterators.
+            MergeAction::MergeEqual
+        } else {
+            // check if a sibling of elem_b has the same definiton-ref as elem_a
+            // this handles the case where the the elements on both sides are ordered differently
+            if let Some(sibling) = parent_b
+                .sub_elements()
+                .filter(|e| e.element_name() == elem_a.element_name())
+                .find(|e| {
+                    e.get_sub_element(ElementName::DefinitionRef)
+                        .and_then(|dr| dr.character_data())
+                        .and_then(|cdata| cdata.string_value())
+                        == defref_a
+                })
+            {
+                // a match for item_a exists
+                MergeAction::MergeUnequal(sibling)
+            } else {
+                // element is unique in A
+                // This case only happens for BSW definition elements, and it appears that these always have a splittable parent
+                MergeAction::AOnly
+            }
+        }
+    }
+
+    fn import_new_items(
+        parent_a: &Element,
+        elements_b_only: Vec<(Element, usize)>,
+        new_file: &WeakArxmlFile,
+        min_ver_b: AutosarVersion,
+    ) -> Result<(), AutosarDataError> {
+        // elements in elements_b_only are not present in the model yet, so they need to be added
         let mut parent_a_locked = parent_a.0.write();
         for (idx, (new_element, insert_pos)) in elements_b_only.into_iter().enumerate() {
             new_element.set_parent(ElementOrModel::Element(parent_a.downgrade()));
             // restrict new_element, it is only present in new_file
             new_element.0.write().file_membership.insert(new_file.clone());
+
             // add the new_element (from side b) to the content of parent_a
             // to do this, first check valid element insertion positions
             let (first_pos, last_pos) = parent_a_locked
@@ -396,30 +446,43 @@ impl AutosarModel {
                 .map_err(|_| AutosarDataError::InvalidFileMerge {
                     path: new_element.element_name().to_string(),
                 })?;
+
             // idx number of elements have already been inserted, so the destination position must be adjusted
             let dest = insert_pos + idx;
+
             // clamp dest, so that first_pos <= dest <= last_pos
             let dest = dest.max(first_pos).min(last_pos);
+
+            // insert the element from b at the calculated position
             parent_a_locked
                 .content
                 .insert(dest, ElementContent::Element(new_element));
         }
-        drop(parent_a_locked);
+        Ok(())
+    }
 
-        // recurse for elements that need to be merged
+    fn merge_sub_elements(
+        elements_merge: Vec<(Element, Element)>,
+        files: &HashSet<WeakArxmlFile>,
+        new_file: &WeakArxmlFile,
+    ) -> Result<(), AutosarDataError> {
         for (elem_a, elem_b) in elements_merge {
+            // get the list of files that the element from a is present in
             let files = if !elem_a.0.read().file_membership.is_empty() {
                 elem_a.0.read().file_membership.clone()
             } else {
                 files.clone()
             };
+
+            // merge the two elements
             AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file)?;
+
+            // update the file membership of the merged element, if there was any
             let mut elem_a_locked = elem_a.0.write();
             if !elem_a_locked.file_membership.is_empty() {
                 elem_a_locked.file_membership.insert(new_file.clone());
             }
         }
-
         Ok(())
     }
 
@@ -1624,6 +1687,7 @@ mod test {
         model2.sort();
         let model2_txt = model2.root_element().serialize();
 
+        println!("{}\n\n=======================\n{}\n\n", model_txt, model2_txt);
         assert_eq!(model_txt, model2_txt);
     }
 }
