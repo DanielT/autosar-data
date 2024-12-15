@@ -515,6 +515,7 @@ impl Element {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
             return Err(AutosarDataError::InvalidSubElement {
+                parent: self.element_name(),
                 element: self.element_name(),
             });
         }
@@ -569,6 +570,7 @@ impl Element {
         if self == other {
             // trying to copy self into self never makes sense, and would deadlock
             return Err(AutosarDataError::InvalidSubElement {
+                parent: self.element_name(),
                 element: self.element_name(),
             });
         }

@@ -1343,7 +1343,6 @@ mod test {
         model_b.sort();
         let model_b_txt = model_b.root_element().serialize();
         assert_eq!(model_a_txt, model_b_txt);
-
     }
 
     #[test]

@@ -294,10 +294,12 @@ impl ElementRaw {
         position: usize,
         version: AutosarVersion,
     ) -> Result<Element, AutosarDataError> {
-        let (elemtype, _) = self
-            .elemtype
-            .find_sub_element(element_name, version as u32)
-            .ok_or(AutosarDataError::InvalidSubElement { element: element_name })?;
+        let (elemtype, _) = self.elemtype.find_sub_element(element_name, version as u32).ok_or(
+            AutosarDataError::InvalidSubElement {
+                parent: self.element_name(),
+                element: element_name,
+            },
+        )?;
         if elemtype.is_named_in_version(version) {
             Err(AutosarDataError::ItemNameRequired { element: element_name })
         } else {
@@ -370,10 +372,12 @@ impl ElementRaw {
         }
         let item_name_cdata = CharacterData::String(item_name.to_owned());
 
-        let (elemtype, _) = self
-            .elemtype
-            .find_sub_element(element_name, version as u32)
-            .ok_or(AutosarDataError::InvalidSubElement { element: element_name })?;
+        let (elemtype, _) = self.elemtype.find_sub_element(element_name, version as u32).ok_or(
+            AutosarDataError::InvalidSubElement {
+                parent: self.element_name(),
+                element: element_name,
+            },
+        )?;
 
         if elemtype.is_named_in_version(version) {
             // verify that the given item_name is actually a valid name
@@ -648,6 +652,7 @@ impl ElementRaw {
 
         if model == model_src {
             let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+                parent: self.element_name(),
                 element: move_element_name,
             })?;
             if src_parent.downgrade() == self_weak {
@@ -684,6 +689,7 @@ impl ElementRaw {
         if start_pos <= position && position <= end_pos {
             if model == model_src {
                 let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+                    parent: self.element_name(),
                     element: move_element_name,
                 })?;
                 if src_parent.downgrade() == self_weak {
@@ -756,6 +762,7 @@ impl ElementRaw {
         }
 
         let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+            parent: self.element_name(),
             element: move_element.element_name(),
         })?;
 
@@ -860,6 +867,7 @@ impl ElementRaw {
         let src_path_prefix = move_element.0.read().path_unchecked()?;
         let dest_path_prefix = self.path_unchecked()?;
         let src_parent = move_element.parent()?.ok_or(AutosarDataError::InvalidSubElement {
+            parent: self.element_name(),
             element: move_element.element_name(),
         })?;
 
@@ -1001,6 +1009,7 @@ impl ElementRaw {
                                         if multiplicity != ElementMultiplicity::Any {
                                             // the new element is identical to an existing one, but repetitions are not allowed
                                             return Err(AutosarDataError::ElementInsertionConflict {
+                                                parent: self.element_name(),
                                                 element: element_name,
                                             });
                                         }
@@ -1023,6 +1032,7 @@ impl ElementRaw {
                                     if multiplicity != ElementMultiplicity::Any {
                                         // the new element is identical to an existing one, but repetitions are not allowed
                                         return Err(AutosarDataError::ElementInsertionConflict {
+                                            parent: self.element_name(),
                                             element: element_name,
                                         });
                                     }
@@ -1032,7 +1042,10 @@ impl ElementRaw {
                                 // end_pos is increased to allow inserting before or after this element
                                 end_pos = idx + 1;
                             } else {
-                                return Err(AutosarDataError::ElementInsertionConflict { element: element_name });
+                                return Err(AutosarDataError::ElementInsertionConflict {
+                                    parent: self.element_name(),
+                                    element: element_name,
+                                });
                             }
                         }
                         ContentMode::Bag | ContentMode::Mixed => {
@@ -1053,7 +1066,10 @@ impl ElementRaw {
 
             Ok((start_pos, end_pos))
         } else {
-            Err(AutosarDataError::InvalidSubElement { element: element_name })
+            Err(AutosarDataError::InvalidSubElement {
+                parent: self.element_name(),
+                element: element_name,
+            })
         }
     }
 
@@ -1318,8 +1334,13 @@ mod test {
     fn test_xml_path() {
         let model = AutosarModel::new();
         model.create_file("test", AutosarVersion::LATEST).unwrap();
-        let elem_ar_packages = model.root_element().create_sub_element(ElementName::ArPackages).unwrap();
-        let elem_ar_package = elem_ar_packages.create_named_sub_element(ElementName::ArPackage, "Pkg").unwrap();
+        let elem_ar_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let elem_ar_package = elem_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
         let elem_elements = elem_ar_package.create_sub_element(ElementName::Elements).unwrap();
 
         // test the xml_path() method in anormal situation

@@ -183,11 +183,13 @@ pub enum ArxmlParserError {
         value: String,
     },
 
-    /// The string is a valid enum item, but it is not part of the enum in the current context
-    #[error("string {value} is not a valid enum item in this context")]
+    /// Parsed a valid enum item, but it is not part of the enum in the current context
+    #[error("enum item {item} is not valid in element {element}")]
     InvalidEnumItem {
-        /// The string of the invalid enum item
-        value: String,
+        /// The element where the error occurred
+        element: ElementName,
+        /// The invalid enum item
+        item: EnumItem,
     },
 
     /// The string value is too long
@@ -773,7 +775,8 @@ impl<'a> ArxmlParser<'a> {
                 })?;
                 let (_, version) = items.iter().find(|(item, _)| *item == value).ok_or_else(|| {
                     self.error(ArxmlParserError::InvalidEnumItem {
-                        value: String::from_utf8_lossy(trimmed_input).to_string(),
+                        element: self.current_element,
+                        item: value,
                     })
                 })?;
                 self.check_version(
@@ -1357,7 +1360,10 @@ mod test {
 
     #[test]
     fn test_invalid_enum_item() {
-        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEnumItem { value: "".to_string() });
+        let discriminant = std::mem::discriminant(&ArxmlParserError::InvalidEnumItem {
+            element: ElementName::Abs,
+            item: EnumItem::Aa,
+        });
         test_helper(INVALID_ENUM_ITEM.as_bytes(), discriminant, false);
     }
 
