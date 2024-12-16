@@ -602,7 +602,7 @@ impl CompuMethod {
 
 //#########################################################
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompuMethodCategory {
     Identical,
     Linear,
@@ -789,7 +789,7 @@ impl CompuScale {
 
 //#########################################################
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompuScaleDirection {
     IntToPhys,
     PhysToInt,
@@ -797,6 +797,7 @@ pub enum CompuScaleDirection {
 
 //#########################################################
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum CompuScaleContent {
     TextConstant(String),
     NumericConstant(f64),

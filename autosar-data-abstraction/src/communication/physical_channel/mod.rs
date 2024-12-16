@@ -19,8 +19,8 @@ pub enum PhysicalChannel {
 }
 
 impl PhysicalChannel {
-    // get the connector element between this channel and an ecu
-    pub(crate) fn get_ecu_connector(&self, ecu_instance: &EcuInstance) -> Option<Element> {
+    /// get the connector element between this channel and an ecu
+    pub fn get_ecu_connector(&self, ecu_instance: &EcuInstance) -> Option<Element> {
         // get a connector referenced by this physical channel which is contained in the ecu_instance
         // iterate over the CommunicationConnectorRefConditionals
         for ccrc in self

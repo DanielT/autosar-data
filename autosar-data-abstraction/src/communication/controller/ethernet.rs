@@ -1,4 +1,4 @@
-use crate::communication::{EthernetPhysicalChannel, EthernetVlanInfo};
+use crate::communication::{CommunicationConnector, EthernetPhysicalChannel, EthernetVlanInfo};
 use crate::{abstraction_element, AbstractionElement, AutosarAbstractionError, EcuInstance};
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, ElementsIterator, WeakElement};
 
@@ -68,7 +68,7 @@ impl EthernetCommunicationController {
             EthernetCtrlChannelsIterator {
                 connector_iter: None,
                 comm_controller: self.0.clone(),
-                model: Err(AutosarDataError::ElementNotFound),
+                model: None,
             }
         }
     }
@@ -131,7 +131,7 @@ impl EthernetCommunicationController {
         &self,
         connection_name: &str,
         eth_channel: &EthernetPhysicalChannel,
-    ) -> Result<(), AutosarAbstractionError> {
+    ) -> Result<EthernetCommunicationConnector, AutosarAbstractionError> {
         let ecu: Element = self.0.named_parent()?.unwrap();
         let cluster_of_channel = eth_channel.cluster()?;
 
@@ -153,11 +153,7 @@ impl EthernetCommunicationController {
 
         // create a new connector
         let connectors = ecu.get_or_create_sub_element(ElementName::Connectors)?;
-        let connector =
-            connectors.create_named_sub_element(ElementName::EthernetCommunicationConnector, connection_name)?;
-        connector
-            .create_sub_element(ElementName::CommControllerRef)
-            .and_then(|refelem| refelem.set_reference_target(&self.0))?;
+        let connector = EthernetCommunicationConnector::new(connection_name, &connectors, self)?;
 
         // if the ethernet physical channel has a category (WIRED / WIRELESS / CANXL) then
         // set the category of the connector to the same value
@@ -168,6 +164,7 @@ impl EthernetCommunicationController {
             .and_then(|cdata| cdata.string_value())
         {
             let _ = connector
+                .element()
                 .create_sub_element(ElementName::Category)
                 .and_then(|cat| cat.set_character_data(category));
         }
@@ -179,7 +176,7 @@ impl EthernetCommunicationController {
         channel_connctor_refs
             .create_sub_element(ElementName::CommunicationConnectorRefConditional)
             .and_then(|ccrc| ccrc.create_sub_element(ElementName::CommunicationConnectorRef))
-            .and_then(|ccr| ccr.set_reference_target(&connector))?;
+            .and_then(|ccr| ccr.set_reference_target(connector.element()))?;
 
         // if the PhysicalChannel has VLAN info AND if there is a coupling port in this CommunicationController
         // then the coupling port should link to the PhysicalChannel / VLAN
@@ -199,7 +196,45 @@ impl EthernetCommunicationController {
             }
         }
 
-        Ok(())
+        Ok(connector)
+    }
+}
+
+//##################################################################
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EthernetCommunicationConnector(Element);
+abstraction_element!(EthernetCommunicationConnector, EthernetCommunicationConnector);
+
+impl EthernetCommunicationConnector {
+    pub(crate) fn new(
+        name: &str,
+        parent: &Element,
+        controller: &EthernetCommunicationController,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let connector = parent.create_named_sub_element(ElementName::EthernetCommunicationConnector, name)?;
+        connector
+            .create_sub_element(ElementName::CommControllerRef)
+            .and_then(|refelem| refelem.set_reference_target(&controller.0))?;
+        Ok(Self(connector))
+    }
+}
+
+impl CommunicationConnector for EthernetCommunicationConnector {
+    type Controller = EthernetCommunicationController;
+
+    fn controller(&self) -> Result<Self::Controller, AutosarAbstractionError> {
+        let controller = self
+            .element()
+            .get_sub_element(ElementName::CommControllerRef)
+            .ok_or_else(|| {
+                AutosarAbstractionError::ModelError(AutosarDataError::ElementNotFound {
+                    target: ElementName::CommControllerRef,
+                    parent: self.element().element_name(),
+                })
+            })?
+            .get_reference_target()?;
+        EthernetCommunicationController::try_from(controller)
     }
 }
 
@@ -209,14 +244,14 @@ impl EthernetCommunicationController {
 pub struct EthernetCtrlChannelsIterator {
     connector_iter: Option<ElementsIterator>,
     comm_controller: Element,
-    model: Result<AutosarModel, AutosarDataError>,
+    model: Option<AutosarModel>,
 }
 
 impl EthernetCtrlChannelsIterator {
     fn new(controller: &EthernetCommunicationController, ecu: &Element) -> Self {
         let iter = ecu.get_sub_element(ElementName::Connectors).map(|c| c.sub_elements());
         let comm_controller = controller.element().clone();
-        let model = comm_controller.model();
+        let model = comm_controller.model().ok();
         Self {
             connector_iter: iter,
             comm_controller,
@@ -229,7 +264,7 @@ impl Iterator for EthernetCtrlChannelsIterator {
     type Item = EthernetPhysicalChannel;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let model = self.model.as_ref().ok()?;
+        let model = self.model.as_ref()?;
         let connector_iter = self.connector_iter.as_mut()?;
         for connector in connector_iter.by_ref() {
             if connector.element_name() == ElementName::EthernetCommunicationConnector {

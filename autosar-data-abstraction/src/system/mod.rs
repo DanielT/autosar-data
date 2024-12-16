@@ -1,9 +1,9 @@
 use crate::communication::{
-    CanCluster, CanClusterSettings, CanFrame, Cluster, ContainerIPdu, DcmIPdu, EthernetCluster, EventGroupControlType,
-    FlexrayCluster, FlexrayClusterSettings, FlexrayFrame, GeneralPurposeIPdu, GeneralPurposeIPduCategory,
-    GeneralPurposePdu, GeneralPurposePduCategory, ISignal, ISignalGroup, ISignalIPdu, MultiplexedIPdu, NPdu, NmPdu,
-    SecuredIPdu, ServiceInstanceCollectionSet, SoAdRoutingGroup, SocketConnectionIpduIdentifierSet, SomeipTpConfig,
-    SystemSignal, SystemSignalGroup,
+    CanCluster, CanClusterSettings, CanFrame, CanTpConfig, Cluster, ContainerIPdu, DcmIPdu, DoIpTpConfig,
+    EthernetCluster, EventGroupControlType, FlexrayArTpConfig, FlexrayCluster, FlexrayClusterSettings, FlexrayFrame,
+    FlexrayTpConfig, GeneralPurposeIPdu, GeneralPurposeIPduCategory, GeneralPurposePdu, GeneralPurposePduCategory,
+    ISignal, ISignalGroup, ISignalIPdu, MultiplexedIPdu, NPdu, NmPdu, SecuredIPdu, ServiceInstanceCollectionSet,
+    SoAdRoutingGroup, SocketConnectionIpduIdentifierSet, SomeipTpConfig, SystemSignal, SystemSignalGroup,
 };
 use crate::datatype::SwBaseType;
 use crate::software_component::{CompositionSwComponentType, RootSwCompositionPrototype};
@@ -707,6 +707,68 @@ impl System {
         Ok(config)
     }
 
+    /// Create a CanTpConfig in the SYSTEM
+    ///
+    /// `CanTpConfig`s contain the configuration how to segment or reassemble diagnostic messages on a CAN bus.
+    pub fn create_can_tp_config(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        can_cluster: &CanCluster,
+    ) -> Result<CanTpConfig, AutosarAbstractionError> {
+        let config = CanTpConfig::new(name, package, can_cluster)?;
+        self.create_fibex_element_ref_unchecked(config.element())?;
+
+        Ok(config)
+    }
+
+    /// Create a DoIpTpConfig in the SYSTEM
+    ///
+    /// `DoIpTpConfig`s contain the configuration how to transmit diagnostic messages over IP networks.
+    pub fn create_doip_tp_config(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        eth_cluster: &EthernetCluster,
+    ) -> Result<DoIpTpConfig, AutosarAbstractionError> {
+        let config = DoIpTpConfig::new(name, package, eth_cluster)?;
+        self.create_fibex_element_ref_unchecked(config.element())?;
+
+        Ok(config)
+    }
+
+    /// Create a FlexRayTpConfig in the SYSTEM
+    ///
+    /// `FlexRayTpConfig`s describe how to segment or reassemble diagnostic messages on a FlexRay bus.
+    /// This configuration type is used for Flexray ISO TP communication.
+    pub fn create_flexray_tp_config(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        flexray_cluster: &FlexrayCluster,
+    ) -> Result<FlexrayTpConfig, AutosarAbstractionError> {
+        let config = FlexrayTpConfig::new(name, package, flexray_cluster)?;
+        self.create_fibex_element_ref_unchecked(config.element())?;
+
+        Ok(config)
+    }
+
+    /// Create a FlexrayArTpConfig in the SYSTEM
+    ///
+    /// `FlexrayArTpConfig`s describe how to segment or reassemble diagnostic messages on a FlexRay bus.
+    /// This configuration type is used for Flexray AUTOSAR TP communication.
+    pub fn create_flexray_ar_tp_config(
+        &self,
+        name: &str,
+        package: &ArPackage,
+        flexray_cluster: &FlexrayCluster,
+    ) -> Result<FlexrayArTpConfig, AutosarAbstractionError> {
+        let config = FlexrayArTpConfig::new(name, package, flexray_cluster)?;
+        self.create_fibex_element_ref_unchecked(config.element())?;
+
+        Ok(config)
+    }
+
     /// connect an element to the SYSTEM by creating a FIBEX-ELEMENT-REF
     ///
     /// If there is already a FIBEX-ELEMENT-REF, this function does nothing, successfully.
@@ -791,7 +853,7 @@ impl System {
 //#########################################################
 
 /// The category of a System
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemCategory {
     /// The `System` is used to describe system constraints
     SystemConstraints,

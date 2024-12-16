@@ -86,7 +86,7 @@ impl FlexrayPhysicalChannel {
 /// A flexray cluster may contain the channels A and/or B.
 ///
 /// This enum is an abstraction over the \<CHANNEL-NAME\> element.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlexrayChannelName {
     A,
     B,

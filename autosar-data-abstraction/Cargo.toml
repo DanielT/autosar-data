@@ -10,8 +10,8 @@ keywords = ["arxml", "automotive", "file-format", "Autosar"]
 repository = "https://github.com/DanielT/autosar-data"
 
 [dependencies]
-autosar-data = "0.14"
-autosar-data-specification = "0.14"
+autosar-data = "0.17"
+autosar-data-specification = "0.17"
 thiserror = "~1.0"
 
 [dev-dependencies]

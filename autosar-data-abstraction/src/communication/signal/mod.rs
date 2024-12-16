@@ -64,10 +64,6 @@ impl ISignal {
         Ok(())
     }
 
-    pub fn set_transformation(&self) -> Result<(), AutosarAbstractionError> {
-        todo!()
-    }
-
     /// get the length of this signal in bits
     pub fn length(&self) -> Option<u64> {
         self.element()
@@ -601,7 +597,7 @@ impl ISignalPort {
 
 //##################################################################
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TransferProperty {
     Pending,
     Triggered,

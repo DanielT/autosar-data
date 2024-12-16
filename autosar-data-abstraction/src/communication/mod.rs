@@ -8,6 +8,7 @@ mod frame;
 mod pdu;
 mod physical_channel;
 mod signal;
+mod transport_layer;
 
 pub use cluster::*;
 pub use controller::*;
@@ -16,6 +17,7 @@ pub use frame::*;
 pub use pdu::*;
 pub use physical_channel::*;
 pub use signal::*;
+pub use transport_layer::*;
 
 //#########################################################
 

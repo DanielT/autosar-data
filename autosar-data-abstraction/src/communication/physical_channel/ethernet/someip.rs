@@ -1223,9 +1223,12 @@ impl SomeipTpConfig {
     }
 
     /// create a new SomeIp TP connection in this `SomeipTpConfig`
-    /// 
+    ///
     /// returns the PduTriggering that is created for the TpSdu
-    pub fn create_someip_tp_connection(&self, tp_config: SomeipTpConnection) -> Result<PduTriggering, AutosarAbstractionError> {
+    pub fn create_someip_tp_connection(
+        &self,
+        tp_config: SomeipTpConnection,
+    ) -> Result<PduTriggering, AutosarAbstractionError> {
         let connections = self.element().get_or_create_sub_element(ElementName::TpConnections)?;
         let conn = connections.create_sub_element(ElementName::SomeipTpConnection)?;
 
@@ -1312,7 +1315,8 @@ impl TryFrom<Element> for SomeipTpConnection {
             .get_sub_element(ElementName::TransportPduRef)
             .and_then(|ref_elem| ref_elem.get_reference_target().ok());
 
-        let (Some(tp_sdu_triggering), Some(transport_pdu)) = (opt_tp_sdu_triggering, opt_transport_pdu_triggering) else {
+        let (Some(tp_sdu_triggering), Some(transport_pdu)) = (opt_tp_sdu_triggering, opt_transport_pdu_triggering)
+        else {
             return Err(AutosarAbstractionError::InvalidParameter(
                 "A SomeipTpConnection must have a TpSduRef and a TransportPduRef".to_string(),
             ));
@@ -1370,7 +1374,7 @@ mod test {
     ///   - a network endpoint
     ///   - a socket address
     fn helper_create_test_objects(model: &AutosarModel) -> SocketAddress {
-        let package = ArPackage::get_or_create(&model, "/ethernet").unwrap();
+        let package = ArPackage::get_or_create(model, "/ethernet").unwrap();
         let system = System::new("system", &package, SystemCategory::EcuExtract).unwrap();
         let cluster = system.create_ethernet_cluster("ethcluster", &package).unwrap();
         let channel = cluster

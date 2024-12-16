@@ -114,7 +114,7 @@ impl DataTransformation {
         let transformation = parent.create_named_sub_element(ElementName::DataTransformation, name)?;
         transformation
             .create_sub_element(ElementName::ExecuteDespiteDataUnavailability)?
-            .set_character_data(execute_despite_data_unavailability.to_string())?;
+            .set_character_data(execute_despite_data_unavailability)?;
         let chain_refs = transformation.create_sub_element(ElementName::TransformerChainRefs)?;
         for transformation in transformations {
             chain_refs
@@ -172,7 +172,7 @@ impl TransformationTechnology {
                     .set_character_data(generic_config.header_length as u64)?;
                 buffer_props
                     .create_sub_element(ElementName::InPlace)?
-                    .set_character_data(generic_config.in_place.to_string())?;
+                    .set_character_data(generic_config.in_place)?;
             }
             TransformationTechnologyConfig::Com(com_config) => {
                 ttech
@@ -260,7 +260,7 @@ impl TransformationTechnology {
                     .set_character_data(real_header_length as u64)?;
                 buffer_props
                     .create_sub_element(ElementName::InPlace)?
-                    .set_character_data(e2e_config.transform_in_place.to_string())?;
+                    .set_character_data(e2e_config.transform_in_place)?;
 
                 let trans_desc = ttech.create_sub_element(ElementName::TransformationDescriptions)?;
                 let e2e_desc = trans_desc.create_sub_element(ElementName::EndToEndTransformationDescription)?;
@@ -1041,10 +1041,10 @@ impl SomeIpTransformationISignalProps {
         someip_props_elem
             .create_sub_element(ElementName::TransformerRef)?
             .set_reference_target(transformer.element())?;
-        if let Some(legacy_strings) = &props.legacy_strings {
+        if let Some(legacy_strings) = props.legacy_strings {
             someip_props_elem
                 .create_sub_element(ElementName::ImplementsLegacyStringSerialization)?
-                .set_character_data(legacy_strings.to_string())?;
+                .set_character_data(legacy_strings)?;
         }
         if let Some(interface_version) = props.interface_version {
             someip_props_elem
@@ -1054,7 +1054,7 @@ impl SomeIpTransformationISignalProps {
         if let Some(dynamic_length) = props.dynamic_length {
             someip_props_elem
                 .create_sub_element(ElementName::IsDynamicLengthFieldSize)?
-                .set_character_data(dynamic_length.to_string())?;
+                .set_character_data(dynamic_length)?;
         }
         if let Some(message_type) = props.message_type {
             someip_props_elem
@@ -1089,8 +1089,7 @@ impl SomeIpTransformationISignalProps {
         let legacy_strings = elem
             .get_sub_element(ElementName::ImplementsLegacyStringSerialization)
             .and_then(|elem| elem.character_data())
-            .and_then(|cdata| cdata.string_value())
-            .map(|s| &s == "true" || s == "1");
+            .and_then(|cdata| cdata.parse_bool());
         let interface_version = elem
             .get_sub_element(ElementName::InterfaceVersion)
             .and_then(|elem| elem.character_data())
@@ -1098,8 +1097,7 @@ impl SomeIpTransformationISignalProps {
         let dynamic_length = elem
             .get_sub_element(ElementName::IsDynamicLengthFieldSize)
             .and_then(|elem| elem.character_data())
-            .and_then(|cdata| cdata.string_value())
-            .map(|s| &s == "true" || s == "1");
+            .and_then(|cdata| cdata.parse_bool());
         let message_type = elem
             .get_sub_element(ElementName::MessageType)
             .and_then(|elem| elem.character_data())

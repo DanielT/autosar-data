@@ -1,5 +1,7 @@
 use crate::{
-    abstraction_element, communication::CanPhysicalChannel, AbstractionElement, AutosarAbstractionError, EcuInstance,
+    abstraction_element,
+    communication::{CanPhysicalChannel, CommunicationConnector},
+    AbstractionElement, AutosarAbstractionError, EcuInstance,
 };
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, ElementsIterator, WeakElement};
 
@@ -44,7 +46,7 @@ impl CanCommunicationController {
     ///
     /// # Errors
     ///
-    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to get the ECU-INSTANCE
     pub fn connected_channels(&self) -> impl Iterator<Item = CanPhysicalChannel> {
         if let Ok(ecu) = self.ecu_instance().map(|ecuinstance| ecuinstance.element().clone()) {
             CanCtrlChannelsIterator::new(self, &ecu)
@@ -52,7 +54,7 @@ impl CanCommunicationController {
             CanCtrlChannelsIterator {
                 connector_iter: None,
                 comm_controller: self.0.clone(),
-                model: Err(AutosarDataError::ElementNotFound),
+                model: None,
             }
         }
     }
@@ -75,7 +77,7 @@ impl CanCommunicationController {
     ///
     /// # Errors
     ///
-    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to create the ECU-INSTANCE
+    /// - [`AutosarAbstractionError::ModelError`] An error occurred in the Autosar model while trying to get the ECU-INSTANCE
     pub fn ecu_instance(&self) -> Result<EcuInstance, AutosarAbstractionError> {
         // unwrapping is safe here - self.0.named_parent() cannot return Ok(None).
         // the CanCommunicationController is always a child of an EcuInstance,
@@ -116,7 +118,7 @@ impl CanCommunicationController {
         &self,
         connection_name: &str,
         can_channel: &CanPhysicalChannel,
-    ) -> Result<(), AutosarAbstractionError> {
+    ) -> Result<CanCommunicationConnector, AutosarAbstractionError> {
         let ecu = self.0.named_parent()?.unwrap();
         // check that there is no existing connector for this CanCommunicationController
         if let Some(connectors) = ecu.get_sub_element(ElementName::Connectors) {
@@ -135,10 +137,7 @@ impl CanCommunicationController {
         }
         // create a new connector
         let connectors = ecu.get_or_create_sub_element(ElementName::Connectors)?;
-        let connector = connectors.create_named_sub_element(ElementName::CanCommunicationConnector, connection_name)?;
-        connector
-            .create_sub_element(ElementName::CommControllerRef)
-            .and_then(|refelem| refelem.set_reference_target(&self.0))?;
+        let connector = CanCommunicationConnector::new(connection_name, &connectors, self)?;
 
         let channel_connctor_refs = can_channel
             .element()
@@ -146,9 +145,47 @@ impl CanCommunicationController {
         channel_connctor_refs
             .create_sub_element(ElementName::CommunicationConnectorRefConditional)
             .and_then(|ccrc| ccrc.create_sub_element(ElementName::CommunicationConnectorRef))
-            .and_then(|ccr| ccr.set_reference_target(&connector))?;
+            .and_then(|ccr| ccr.set_reference_target(connector.element()))?;
 
-        Ok(())
+        Ok(connector)
+    }
+}
+
+//##################################################################
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CanCommunicationConnector(Element);
+abstraction_element!(CanCommunicationConnector, CanCommunicationConnector);
+
+impl CanCommunicationConnector {
+    pub(crate) fn new(
+        name: &str,
+        parent: &Element,
+        controller: &CanCommunicationController,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let connector = parent.create_named_sub_element(ElementName::CanCommunicationConnector, name)?;
+        connector
+            .create_sub_element(ElementName::CommControllerRef)?
+            .set_reference_target(controller.element())?;
+        Ok(Self(connector))
+    }
+}
+
+impl CommunicationConnector for CanCommunicationConnector {
+    type Controller = CanCommunicationController;
+
+    fn controller(&self) -> Result<Self::Controller, AutosarAbstractionError> {
+        let controller = self
+            .element()
+            .get_sub_element(ElementName::CommControllerRef)
+            .ok_or_else(|| {
+                AutosarAbstractionError::ModelError(AutosarDataError::ElementNotFound {
+                    target: ElementName::CommControllerRef,
+                    parent: self.element().element_name(),
+                })
+            })?
+            .get_reference_target()?;
+        CanCommunicationController::try_from(controller)
     }
 }
 
@@ -158,14 +195,14 @@ impl CanCommunicationController {
 pub struct CanCtrlChannelsIterator {
     connector_iter: Option<ElementsIterator>,
     comm_controller: Element,
-    model: Result<AutosarModel, AutosarDataError>,
+    model: Option<AutosarModel>,
 }
 
 impl CanCtrlChannelsIterator {
     fn new(controller: &CanCommunicationController, ecu: &Element) -> Self {
         let iter = ecu.get_sub_element(ElementName::Connectors).map(|c| c.sub_elements());
         let comm_controller = controller.element().clone();
-        let model = comm_controller.model();
+        let model = comm_controller.model().ok();
         Self {
             connector_iter: iter,
             comm_controller,
@@ -178,7 +215,7 @@ impl Iterator for CanCtrlChannelsIterator {
     type Item = CanPhysicalChannel;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let model = self.model.as_ref().ok()?;
+        let model = self.model.as_ref()?;
         let connector_iter = self.connector_iter.as_mut()?;
         for connector in connector_iter.by_ref() {
             if connector.element_name() == ElementName::CanCommunicationConnector {

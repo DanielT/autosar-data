@@ -1,4 +1,4 @@
-use crate::{AbstractionElement, AutosarAbstractionError};
+use crate::{AbstractionElement, AutosarAbstractionError, EcuInstance};
 use autosar_data::{Element, ElementName};
 
 mod can;
@@ -66,6 +66,21 @@ impl From<FlexrayCommunicationController> for CommunicationController {
     fn from(value: FlexrayCommunicationController) -> Self {
         CommunicationController::Flexray(value)
     }
+}
+
+//##################################################################
+
+pub trait CommunicationConnector: AbstractionElement {
+    type Controller;
+
+    fn ecu_instance(&self) -> Result<EcuInstance, AutosarAbstractionError> {
+        // Note: it is always OK to unwrap the result of named_parent() because
+        // the parent of a CommunicationConnector is always an EcuInstance
+        // named_parent() can only return Ok(None) for an ArPackage
+        self.element().named_parent()?.unwrap().try_into()
+    }
+
+    fn controller(&self) -> Result<Self::Controller, AutosarAbstractionError>;
 }
 
 //##################################################################

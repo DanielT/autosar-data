@@ -1083,6 +1083,7 @@ impl SoConIPduIdentifier {
 //##################################################################
 
 /// The role of a TCP connection in a static socket connection cna either be `Connect` (=client) or `Listen` (=server).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TcpRole {
     Connect,
     Listen,

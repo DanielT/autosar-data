@@ -76,7 +76,7 @@ impl NetworkEndpoint {
                 }
                 if let Some(addr_src) = address_source {
                     cfg.create_sub_element(ElementName::Ipv4AddressSource)?
-                        .set_character_data(addr_src)?;
+                        .set_character_data::<EnumItem>(addr_src.into())?;
                 }
                 if let Some(defgw) = default_gateway {
                     cfg.create_sub_element(ElementName::DefaultGateway)?
@@ -226,13 +226,13 @@ impl IPv4AddressSource {
     }
 }
 
-impl From<IPv4AddressSource> for CharacterData {
+impl From<IPv4AddressSource> for EnumItem {
     fn from(value: IPv4AddressSource) -> Self {
         match value {
-            IPv4AddressSource::AutoIp => CharacterData::Enum(EnumItem::AutoIp),
-            IPv4AddressSource::AutoIpDoIp => CharacterData::Enum(EnumItem::AutoIpDoip),
-            IPv4AddressSource::DHCPv4 => CharacterData::Enum(EnumItem::Dhcpv4),
-            IPv4AddressSource::Fixed => CharacterData::Enum(EnumItem::Fixed),
+            IPv4AddressSource::AutoIp => EnumItem::AutoIp,
+            IPv4AddressSource::AutoIpDoIp => EnumItem::AutoIpDoip,
+            IPv4AddressSource::DHCPv4 => EnumItem::Dhcpv4,
+            IPv4AddressSource::Fixed => EnumItem::Fixed,
         }
     }
 }

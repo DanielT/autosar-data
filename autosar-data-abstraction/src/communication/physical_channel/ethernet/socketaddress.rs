@@ -343,7 +343,7 @@ impl SocketAddress {
 //##################################################################
 
 /// transport protocol settings of a [`SocketAddress`]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TpConfig {
     /// The socket uses TCP
     TcpTp {

@@ -1,7 +1,5 @@
-use crate::{
-    abstraction_element, communication::FlexrayPhysicalChannel, AbstractionElement, AutosarAbstractionError,
-    EcuInstance,
-};
+use crate::communication::{CommunicationConnector, FlexrayPhysicalChannel};
+use crate::{abstraction_element, AbstractionElement, AutosarAbstractionError, EcuInstance};
 use autosar_data::{AutosarDataError, AutosarModel, Element, ElementName, ElementsIterator, WeakElement};
 
 /// An `EcuInstance` needs a `FlexrayCommunicationController` in order to connect to a Flexray cluster.
@@ -53,7 +51,7 @@ impl FlexrayCommunicationController {
             FlexrayCtrlChannelsIterator {
                 connector_iter: None,
                 comm_controller: self.0.clone(),
-                model: Err(AutosarDataError::ElementNotFound),
+                model: None,
             }
         }
     }
@@ -118,7 +116,7 @@ impl FlexrayCommunicationController {
         &self,
         connection_name: &str,
         flx_channel: &FlexrayPhysicalChannel,
-    ) -> Result<(), AutosarAbstractionError> {
+    ) -> Result<FlexrayCommunicationConnector, AutosarAbstractionError> {
         let ecu = self.0.named_parent()?.unwrap();
 
         for existing_channel in self.connected_channels() {
@@ -129,11 +127,7 @@ impl FlexrayCommunicationController {
 
         // create a new connector
         let connectors = ecu.get_or_create_sub_element(ElementName::Connectors)?;
-        let connector =
-            connectors.create_named_sub_element(ElementName::FlexrayCommunicationConnector, connection_name)?;
-        connector
-            .create_sub_element(ElementName::CommControllerRef)
-            .and_then(|refelem| refelem.set_reference_target(&self.0))?;
+        let connector = FlexrayCommunicationConnector::new(connection_name, &connectors, self)?;
 
         let channel_connctor_refs = flx_channel
             .element()
@@ -141,9 +135,48 @@ impl FlexrayCommunicationController {
         channel_connctor_refs
             .create_sub_element(ElementName::CommunicationConnectorRefConditional)
             .and_then(|ccrc| ccrc.create_sub_element(ElementName::CommunicationConnectorRef))
-            .and_then(|ccr| ccr.set_reference_target(&connector))?;
+            .and_then(|ccr| ccr.set_reference_target(connector.element()))?;
 
-        Ok(())
+        Ok(connector)
+    }
+}
+
+//##################################################################
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FlexrayCommunicationConnector(Element);
+abstraction_element!(FlexrayCommunicationConnector, FlexrayCommunicationConnector);
+
+impl FlexrayCommunicationConnector {
+    pub(crate) fn new(
+        name: &str,
+        parent: &Element,
+        controller: &FlexrayCommunicationController,
+    ) -> Result<Self, AutosarAbstractionError> {
+        let connector = parent.create_named_sub_element(ElementName::FlexrayCommunicationConnector, name)?;
+        connector
+            .create_sub_element(ElementName::CommControllerRef)
+            .and_then(|refelem| refelem.set_reference_target(controller.element()))?;
+
+        Ok(Self(connector))
+    }
+}
+
+impl CommunicationConnector for FlexrayCommunicationConnector {
+    type Controller = FlexrayCommunicationController;
+
+    fn controller(&self) -> Result<Self::Controller, AutosarAbstractionError> {
+        let controller = self
+            .element()
+            .get_sub_element(ElementName::CommControllerRef)
+            .ok_or_else(|| {
+                AutosarAbstractionError::ModelError(AutosarDataError::ElementNotFound {
+                    target: ElementName::CommControllerRef,
+                    parent: self.element().element_name(),
+                })
+            })?
+            .get_reference_target()?;
+        FlexrayCommunicationController::try_from(controller)
     }
 }
 
@@ -153,14 +186,14 @@ impl FlexrayCommunicationController {
 pub struct FlexrayCtrlChannelsIterator {
     connector_iter: Option<ElementsIterator>,
     comm_controller: Element,
-    model: Result<AutosarModel, AutosarDataError>,
+    model: Option<AutosarModel>,
 }
 
 impl FlexrayCtrlChannelsIterator {
     fn new(controller: &FlexrayCommunicationController, ecu: &Element) -> Self {
         let iter = ecu.get_sub_element(ElementName::Connectors).map(|c| c.sub_elements());
         let comm_controller = controller.element().clone();
-        let model = comm_controller.model();
+        let model = comm_controller.model().ok();
         Self {
             connector_iter: iter,
             comm_controller,
@@ -173,7 +206,7 @@ impl Iterator for FlexrayCtrlChannelsIterator {
     type Item = FlexrayPhysicalChannel;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let model = self.model.as_ref().ok()?;
+        let model = self.model.as_ref()?;
         let connector_iter = self.connector_iter.as_mut()?;
         for connector in connector_iter.by_ref() {
             if connector.element_name() == ElementName::FlexrayCommunicationConnector {
