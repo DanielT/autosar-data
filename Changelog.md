@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 0.17.0
+
+Released 2024-12-16
+
+### API
+
+- Added `CharacterData::parse_bool` and `impl From<bool> for CharacterData`
+- Added `Element::remove_sub_element_kind()`, which equivalent to `get_sub_element(ElementName)` followed by `remove_sub_element()`
+- Added extra info to the errors `InvalidSubElement` and `ElementInsertionConflict`
+
+### Enhancements
+
+- Removed the dependency on num_derive, which should make the build a bit faster - Thanks @shahn
+- autosar-data now uses `#![warn(missing_docs)]`, and all items have been documented
+
 ## Version 0.16.0
 
 Released 2024-11-30
@@ -28,7 +43,7 @@ Released 2024-10-24
 ### Fixes
 
 - when loading two or more files, the model merging code could hang in an endless loop
-- XML allows attributes in single quotes, but the parser did not accept this 
+- XML allows attributes in single quotes, but the parser did not accept this
 
 ## Version 0.14
 
