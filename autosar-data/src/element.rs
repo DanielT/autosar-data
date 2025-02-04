@@ -1531,9 +1531,13 @@ impl Element {
     ///  - [`AutosarDataError::InvalidAttribute`]: The `AttributeName` is not valid for this element
     ///  - [`AutosarDataError::InvalidAttributeValue`]: The value is not valid for this attribute in this element
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
-    pub fn set_attribute(&self, attrname: AttributeName, value: CharacterData) -> Result<(), AutosarDataError> {
+    pub fn set_attribute<T: Into<CharacterData>>(
+        &self,
+        attrname: AttributeName,
+        value: T,
+    ) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
-        self.0.write().set_attribute_internal(attrname, value, version)
+        self.0.write().set_attribute_internal(attrname, value.into(), version)
     }
 
     /// Set the value of a named attribute from a string
