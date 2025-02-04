@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 0.18.0
+
+Released 2025-02-04
+
+### API
+
+- Element::set_attribute_value now behaves like Element::set_character_data, in that it accepts any parameter that can be converted to a CharacterData object
+
+### Enhancements
+
+- Debug diplay of multiple types has been improved
+- Large arrays in the specification are now declared as static instead of const, which noticeable improves compilation speed
+
 ## Version 0.17.0
 
 Released 2024-12-16
