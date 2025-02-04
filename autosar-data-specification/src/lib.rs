@@ -428,7 +428,7 @@ impl ElementType {
     #[must_use]
     pub fn is_named_in_version(&self, version: AutosarVersion) -> bool {
         self.short_name_version_mask()
-            .map_or(false, |ver_mask| version.compatible(ver_mask))
+            .is_some_and(|ver_mask| version.compatible(ver_mask))
     }
 
     /// is the `ElementType` a reference

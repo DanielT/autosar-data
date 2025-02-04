@@ -44,7 +44,7 @@ macro_rules! g {
 }
 
 #[rustfmt::skip]
-pub(crate) const CHARACTER_DATA: [CharacterDataSpec; 984] = [
+pub(crate) static CHARACTER_DATA: [CharacterDataSpec; 984] = [
     CharacterDataSpec::Enum{items: &[(EnumItem::AbstractAccessPoint, 0x1fff00), (EnumItem::AsynchronousServerCallPoint, 0x1fff00), (EnumItem::AsynchronousServerCallResultPoint, 0x1fff00), (EnumItem::ExternalTriggeringPointIdent, 0x1fff00), (EnumItem::InternalTriggeringPoint, 0x1fff00), (EnumItem::ModeAccessPointIdent, 0x1fff00), (EnumItem::ModeSwitchPoint, 0x1fff00), (EnumItem::ParameterAccess, 0x1fff00), (EnumItem::ServerCallPoint, 0x1fff00), (EnumItem::SynchronousServerCallPoint, 0x1fff00), (EnumItem::VariableAccess, 0x1fff00)]},
     CharacterDataSpec::Enum{items: &[(EnumItem::AbstractCanCommunicationController, 0x1c0000), (EnumItem::CanCommunicationController, 0x1c0000), (EnumItem::TtcanCommunicationController, 0x1c0000)]},
     CharacterDataSpec::Enum{items: &[(EnumItem::AbstractEvent, 0x1fffc0), (EnumItem::AsynchronousServerCallReturnsEvent, 0x1fffc0), (EnumItem::BackgroundEvent, 0x1fffc0), (EnumItem::BswAsynchronousServerCallReturnsEvent, 0x1fffc0), (EnumItem::BswBackgroundEvent, 0x1fffc0), (EnumItem::BswDataReceivedEvent, 0x1fffc0), (EnumItem::BswEvent, 0x1fffc0), (EnumItem::BswExternalTriggerOccurredEvent, 0x1fffc0), (EnumItem::BswInternalTriggerOccurredEvent, 0x1fffc0), (EnumItem::BswInterruptEvent, 0x180000), (EnumItem::BswModeManagerErrorEvent, 0x1fffc0), (EnumItem::BswModeSwitchEvent, 0x1fffc0), (EnumItem::BswModeSwitchedAckEvent, 0x1fffc0), (EnumItem::BswOperationInvokedEvent, 0x1fffc0), (EnumItem::BswOsTaskExecutionEvent, 0x1f0000), (EnumItem::BswScheduleEvent, 0x1fffc0), (EnumItem::BswTimingEvent, 0x1fffc0), (EnumItem::DataReceiveErrorEvent, 0x1fffc0), (EnumItem::DataReceivedEvent, 0x1fffc0), (EnumItem::DataSendCompletedEvent, 0x1fffc0), (EnumItem::DataWriteCompletedEvent, 0x1fffc0), (EnumItem::ExternalTriggerOccurredEvent, 0x1fffc0), (EnumItem::InitEvent, 0x1fffc0), (EnumItem::InternalTriggerOccurredEvent, 0x1fffc0), (EnumItem::ModeSwitchedAckEvent, 0x1fffc0), (EnumItem::OperationInvokedEvent, 0x1fffc0), (EnumItem::OsTaskExecutionEvent, 0x1f0000), (EnumItem::RteEvent, 0x1fffc0), (EnumItem::SwcModeManagerErrorEvent, 0x1fffc0), (EnumItem::SwcModeSwitchEvent, 0x1fffc0), (EnumItem::TimingEvent, 0x1fffc0), (EnumItem::TransformerHardErrorEvent, 0x1fffc0)]},
@@ -1030,10 +1030,10 @@ pub(crate) const CHARACTER_DATA: [CharacterDataSpec; 984] = [
     CharacterDataSpec::String{preserve_whitespace: false, max_length: None},
     CharacterDataSpec::UnsignedInteger,
 ];
-pub(crate) const REFERENCE_TYPE_IDX: u16 = 726;
+pub(crate) static REFERENCE_TYPE_IDX: u16 = 726;
 
 #[rustfmt::skip]
-pub(crate) const ELEMENTS: [ElementDefinition; 9160] = [
+pub(crate) static ELEMENTS: [ElementDefinition; 9160] = [
     /*    0 */ element!(Autosar, 250, One, false, 0xFFFFFFFF, NotRestricted, Some(2311)),
     /*    1 */ element!(A2LDisplayText, 4393, ZeroOrOne, false, 0x0, NotRestricted, Some(3188)),
     /*    2 */ element!(AafAes3DataType, 2558, ZeroOrOne, false, 0x0, NotRestricted, Some(813)),
@@ -10196,10 +10196,10 @@ pub(crate) const ELEMENTS: [ElementDefinition; 9160] = [
     /* 9159 */ element!(XrefTarget, 5076, One, false, 0x0, NotRestricted, Some(4393)),
 ];
 
-pub(crate) const AUTOSAR_ELEMENT: u16 = 0;
+pub(crate) static AUTOSAR_ELEMENT: u16 = 0;
 
 #[rustfmt::skip]
-pub(crate) const SUBELEMENTS: [SubElement; 21263] = [
+pub(crate) static SUBELEMENTS: [SubElement; 21263] = [
     e!(61), e!(62), e!(65), e!(66), e!(109), e!(110), e!(112), e!(184), e!(205), e!(242), e!(243), e!(246), e!(257), e!(263), e!(264), e!(280), e!(289), e!(292), e!(294), e!(303), e!(316), e!(320), e!(329), e!(330), e!(335),
     e!(396), e!(562), e!(584), e!(593), e!(598), e!(618), e!(624), e!(632), e!(661), e!(682), e!(683), e!(684), e!(685), e!(707), e!(728), e!(750), e!(771), e!(782), e!(897), e!(912), e!(915), e!(945), e!(958), e!(965), e!(966),
     e!(967), e!(968), e!(969), e!(970), e!(971), e!(978), e!(979), e!(981), e!(982), e!(985), e!(986), e!(987), e!(1048), e!(1067), e!(1075), e!(1076), e!(1077), e!(1087), e!(1146), e!(1155), e!(1157), e!(1173), e!(1199), e!(1382), e!(1428),
@@ -11054,7 +11054,7 @@ pub(crate) const SUBELEMENTS: [SubElement; 21263] = [
 ];
 
 #[rustfmt::skip]
-pub(crate) const ATTRIBUTES: [(AttributeName, u16, bool); 3855] = [
+pub(crate) static ATTRIBUTES: [(AttributeName, u16, bool); 3855] = [
     (AttributeName::S, 982, false),
     (AttributeName::T, 196, false),
     (AttributeName::Accesskey, 982, false),
@@ -15871,7 +15871,7 @@ pub(crate) static VERSION_INFO: [u32; 9537] = [
 ];
 
 #[rustfmt::skip]
-pub(crate) const DATATYPES: [ElementSpec; 5080] = [
+pub(crate) static DATATYPES: [ElementSpec; 5080] = [
     /*    0 */ ElementSpec {sub_elements: (19520, 19522), sub_element_ver: 795, attributes: (0, 2), attributes_ver: 22, character_data: None, mode: ContentMode::Sequence, ref_info: (0, 0)}, // ABSOLUTE-TOLERANCE
     /*    1 */ ElementSpec {sub_elements: (19522, 19524), sub_element_ver: 22, attributes: (0, 0), attributes_ver: 0, character_data: None, mode: ContentMode::Choice, ref_info: (0, 0)}, // CAN-CONTROLLER-ATTRIBUTES
     /*    2 */ ElementSpec {sub_elements: (11034, 11046), sub_element_ver: 3816, attributes: (115, 118), attributes_ver: 192, character_data: None, mode: ContentMode::Sequence, ref_info: (0, 3)}, // ABSTRACT-CLASS-TAILORING
@@ -20955,7 +20955,7 @@ pub(crate) const DATATYPES: [ElementSpec; 5080] = [
 ];
 
 #[rustfmt::skip]
-pub(crate) const REF_ITEMS: [EnumItem; 6171] = [
+pub(crate) static REF_ITEMS: [EnumItem; 6171] = [
     EnumItem::AbstractClassTailoring,
     EnumItem::DataFormatElementReference,
     EnumItem::SpecElementReference,
@@ -27131,7 +27131,7 @@ pub(crate) const REF_ITEMS: [EnumItem; 6171] = [
 
 #[cfg(feature = "docstrings")]
 #[rustfmt::skip]
-pub(crate) const ELEMENT_DOCSTRINGS: [&str; 6069] = [
+pub(crate) static ELEMENT_DOCSTRINGS: [&str; 6069] = [
     "\"This aggregation represents the collection of diagnostic addresses that apply for the SoftwareClusterDesign.",
     "\"This aggregation represents the definition transmission props in the context of the enclosing ReceiverComSpec.",
     "\"This reference identifies the applicable process.",
