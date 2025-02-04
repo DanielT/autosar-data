@@ -2381,16 +2381,51 @@ fn decompose_item_name(name: &str) -> Option<(String, u64)> {
     }
 }
 
+// a helper that provides compact debug output for the content of an element
+struct ElementContentFormatter<'a>(&'a SmallVec<[ElementContent; 4]>);
+impl std::fmt::Debug for ElementContentFormatter<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut list_fmt = f.debug_list();
+        for item in self.0.iter() {
+            match item {
+                ElementContent::Element(elem) => list_fmt.entry(&elem.element_name()),
+                ElementContent::CharacterData(cdata) => list_fmt.entry(&cdata),
+            };
+        }
+        list_fmt.finish()
+    }
+}
+
+// A custom type is needed in order to print a custom value in the Debug implementation without double quoting
+struct DebugDisplay<'a>(&'a str);
+impl std::fmt::Debug for DebugDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+// custom debug implementation: print the content instead of only showing the pointer of the Arc
 impl std::fmt::Debug for Element {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let elem = self.0.read();
         let mut dbgstruct = f.debug_struct("Element");
+        if let Some(name) = elem.item_name() {
+            dbgstruct.field("name", &name);
+        }
         dbgstruct.field("elemname", &elem.elemname);
         dbgstruct.field("elemtype", &elem.elemtype);
         dbgstruct.field("parent", &elem.parent);
-        dbgstruct.field("content", &elem.content);
+        dbgstruct.field("content", &ElementContentFormatter(&elem.content));
         dbgstruct.field("attributes", &elem.attributes);
-        dbgstruct.field("file_membership", &elem.file_membership);
+        // only print the file membership if the element is splittable
+        // elements that are not splittable may not modify their file membership
+        if elem.elemtype.splittable() != 0 {
+            if elem.file_membership.is_empty() {
+                dbgstruct.field("file_membership", &DebugDisplay("(inherited)"));
+            } else {
+                dbgstruct.field("file_membership", &elem.file_membership);
+            }
+        }
         dbgstruct.finish()
     }
 }
@@ -2411,7 +2446,12 @@ impl Hash for Element {
 
 impl std::fmt::Debug for WeakElement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("Element:WeakRef {:p}", Weak::as_ptr(&self.0)))
+        if let Some(elem) = self.upgrade() {
+            // write!(f, "Element:WeakRef {:p}", Arc::as_ptr(&elem.0));
+            f.write_fmt(format_args!("Element:WeakRef ({})", elem.element_name()))
+        } else {
+            f.write_fmt(format_args!("Element:WeakRef {:p} (invalid)", Weak::as_ptr(&self.0)))
+        }
     }
 }
 
@@ -2458,13 +2498,13 @@ impl ElementContent {
     }
 }
 
-// custom debug implementation: skip printing the name of the wrapper-enum and directly show the content
+// custom debug implementation: skip printing any content, since the content is only "WeakRef(0x...)"
 impl std::fmt::Debug for ElementOrModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ElementOrModel::Element(elem) => elem.fmt(f),
-            ElementOrModel::Model(model) => model.fmt(f),
-            ElementOrModel::None => f.write_str("None"),
+            ElementOrModel::Element(_) => f.write_str("Element"),
+            ElementOrModel::Model(_) => f.write_str("Model"),
+            ElementOrModel::None => f.write_str("None/Invalid"),
         }
     }
 }

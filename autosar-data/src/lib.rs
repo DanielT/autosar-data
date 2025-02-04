@@ -389,7 +389,7 @@ pub(crate) struct ElementRaw {
 }
 
 /// A single attribute of an arxml element
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Attribute {
     /// The name of the attribute
     pub attrname: AttributeName,
@@ -541,6 +541,13 @@ pub fn check_file<P: AsRef<Path>>(filename: P) -> bool {
 pub fn check_buffer(buffer: &[u8]) -> bool {
     let mut parser = ArxmlParser::new(PathBuf::from("none"), buffer, false);
     parser.check_arxml_header()
+}
+
+/// Custom Debug implementation for `Attribute`, in order to provide better formatting
+impl std::fmt::Debug for Attribute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Attribute: {:?} = {:?}", self.attrname, self.content)
+    }
 }
 
 /// provide PartialOrd for attributes; this is used while sorting elements

@@ -167,7 +167,7 @@ pub struct AttributeSpec {
 /// `ElementType` is an abstraction over element types in the specification.
 ///
 /// It provides no public fields, but it has methods to get all the info needed to parse an arxml element.
-#[derive(Debug, Eq, PartialEq, Clone, Copy, Hash)]
+#[derive(Eq, PartialEq, Clone, Copy, Hash)]
 pub struct ElementType {
     /// index into the `ELEMENTS` array
     def: u16,
@@ -580,6 +580,13 @@ impl ElementType {
 
     /// `ElementType::ROOT` is the root `ElementType` of the Autosar arxml document: this is the `ElementType` of the AUTOSAR element
     pub const ROOT: Self = ElementType::new(AUTOSAR_ELEMENT);
+}
+
+/// custom implementation of Debug for ElementType - make the output more compact, since the long form is not very useful
+impl core::fmt::Debug for ElementType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "ElementType({}, {})", self.def, self.typ)
+    }
 }
 
 impl GroupType {

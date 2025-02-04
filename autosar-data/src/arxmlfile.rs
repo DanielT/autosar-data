@@ -336,7 +336,11 @@ impl Hash for WeakArxmlFile {
 
 impl std::fmt::Debug for WeakArxmlFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("ArxmlFile:WeakRef {:p}", Weak::as_ptr(&self.0)))
+        if let Some(arxmlfile) = self.upgrade() {
+            f.write_fmt(format_args!("ArxmlFile:WeakRef ({})", arxmlfile.filename().display()))
+        } else {
+            f.write_fmt(format_args!("ArxmlFile:WeakRef {:p} (invalid)", Weak::as_ptr(&self.0)))
+        }
     }
 }
 
