@@ -1969,7 +1969,7 @@ impl Element {
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn add_to_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
-        let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
+        let parent_splittable = self.parent()?.is_none_or(|p| p.element_type().splittable() != 0);
         if parent_splittable {
             if file.model()? == self.model()? {
                 let weak_file = file.downgrade();
@@ -2018,7 +2018,7 @@ impl Element {
             let mut extended_fileset = current_fileset;
             extended_fileset.insert(weak_file);
             // if the parent is splittable, or if the current element already has a fileset, then that fileset should be updated
-            let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
+            let parent_splittable = self.parent()?.is_none_or(|p| p.element_type().splittable() != 0);
             if parent_splittable || local {
                 self.0.write().file_membership = extended_fileset;
             }
@@ -2060,7 +2060,7 @@ impl Element {
     ///    The operation was aborted to avoid a deadlock, but can be retried.
     ///
     pub fn remove_from_file(&self, file: &ArxmlFile) -> Result<(), AutosarDataError> {
-        let parent_splittable = self.parent()?.map_or(true, |p| p.element_type().splittable() != 0);
+        let parent_splittable = self.parent()?.is_none_or(|p| p.element_type().splittable() != 0);
         if parent_splittable {
             if file.model()? == self.model()? {
                 let weak_file = file.downgrade();
