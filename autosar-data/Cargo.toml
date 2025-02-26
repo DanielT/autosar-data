@@ -11,8 +11,8 @@ repository = "https://github.com/DanielT/autosar-data"
 
 [dependencies]
 autosar-data-specification = "0.18"
-thiserror = "~2.0"
-smallvec = { version = "~1.13.0", features = ["union", "const_generics"]}
+thiserror = "2.0"
+smallvec = { version = "1.13.0", features = ["union", "const_generics"]}
 parking_lot = "0.12"
 indexmap = "2.2.0"
 fxhash = "0.2.1"
