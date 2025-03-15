@@ -2,7 +2,7 @@
 name = "autosar-data"
 version = "0.18.0"
 authors = ["Daniel Thaler <daniel@dthaler.de>"]
-edition = "2021"
+edition = "2024"
 description = "read, write and modify Autosar arxml data"
 license = "MIT OR Apache-2.0"
 keywords = ["arxml", "automotive", "file-format", "Autosar"]

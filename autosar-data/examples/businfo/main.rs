@@ -639,8 +639,7 @@ fn display_mapped_pdu(pdu_mapping: &Element) -> Option<()> {
     Some(())
 }
 
-static SPACES: &str =
-"                                                                                                                                ";
+static SPACES: &str = "                                                                                                                                ";
 
 // display a PDU
 // Since CONTAINER-I-PDUs and SECURED-I-PDUs contain other PDUs this function can be called recursively.

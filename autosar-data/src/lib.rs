@@ -340,7 +340,9 @@ pub enum AutosarDataError {
     NoFilesInModel,
 
     /// Modifying the fileset of this element is not allowed
-    #[error("Modifying the fileset of this element is not allowed, because the parent of the element is not marked as splittable")]
+    #[error(
+        "Modifying the fileset of this element is not allowed, because the parent of the element is not marked as splittable"
+    )]
     FilesetModificationForbidden,
 }
 

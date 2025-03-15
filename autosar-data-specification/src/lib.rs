@@ -93,7 +93,7 @@ pub use autosarversion::{AutosarVersion, ParseAutosarVersionError};
 pub use elementname::{ElementName, ParseElementNameError};
 pub use enumitem::{EnumItem, ParseEnumItemError};
 use specification::{
-    ATTRIBUTES, AUTOSAR_ELEMENT, CHARACTER_DATA, DATATYPES, ELEMENTS, REFERENCE_TYPE_IDX, REF_ITEMS, SUBELEMENTS,
+    ATTRIBUTES, AUTOSAR_ELEMENT, CHARACTER_DATA, DATATYPES, ELEMENTS, REF_ITEMS, REFERENCE_TYPE_IDX, SUBELEMENTS,
     VERSION_INFO,
 };
 

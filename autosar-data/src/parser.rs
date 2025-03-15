@@ -56,7 +56,9 @@ pub enum ArxmlParserError {
     },
 
     /// An xml element was found, but it is not a valid Autosar element
-    #[error("Encountered invalid child element {invalid_element} inside parent element {element}. {invalid_element} is not a known Autosar element.")]
+    #[error(
+        "Encountered invalid child element {invalid_element} inside parent element {element}. {invalid_element} is not a known Autosar element."
+    )]
     InvalidBeginElement {
         /// The parent element where the error occurred
         element: ElementName,
@@ -74,7 +76,9 @@ pub enum ArxmlParserError {
     },
 
     /// An xml element was closed, but it is not a valid Autosar element
-    #[error("Encountered invalid end tag for element {invalid_element} inside parent element {parent_element}. {invalid_element} is not a known Autosar element.")]
+    #[error(
+        "Encountered invalid end tag for element {invalid_element} inside parent element {parent_element}. {invalid_element} is not a known Autosar element."
+    )]
     InvalidEndElement {
         /// The parent element where the error occurred
         parent_element: ElementName,

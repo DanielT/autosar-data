@@ -2,7 +2,7 @@
 name = "autosar-data-specification"
 version = "0.18.0"
 authors = ["Daniel Thaler <daniel@dthaler.de>"]
-edition = "2021"
+edition = "2024"
 description = "specification of the Autosar arxml file format as rust data structures"
 license = "MIT OR Apache-2.0"
 keywords = ["arxml", "automotive", "file-format", "Autosar"]

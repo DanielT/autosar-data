@@ -278,7 +278,7 @@ impl Element {
                         weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?
                     }
                     ElementOrModel::Model(weak_arxmlfile) => {
-                        return weak_arxmlfile.upgrade().ok_or(AutosarDataError::ItemDeleted)
+                        return weak_arxmlfile.upgrade().ok_or(AutosarDataError::ItemDeleted);
                     }
                     ElementOrModel::None => return Err(AutosarDataError::ItemDeleted),
                 }
@@ -2553,9 +2553,11 @@ mod test {
             .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod3")
             .unwrap();
         // elements with duplicate names are not allowed
-        assert!(el_elements
-            .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod3")
-            .is_err());
+        assert!(
+            el_elements
+                .create_named_sub_element(ElementName::CompuMethod, "TestCompuMethod3")
+                .is_err()
+        );
 
         let count = el_elements.sub_elements().count();
         assert_eq!(count, 3);
@@ -2611,42 +2613,56 @@ mod test {
         assert!(result.is_err());
 
         // creating a sub element at an invalid position fails
-        assert!(el_elements
-            .create_named_sub_element_at(ElementName::System, "System", 99)
-            .is_err());
+        assert!(
+            el_elements
+                .create_named_sub_element_at(ElementName::System, "System", 99)
+                .is_err()
+        );
         assert!(el_autosar.create_sub_element_at(ElementName::AdminData, 99).is_err());
 
         // an identifiable element cannot be created without a name
         assert!(el_elements.create_sub_element(ElementName::System).is_err());
         // the name for an identifiable element must be valid according to the rules
         assert!(el_elements.create_named_sub_element(ElementName::System, "").is_err());
-        assert!(el_elements
-            .create_named_sub_element(ElementName::System, "abc def")
-            .is_err());
+        assert!(
+            el_elements
+                .create_named_sub_element(ElementName::System, "abc def")
+                .is_err()
+        );
 
         // a non-identifiable element cannot be created with a name
-        assert!(el_autosar
-            .create_named_sub_element(ElementName::AdminData, "AdminData")
-            .is_err());
+        assert!(
+            el_autosar
+                .create_named_sub_element(ElementName::AdminData, "AdminData")
+                .is_err()
+        );
 
         // only valid sub-elements can be created
-        assert!(el_autosar
-            .create_named_sub_element(ElementName::Autosar, "Autosar")
-            .is_err());
-        assert!(el_autosar
-            .create_named_sub_element_at(ElementName::Autosar, "Autosar", 0)
-            .is_err());
+        assert!(
+            el_autosar
+                .create_named_sub_element(ElementName::Autosar, "Autosar")
+                .is_err()
+        );
+        assert!(
+            el_autosar
+                .create_named_sub_element_at(ElementName::Autosar, "Autosar", 0)
+                .is_err()
+        );
         assert!(el_autosar.create_sub_element(ElementName::Autosar).is_err());
         assert!(el_autosar.create_sub_element_at(ElementName::Autosar, 0).is_err());
 
         // creating a sub element fails when any parent element in the hierarchy is locked for writing
         let el_autosar_locked = el_autosar.0.write();
-        assert!(el_elements
-            .create_named_sub_element(ElementName::System, "System")
-            .is_err());
-        assert!(el_elements
-            .create_named_sub_element_at(ElementName::System, "System", 0)
-            .is_err());
+        assert!(
+            el_elements
+                .create_named_sub_element(ElementName::System, "System")
+                .is_err()
+        );
+        assert!(
+            el_elements
+                .create_named_sub_element_at(ElementName::System, "System", 0)
+                .is_err()
+        );
         assert!(el_autosar.create_sub_element(ElementName::AdminData).is_err());
         assert!(el_autosar.create_sub_element_at(ElementName::AdminData, 0).is_err());
         drop(el_autosar_locked);
@@ -3015,9 +3031,11 @@ mod test {
             .unwrap();
 
         // AUTOSAR has no DEST attribute, so this should fail
-        assert!(el_autosar
-            .set_attribute(AttributeName::Dest, CharacterData::String(String::from("something")))
-            .is_err());
+        assert!(
+            el_autosar
+                .set_attribute(AttributeName::Dest, CharacterData::String(String::from("something")))
+                .is_err()
+        );
 
         // The attribute S exists and is optional, so it can be removed
         let result = el_autosar.remove_attribute(AttributeName::S);
@@ -3045,9 +3063,11 @@ mod test {
         assert!(el_autosar.set_attribute_string(AttributeName::T, "abc").is_err());
 
         // can't set unknown attributes with set_attribute_string
-        assert!(el_ar_packages
-            .set_attribute_string(AttributeName::xmlns, "abc")
-            .is_err());
+        assert!(
+            el_ar_packages
+                .set_attribute_string(AttributeName::xmlns, "abc")
+                .is_err()
+        );
 
         // directly return an attribute as a string
         let xmlns = el_autosar
@@ -3058,12 +3078,16 @@ mod test {
 
         // attribute operation fails when a parent element is locked for writing
         let lock = el_autosar.0.write();
-        assert!(el_ar_packages
-            .set_attribute(AttributeName::Uuid, CharacterData::String(String::from("1234")))
-            .is_err());
-        assert!(el_ar_packages
-            .set_attribute_string(AttributeName::Uuid, "1234")
-            .is_err());
+        assert!(
+            el_ar_packages
+                .set_attribute(AttributeName::Uuid, CharacterData::String(String::from("1234")))
+                .is_err()
+        );
+        assert!(
+            el_ar_packages
+                .set_attribute_string(AttributeName::Uuid, "1234")
+                .is_err()
+        );
         drop(lock);
     }
 
@@ -3391,17 +3415,21 @@ mod test {
         let el_pnc_vector_length = el_system.create_sub_element(ElementName::PncVectorLength).unwrap();
 
         // set character data on an "ordinary" element that has no special handling
-        assert!(el_pnc_vector_length
-            .set_character_data(CharacterData::String("2".to_string()))
-            .is_ok()); // "native" type is String, without automatic wrapping
+        assert!(
+            el_pnc_vector_length
+                .set_character_data(CharacterData::String("2".to_string()))
+                .is_ok()
+        ); // "native" type is String, without automatic wrapping
         assert!(el_pnc_vector_length.set_character_data("2".to_string()).is_ok()); // "native" type is String
         assert!(el_pnc_vector_length.set_character_data("2").is_ok()); // automatic conversion: &str -> String
         assert!(el_pnc_vector_length.set_character_data(2).is_ok()); // automatic conversion: u64 -> String
 
         // set a new SHORT-NAME, this also updates path cache
-        assert!(el_short_name
-            .set_character_data(CharacterData::String("PackageRenamed".to_string()))
-            .is_ok());
+        assert!(
+            el_short_name
+                .set_character_data(CharacterData::String("PackageRenamed".to_string()))
+                .is_ok()
+        );
         assert_eq!(
             el_short_name.character_data().unwrap().string_value().unwrap(),
             "PackageRenamed"
@@ -3409,9 +3437,11 @@ mod test {
         model.get_element_by_path("/PackageRenamed").unwrap();
 
         // set a new reference target, which creates an entry in the reference origin cache
-        assert!(el_fibex_element_ref
-            .set_character_data("/PackageRenamed/EcuInstance1")
-            .is_ok());
+        assert!(
+            el_fibex_element_ref
+                .set_character_data("/PackageRenamed/EcuInstance1")
+                .is_ok()
+        );
         model
             .0
             .read()
@@ -3420,20 +3450,24 @@ mod test {
             .unwrap();
 
         // modify the reference target, which updates the entry in the reference origin cache
-        assert!(el_fibex_element_ref
-            .set_character_data("/PackageRenamed/EcuInstance2")
-            .is_ok());
+        assert!(
+            el_fibex_element_ref
+                .set_character_data("/PackageRenamed/EcuInstance2")
+                .is_ok()
+        );
         model
             .0
             .read()
             .reference_origins
             .get("/PackageRenamed/EcuInstance2")
             .unwrap();
-        assert!(!model
-            .0
-            .read()
-            .reference_origins
-            .contains_key("/PackageRenamed/EcuInstance1"));
+        assert!(
+            !model
+                .0
+                .read()
+                .reference_origins
+                .contains_key("/PackageRenamed/EcuInstance1")
+        );
 
         // can only set character data that are specified with ContentMode::Characters
         assert!(el_autosar.set_character_data("text").is_err());
@@ -3447,11 +3481,13 @@ mod test {
 
         // remove the character data of a reference
         assert!(el_fibex_element_ref.remove_character_data().is_ok());
-        assert!(!model
-            .0
-            .read()
-            .reference_origins
-            .contains_key("/PackageRenamed/EcuInstance2"));
+        assert!(
+            !model
+                .0
+                .read()
+                .reference_origins
+                .contains_key("/PackageRenamed/EcuInstance2")
+        );
 
         // remove on an element whose character data has already been removed is not an error
         assert!(el_fibex_element_ref.remove_character_data().is_ok());
@@ -3463,25 +3499,31 @@ mod test {
         assert!(el_autosar.remove_character_data().is_err());
 
         // slightly different behavior for the internal version that is used for locked elements
-        assert!(el_autosar
-            .0
-            .write()
-            .set_character_data(0, AutosarVersion::Autosar_00050)
-            .is_err());
-        assert!(el_fibex_element_ref
-            .0
-            .write()
-            .set_character_data(0, AutosarVersion::Autosar_00050)
-            .is_err());
+        assert!(
+            el_autosar
+                .0
+                .write()
+                .set_character_data(0, AutosarVersion::Autosar_00050)
+                .is_err()
+        );
+        assert!(
+            el_fibex_element_ref
+                .0
+                .write()
+                .set_character_data(0, AutosarVersion::Autosar_00050)
+                .is_err()
+        );
 
         // operation fails if the model is needed (e.g. reference or short name update), but the model has been deleted
         el_fibex_element_ref
             .set_character_data("/PackageRenamed/EcuInstance2")
             .unwrap();
         drop(model);
-        assert!(el_fibex_element_ref
-            .set_character_data("/PackageRenamed/EcuInstance1")
-            .is_err());
+        assert!(
+            el_fibex_element_ref
+                .set_character_data("/PackageRenamed/EcuInstance1")
+                .is_err()
+        );
         assert!(el_fibex_element_ref.remove_character_data().is_err());
     }
 
@@ -3690,18 +3732,22 @@ mod test {
         let el_short_name = el_ar_package.get_sub_element(ElementName::ShortName).unwrap();
 
         // find_element_insert_pos does not operat on CharacterData elements, e.g. SHORT-NAME
-        assert!(el_short_name
-            .0
-            .read()
-            .calc_element_insert_range(ElementName::Desc, AutosarVersion::Autosar_00050)
-            .is_err());
+        assert!(
+            el_short_name
+                .0
+                .read()
+                .calc_element_insert_range(ElementName::Desc, AutosarVersion::Autosar_00050)
+                .is_err()
+        );
 
         // find_element_insert_pos fails to find a place for a sequence element with multiplicity 0-1
-        assert!(el_autosar
-            .0
-            .read()
-            .calc_element_insert_range(ElementName::ArPackages, AutosarVersion::Autosar_00050)
-            .is_err());
+        assert!(
+            el_autosar
+                .0
+                .read()
+                .calc_element_insert_range(ElementName::ArPackages, AutosarVersion::Autosar_00050)
+                .is_err()
+        );
     }
 
     #[test]
