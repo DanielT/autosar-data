@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 0.19.0
+
+Released 2025-03-15
+
+- Update to edition 2024
+- Stop locking dependency versions - Thanks @shahn
+
 ## Version 0.18.0
 
 Released 2025-02-04
