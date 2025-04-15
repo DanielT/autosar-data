@@ -132,7 +132,7 @@ pub(crate) struct AutosarModelRaw {
     files: Vec<ArxmlFile>,
     /// `identifiables` is a `HashMap` of all named elements, needed to resolve references without doing a full search.
     identifiables: FxIndexMap<String, WeakElement>,
-    /// `reference_origins` is a `HashMap` of all referencing alements. This is needed to efficiently fix up the references when a referenced element is renamed.
+    /// `reference_origins` is a `HashMap` of all referencing elements. This is needed to efficiently fix up the references when a referenced element is renamed.
     reference_origins: FxHashMap<String, Vec<WeakElement>>,
 }
 

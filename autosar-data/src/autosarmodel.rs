@@ -920,7 +920,7 @@ impl AutosarModel {
                             if let Some(CharacterData::Enum(dest_value)) =
                                 referring_elem.attribute_value(AttributeName::Dest)
                             {
-                                if target_elem.element_type().verify_reference_dest(dest_value) {
+                                if !target_elem.element_type().verify_reference_dest(dest_value) {
                                     // wrong reference type in the DEST attribute
                                     broken_refs.push(referring_elem_weak.clone());
                                 }
@@ -1466,18 +1466,37 @@ mod test {
         </AR-PACKAGES></AUTOSAR>"#;
         let model = AutosarModel::new();
         model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
-        let el_fibex_elements = model
-            .get_element_by_path("/Pkg/System")
-            .and_then(|sys| sys.get_sub_element(ElementName::FibexElements))
-            .unwrap();
+        let el_system = model.get_element_by_path("/Pkg/System").unwrap();
+        let el_fibex_elements = el_system.get_sub_element(ElementName::FibexElements).unwrap();
         let el_fibex_element_ref = el_fibex_elements
             .create_sub_element(ElementName::FibexElementRefConditional)
             .and_then(|ferc| ferc.create_sub_element(ElementName::FibexElementRef))
             .unwrap();
         el_fibex_element_ref.set_character_data("/Pkg/System").unwrap();
-        let invalid_refs = model.check_references();
+        // the test data contains 4 references to 3 distinct items:
+        // - to /Pkg/EcuInstance (VALID)
+        // - to /Some/Invalid/Path (INVALID)
+        // - to /Pkg/System, with DEST=I-SIGNAL (INVALID)
+        // - to /Pkg/System, without DEST (INVALID)
+        assert_eq!(model.0.read().reference_origins.len(), 3);
+
+        // confirm that the first reference, to EcuInstance, is valid
+        let el_fbx_ref1 = el_fibex_elements
+            .get_sub_element_at(0)
+            .and_then(|ferc| ferc.get_sub_element(ElementName::FibexElementRef))
+            .unwrap();
+        assert_eq!(
+            el_fbx_ref1.get_reference_target().unwrap().element_name(),
+            ElementName::EcuInstance
+        );
+
+        let invalid_refs = model
+            .check_references()
+            .iter()
+            .filter_map(WeakElement::upgrade)
+            .collect::<Vec<_>>();
         assert_eq!(invalid_refs.len(), 3);
-        let ref0 = invalid_refs[0].upgrade().unwrap();
+        let ref0 = &invalid_refs[0];
         assert_eq!(ref0.element_name(), ElementName::FibexElementRef);
         let refpath = ref0.character_data().and_then(|cdata| cdata.string_value()).unwrap();
         // there is no defined order in which the references will be checked, so any of the three broken refs could be returned first
