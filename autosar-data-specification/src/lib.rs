@@ -40,7 +40,7 @@
 //! ## Crate features
 //!
 //! * **docstrings** - Enables the function `ElementType::docstring`, which allows you to retrieve element documentation.
-//!     This feature increases the size of the compiled code, because all docstrings are compiled in. It is disabled by default.
+//!   This feature increases the size of the compiled code, because all docstrings are compiled in. It is disabled by default.
 //!
 //! ## Note
 //!
