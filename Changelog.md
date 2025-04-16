@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 0.20.0
+
+Released 2025-04-16
+
+- Fix AutosarModel::check_references(), which reported valid references as invalid
+- fix a new clippy warning
+
 ## Version 0.19.0
 
 Released 2025-03-15
