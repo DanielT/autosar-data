@@ -45,9 +45,10 @@ fn main() {
 
     for (_, elem) in model.elements_dfs() {
         if elem.is_reference() && elem.element_name() != ElementName::DefinitionRef {
-            let target_path = elem.character_data().and_then(|cdata| cdata.string_value()).unwrap();
-            if model.get_element_by_path(&target_path).is_none() {
-                println!("Invalid reference from {} to {target_path}", elem.element_name());
+            if let Some(target_path) = elem.character_data().and_then(|cdata| cdata.string_value()) {
+                if model.get_element_by_path(&target_path).is_none() {
+                    println!("Invalid reference from {} to {target_path}", elem.element_name());
+                }
             }
         }
     }
