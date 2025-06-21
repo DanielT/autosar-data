@@ -974,13 +974,16 @@ impl ElementRaw {
         if let Some((_, new_element_indices)) = elemtype.find_sub_element(element_name, version as u32) {
             // element_name is a valid sub-element according to the specification; new_element_inidices describes the element grouping and ordering
 
-            // Optimization: No need to check in detail because ContentMode::Bag
-            // and ContentMode::mixed allow any number of elements in any order.
-            // This optimization is particularly relevant for <AR-PACKAGE><ELEMENTS>, which could contain a large number of sub elements
-            if self.elemtype.content_mode() == ContentMode::Bag || self.elemtype.content_mode() == ContentMode::Mixed {
+            // Optimization: For ContentMode::Bag, the order is alphabetical by ElementName
+            if self.elemtype.content_mode() == ContentMode::Bag {
+                return self.calc_element_insert_range_bag(element_name);
+            }
+            // Optimization 2: No need to check in detail because ContentMode::mixed allows any number of elements in any order.
+            else if self.elemtype.content_mode() == ContentMode::Mixed {
                 return Ok((0, self.content.len()));
             }
 
+            // normal case, applicable for ContentMode::Sequence and ContentMode::Choice only, since the others were already handled
             let mut start_pos = 0;
             let mut end_pos = 0;
             // compare the new element to the existing elements
@@ -1002,16 +1005,19 @@ impl ElementRaw {
                                 std::cmp::Ordering::Equal => {
                                     // new element is not smaller than the current one, so set the end position
                                     end_pos = idx + 1;
-                                    // are identical elements of this type allowed at all?
-                                    if let Some(multiplicity) =
-                                        elemtype.get_sub_element_multiplicity(&new_element_indices)
-                                    {
-                                        if multiplicity != ElementMultiplicity::Any {
-                                            // the new element is identical to an existing one, but repetitions are not allowed
-                                            return Err(AutosarDataError::ElementInsertionConflict {
-                                                parent: self.element_name(),
-                                                element: element_name,
-                                            });
+                                    // the following check is irrelevant for ContentMode::Bag
+                                    if group_type.content_mode() == ContentMode::Sequence {
+                                        // are identical elements of this type allowed at all?
+                                        if let Some(multiplicity) =
+                                            elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                        {
+                                            if multiplicity != ElementMultiplicity::Any {
+                                                // the new element is identical to an existing one, but repetitions are not allowed
+                                                return Err(AutosarDataError::ElementInsertionConflict {
+                                                    parent: self.element_name(),
+                                                    element: element_name,
+                                                });
+                                            }
                                         }
                                     }
                                 }
@@ -1048,18 +1054,12 @@ impl ElementRaw {
                                 });
                             }
                         }
-                        ContentMode::Bag | ContentMode::Mixed => {
-                            // Can insert before or after the current element.
-                            // Currently (R24-11) there is no case where ContentMode::Bag/Mixed is
-                            // nested inside another ContentMode, so this code won't be reached.
-                            // It remains here since this may change in future versions of AUTOSAR
-                            end_pos = idx + 1;
-                        }
-                        ContentMode::Characters => {
-                            unreachable!(); // impossible on sub-groups
+                        ContentMode::Bag | ContentMode::Mixed | ContentMode::Characters => {
+                            unreachable!(); // handled separately above
                         }
                     }
                 } else if let ElementContent::CharacterData(_) = content_item {
+                    // unreachable
                     end_pos = idx + 1;
                 }
             }
@@ -1071,6 +1071,35 @@ impl ElementRaw {
                 element: element_name,
             })
         }
+    }
+
+    fn calc_element_insert_range_bag(&self, element_name: ElementName) -> Result<(usize, usize), AutosarDataError> {
+        let mut start_pos = 0;
+        let mut end_pos = 0;
+        let new_element_name_str = element_name.to_str();
+        for (content_idx, content_item) in self.content.iter().enumerate() {
+            let existing_element_name_str = if let ElementContent::Element(elem) = content_item {
+                elem.element_name().to_str()
+            } else {
+                continue; // skip character data items
+            };
+            match new_element_name_str.cmp(existing_element_name_str) {
+                std::cmp::Ordering::Less => {
+                    // new element should be inserted before the current content item
+                    break;
+                }
+                std::cmp::Ordering::Equal => {
+                    // new element is equal to the current content item, so it can be inserted after it
+                    end_pos = content_idx + 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    // new element is greater than the current content item, so continue searching
+                    start_pos = content_idx + 1;
+                    end_pos = content_idx + 1;
+                }
+            }
+        }
+        Ok((start_pos, end_pos))
     }
 
     /// remove the sub element `sub_element`

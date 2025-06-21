@@ -3751,6 +3751,29 @@ mod test {
     }
 
     #[test]
+    fn find_insert_pos2() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
+        let el_elements = el_ar_package.create_sub_element(ElementName::Elements).unwrap();
+
+        let _el_system = el_elements
+            .create_named_sub_element(ElementName::System, "System")
+            .unwrap();
+        let (start, end) = el_elements
+            .0
+            .read()
+            .calc_element_insert_range(ElementName::CanCluster, AutosarVersion::Autosar_00050)
+            .unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(end, 0);
+    }
+
+    #[test]
     fn sort() {
         let model = AutosarModel::new();
         model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
