@@ -382,7 +382,7 @@ impl PartialOrd for CharacterData {
 
 impl Eq for CharacterData {}
 
-fn escape_text(input: &str) -> Cow<str> {
+fn escape_text<'a>(input: &'a str) -> Cow<'a, str> {
     if input.contains(['&', '>', '<', '\'', '"']) {
         let mut escaped = String::with_capacity(input.len() + 6);
 
