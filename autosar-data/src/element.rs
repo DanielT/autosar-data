@@ -926,67 +926,67 @@ impl Element {
     // internal function to set the character data - separated out since it doesn't need to be generic
     fn set_character_data_internal(&self, mut chardata: CharacterData) -> Result<(), AutosarDataError> {
         let elemtype = self.elemtype();
-        if elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed {
-            if let Some(cdata_spec) = elemtype.chardata_spec() {
-                let model = self.model()?;
-                let version = self.min_version()?;
-                let mut compatible_value = CharacterData::check_value(&chardata, cdata_spec, version);
-                if !compatible_value
-                    && matches!(
-                        cdata_spec,
-                        CharacterDataSpec::Pattern { .. } | CharacterDataSpec::String { .. }
-                    )
-                {
-                    chardata = CharacterData::String(chardata.to_string());
-                    compatible_value = CharacterData::check_value(&chardata, cdata_spec, version);
-                }
-                if compatible_value {
-                    // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
-                    let mut prev_path = None;
-                    if self.element_name() == ElementName::ShortName {
-                        // this SHORT-NAME element might be newly created, in which case there is no previous path
-                        if self.character_data().is_some() {
-                            if let Some(parent) = self.parent()? {
-                                prev_path = Some(parent.path()?);
-                            }
-                        }
-                    };
-
-                    // if this is a reference, then some extra effort is needed there too
-                    let old_refval = if elemtype.is_ref() {
-                        self.character_data().and_then(|cdata| cdata.string_value())
-                    } else {
-                        None
-                    };
-
-                    // update the character data
+        if (elemtype.content_mode() == ContentMode::Characters || elemtype.content_mode() == ContentMode::Mixed)
+            && let Some(cdata_spec) = elemtype.chardata_spec()
+        {
+            let model = self.model()?;
+            let version = self.min_version()?;
+            let mut compatible_value = CharacterData::check_value(&chardata, cdata_spec, version);
+            if !compatible_value
+                && matches!(
+                    cdata_spec,
+                    CharacterDataSpec::Pattern { .. } | CharacterDataSpec::String { .. }
+                )
+            {
+                chardata = CharacterData::String(chardata.to_string());
+                compatible_value = CharacterData::check_value(&chardata, cdata_spec, version);
+            }
+            if compatible_value {
+                // if this is a SHORT-NAME element a whole lot of handling is needed in order to unbreak all the cross references
+                let mut prev_path = None;
+                if self.element_name() == ElementName::ShortName {
+                    // this SHORT-NAME element might be newly created, in which case there is no previous path
+                    if self.character_data().is_some()
+                        && let Some(parent) = self.parent()?
                     {
-                        let mut element = self.0.write();
-                        element.content.clear();
-                        element.content.push(ElementContent::CharacterData(chardata));
+                        prev_path = Some(parent.path()?);
                     }
+                };
 
-                    // short-name: make sure the hashmap in the top-level AutosarModel is updated so that this element can still be found
-                    if let Some(prev_path) = prev_path {
-                        if let Some(parent) = self.parent()? {
-                            let new_path = parent.path()?;
-                            model.fix_identifiables(&prev_path, &new_path);
-                        }
-                    }
+                // if this is a reference, then some extra effort is needed there too
+                let old_refval = if elemtype.is_ref() {
+                    self.character_data().and_then(|cdata| cdata.string_value())
+                } else {
+                    None
+                };
 
-                    // reference: update the references hashmap in the top-level AutosarModel
-                    if elemtype.is_ref() {
-                        if let Some(CharacterData::String(refval)) = self.character_data() {
-                            if let Some(old_refval) = old_refval {
-                                model.fix_reference_origins(&old_refval, &refval, self.downgrade());
-                            } else {
-                                model.add_reference_origin(&refval, self.downgrade());
-                            }
-                        }
-                    }
-
-                    return Ok(());
+                // update the character data
+                {
+                    let mut element = self.0.write();
+                    element.content.clear();
+                    element.content.push(ElementContent::CharacterData(chardata));
                 }
+
+                // short-name: make sure the hashmap in the top-level AutosarModel is updated so that this element can still be found
+                if let Some(prev_path) = prev_path
+                    && let Some(parent) = self.parent()?
+                {
+                    let new_path = parent.path()?;
+                    model.fix_identifiables(&prev_path, &new_path);
+                }
+
+                // reference: update the references hashmap in the top-level AutosarModel
+                if elemtype.is_ref()
+                    && let Some(CharacterData::String(refval)) = self.character_data()
+                {
+                    if let Some(old_refval) = old_refval {
+                        model.fix_reference_origins(&old_refval, &refval, self.downgrade());
+                    } else {
+                        model.add_reference_origin(&refval, self.downgrade());
+                    }
+                }
+
+                return Ok(());
             }
         }
         Err(AutosarDataError::IncorrectContentType {
@@ -1120,11 +1120,11 @@ impl Element {
     pub fn remove_character_content_item(&self, position: usize) -> Result<(), AutosarDataError> {
         let mut element = self.0.write();
         if let ContentMode::Mixed = element.elemtype.content_mode() {
-            if position < element.content.len() {
-                if let ElementContent::CharacterData(_) = element.content[position] {
-                    element.content.remove(position);
-                    return Ok(());
-                }
+            if position < element.content.len()
+                && let ElementContent::CharacterData(_) = element.content[position]
+            {
+                element.content.remove(position);
+                return Ok(());
             }
             Err(AutosarDataError::InvalidPosition)
         } else {
@@ -1299,10 +1299,10 @@ impl Element {
     pub fn get_sub_element(&self, name: ElementName) -> Option<Element> {
         let locked_elem = self.0.read();
         for item in &locked_elem.content {
-            if let ElementContent::Element(subelem) = item {
-                if subelem.element_name() == name {
-                    return Some(subelem.clone());
-                }
+            if let ElementContent::Element(subelem) = item
+                && subelem.element_name() == name
+            {
+                return Some(subelem.clone());
             }
         }
         None
@@ -1367,10 +1367,10 @@ impl Element {
         let version = self.min_version()?;
         let mut locked_elem = self.0.try_write().ok_or(AutosarDataError::ParentElementLocked)?;
         for item in &locked_elem.content {
-            if let ElementContent::Element(subelem) = item {
-                if subelem.element_name() == name {
-                    return Ok(subelem.clone());
-                }
+            if let ElementContent::Element(subelem) = item
+                && subelem.element_name() == name
+            {
+                return Ok(subelem.clone());
             }
         }
         locked_elem.create_sub_element(self.downgrade(), name, version)
@@ -1414,10 +1414,11 @@ impl Element {
         let version = self.min_version()?;
         let mut locked_elem = self.0.try_write().ok_or(AutosarDataError::ParentElementLocked)?;
         for item in &locked_elem.content {
-            if let ElementContent::Element(subelem) = item {
-                if subelem.element_name() == element_name && subelem.item_name().as_deref().unwrap_or("") == item_name {
-                    return Ok(subelem.clone());
-                }
+            if let ElementContent::Element(subelem) = item
+                && subelem.element_name() == element_name
+                && subelem.item_name().as_deref().unwrap_or("") == item_name
+            {
+                return Ok(subelem.clone());
             }
         }
         locked_elem.create_named_sub_element(self.downgrade(), element_name, item_name, &model, version)
@@ -1744,13 +1745,12 @@ impl Element {
     // an element might have a diffeent element type depending on the version - as a result of a
     // changed datatype of the CharacterData, or because the element ordering was changed
     fn recalc_element_type(&self, target_version: AutosarVersion) -> ElementType {
-        if let Ok(Some(parent)) = self.parent() {
-            if let Some((etype, ..)) = parent
+        if let Ok(Some(parent)) = self.parent()
+            && let Some((etype, ..)) = parent
                 .element_type()
                 .find_sub_element(self.element_name(), target_version as u32)
-            {
-                return etype;
-            }
+        {
+            return etype;
         }
 
         self.element_type()
@@ -1807,24 +1807,23 @@ impl Element {
 
         // check the compatibility of all sub-elements
         for sub_element in self.sub_elements() {
-            if sub_element.0.read().file_membership.is_empty() || sub_element.0.read().file_membership.contains(file) {
-                if let Some((_, indices)) = elemtype_new
+            if (sub_element.0.read().file_membership.is_empty() || sub_element.0.read().file_membership.contains(file))
+                && let Some((_, indices)) = elemtype_new
                     .find_sub_element(sub_element.element_name(), target_version as u32)
                     .or(elemtype_new.find_sub_element(sub_element.element_name(), u32::MAX))
-                {
-                    let version_mask = self.element_type().get_sub_element_version_mask(&indices).unwrap();
-                    overall_version_mask &= version_mask;
-                    if !target_version.compatible(version_mask) {
-                        compat_errors.push(CompatibilityError::IncompatibleElement {
-                            element: sub_element.clone(),
-                            version_mask,
-                        });
-                    } else {
-                        let (mut sub_element_errors, sub_element_mask) =
-                            sub_element.check_version_compatibility(file, target_version);
-                        compat_errors.append(&mut sub_element_errors);
-                        overall_version_mask &= sub_element_mask;
-                    }
+            {
+                let version_mask = self.element_type().get_sub_element_version_mask(&indices).unwrap();
+                overall_version_mask &= version_mask;
+                if !target_version.compatible(version_mask) {
+                    compat_errors.push(CompatibilityError::IncompatibleElement {
+                        element: sub_element.clone(),
+                        version_mask,
+                    });
+                } else {
+                    let (mut sub_element_errors, sub_element_mask) =
+                        sub_element.check_version_compatibility(file, target_version);
+                    compat_errors.append(&mut sub_element_errors);
+                    overall_version_mask &= sub_element_mask;
                 }
             }
         }
@@ -2007,10 +2006,10 @@ impl Element {
             // which does not include the new file
             if self.element_type().splittable() != 0 {
                 for se in self.sub_elements() {
-                    if let Some(mut subelem) = se.0.try_write() {
-                        if subelem.file_membership.is_empty() {
-                            subelem.file_membership.clone_from(&current_fileset);
-                        }
+                    if let Some(mut subelem) = se.0.try_write()
+                        && subelem.file_membership.is_empty()
+                    {
+                        subelem.file_membership.clone_from(&current_fileset);
                     }
                 }
             }
@@ -2298,12 +2297,11 @@ impl Ord for Element {
             // this allows for a more natural sorting of indexed items (e.g. "item2" < "item10")
             if let (Some((base1, idx1)), Some((base2, idx2))) =
                 (decompose_item_name(&name1), decompose_item_name(&name2))
+                && base1 == base2
             {
-                if base1 == base2 {
-                    let result = idx1.cmp(&idx2);
-                    if result != Ordering::Equal {
-                        return result;
-                    }
+                let result = idx1.cmp(&idx2);
+                if result != Ordering::Equal {
+                    return result;
                 }
             }
             // if the decomposition fails, then just compare the full item names

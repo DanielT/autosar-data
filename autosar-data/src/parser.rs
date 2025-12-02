@@ -332,26 +332,26 @@ impl<'a> ArxmlParser<'a> {
             token = self.next(&mut lexer)?;
         }
 
-        if let ArxmlEvent::BeginElement(elemname, attributes_text) = token {
-            if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
-                let attributes = self.parse_attribute_text(ElementType::ROOT, attributes_text)?;
-                self.parse_file_header(&attributes)?;
+        if let ArxmlEvent::BeginElement(elemname, attributes_text) = token
+            && let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname)
+        {
+            let attributes = self.parse_attribute_text(ElementType::ROOT, attributes_text)?;
+            self.parse_file_header(&attributes)?;
 
-                let new_element = ElementRaw {
-                    parent: ElementOrModel::None,
-                    elemname: ElementName::Autosar,
-                    elemtype: ElementType::ROOT,
-                    content: SmallVec::new(),
-                    attributes,
-                    file_membership: HashSet::with_capacity(0),
-                    comment: stored_comment,
-                };
-                let path = Cow::from("");
-                let autosar_root_element = self.parse_element(new_element, path, &mut lexer)?;
-                self.verify_end_of_input(&mut lexer)?;
+            let new_element = ElementRaw {
+                parent: ElementOrModel::None,
+                elemname: ElementName::Autosar,
+                elemtype: ElementType::ROOT,
+                content: SmallVec::new(),
+                attributes,
+                file_membership: HashSet::with_capacity(0),
+                comment: stored_comment,
+            };
+            let path = Cow::from("");
+            let autosar_root_element = self.parse_element(new_element, path, &mut lexer)?;
+            self.verify_end_of_input(&mut lexer)?;
 
-                return Ok(autosar_root_element);
-            }
+            return Ok(autosar_root_element);
         }
         Err(self.error(ArxmlParserError::InvalidArxmlFileHeader))
     }
@@ -525,10 +525,10 @@ impl<'a> ArxmlParser<'a> {
                 ArxmlEvent::Characters(text_content) => {
                     if let Some(character_data_spec) = element.elemtype.chardata_spec() {
                         let value = self.parse_character_data(text_content, character_data_spec)?;
-                        if element.elemtype.is_ref() {
-                            if let CharacterData::String(refpath) = &value {
-                                self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
-                            }
+                        if element.elemtype.is_ref()
+                            && let CharacterData::String(refpath) = &value
+                        {
+                            self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
                         }
                         element.content.push(ElementContent::CharacterData(value));
                     } else {
@@ -647,20 +647,20 @@ impl<'a> ArxmlParser<'a> {
         // get the parent type id, i.e. the type of the containing element or group
         let datatype_mode = elemtype.get_sub_element_container_mode(elem_idx);
         // multiplicity only matters if the mode is Choice or Sequence - modes Mixed and Bag allow arbitrary amounts of all elements
-        if datatype_mode == ContentMode::Sequence || datatype_mode == ContentMode::Choice {
-            if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(elem_idx) {
-                // multiplicity only needs to be checked if it is not Any - i.e. One / ZeroOrOne
-                if multiplicity != ElementMultiplicity::Any {
-                    // there is a conflict if there is already a subelement with the same ElementName
-                    if element.content.iter().any(|ec| {
-                        ec.unwrap_element()
-                            .is_some_and(|subelem| subelem.element_name() == name)
-                    }) {
-                        self.optional_error(ArxmlParserError::TooManySubElements {
-                            element: self.current_element,
-                            sub_element: name,
-                        })?;
-                    }
+        if (datatype_mode == ContentMode::Sequence || datatype_mode == ContentMode::Choice)
+            && let Some(multiplicity) = elemtype.get_sub_element_multiplicity(elem_idx)
+        {
+            // multiplicity only needs to be checked if it is not Any - i.e. One / ZeroOrOne
+            if multiplicity != ElementMultiplicity::Any {
+                // there is a conflict if there is already a subelement with the same ElementName
+                if element.content.iter().any(|ec| {
+                    ec.unwrap_element()
+                        .is_some_and(|subelem| subelem.element_name() == name)
+                }) {
+                    self.optional_error(ArxmlParserError::TooManySubElements {
+                        element: self.current_element,
+                        sub_element: name,
+                    })?;
                 }
             }
         }
@@ -900,12 +900,12 @@ impl<'a> ArxmlParser<'a> {
                     let mut valid = false;
                     if let Some(endpos) = rem.find(';') {
                         let hextxt = &rem[3..endpos];
-                        if let Ok(hexval) = u32::from_str_radix(hextxt, 16) {
-                            if let Some(ch) = char::from_u32(hexval) {
-                                unescaped.push(ch);
-                                rem = &rem[endpos + 1..];
-                                valid = true;
-                            }
+                        if let Ok(hexval) = u32::from_str_radix(hextxt, 16)
+                            && let Some(ch) = char::from_u32(hexval)
+                        {
+                            unescaped.push(ch);
+                            rem = &rem[endpos + 1..];
+                            valid = true;
                         }
                     }
                     if !valid {
@@ -920,12 +920,12 @@ impl<'a> ArxmlParser<'a> {
                     let mut valid = false;
                     if let Some(endpos) = rem.find(';') {
                         let numtxt = &rem[2..endpos];
-                        if let Ok(val) = u32::from_str(numtxt) {
-                            if let Some(ch) = char::from_u32(val) {
-                                unescaped.push(ch);
-                                rem = &rem[endpos + 1..];
-                                valid = true;
-                            }
+                        if let Ok(val) = u32::from_str(numtxt)
+                            && let Some(ch) = char::from_u32(val)
+                        {
+                            unescaped.push(ch);
+                            rem = &rem[endpos + 1..];
+                            valid = true;
                         }
                     }
                     if !valid {
@@ -975,15 +975,13 @@ impl<'a> ArxmlParser<'a> {
             while let Ok(ArxmlEvent::Comment(..)) = arxmlevent {
                 arxmlevent = self.next(&mut lexer);
             }
-            if let Ok(ArxmlEvent::BeginElement(elemname, attributes_text)) = arxmlevent {
-                if let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname) {
-                    if let Ok(attributes) = self.parse_attribute_text(ElementType::ROOT, attributes_text) {
-                        if self.parse_file_header(&attributes).is_ok() {
-                            // no errors after parsing the header - this looks like an arxml file
-                            return true;
-                        }
-                    }
-                }
+            if let Ok(ArxmlEvent::BeginElement(elemname, attributes_text)) = arxmlevent
+                && let Ok(ElementName::Autosar) = ElementName::from_bytes(elemname)
+                && let Ok(attributes) = self.parse_attribute_text(ElementType::ROOT, attributes_text)
+                && self.parse_file_header(&attributes).is_ok()
+            {
+                // no errors after parsing the header - this looks like an arxml file
+                return true;
             }
         }
 

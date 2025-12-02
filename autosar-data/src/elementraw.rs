@@ -63,12 +63,11 @@ impl ElementRaw {
                 // In this case path() descends to the parent, then calls item_name() and would deadlock.
                 // This case happens when subelem is *not* a ShortName but elemtype.is_named() returns true because there
                 // is a name in some other version, so it is acceptable to return None when locking fails
-                if let Some(subelem_locked) = subelem.0.try_read_for(Duration::from_millis(10)) {
-                    if subelem_locked.elemname == ElementName::ShortName {
-                        if let Some(CharacterData::String(name)) = subelem_locked.character_data() {
-                            return Some(name);
-                        }
-                    }
+                if let Some(subelem_locked) = subelem.0.try_read_for(Duration::from_millis(10))
+                    && subelem_locked.elemname == ElementName::ShortName
+                    && let Some(CharacterData::String(name)) = subelem_locked.character_data()
+                {
+                    return Some(name);
                 }
             }
         }
@@ -112,21 +111,20 @@ impl ElementRaw {
                         // if the existing reference has the old path as a prefix, then it needs to be updated
                         if let Some(partial_path) = refpath.strip_prefix(&old_path) {
                             // prevent ref updates from being applied to e.g. /package10 while renaming /package1
-                            if partial_path.is_empty() || partial_path.starts_with('/') {
-                                if let Some(reflist) = model_locked.reference_origins.remove(&refpath) {
-                                    let refpath_new = format!("{new_prefix}{partial_path}");
+                            if (partial_path.is_empty() || partial_path.starts_with('/'))
+                                && let Some(reflist) = model_locked.reference_origins.remove(&refpath)
+                            {
+                                let refpath_new = format!("{new_prefix}{partial_path}");
 
-                                    for weak_ref_elem in &reflist {
-                                        if let Some(ref_elem) = weak_ref_elem.upgrade() {
-                                            let mut ref_elem_locked = ref_elem.0.write();
-                                            // can't use .set_character_data() here, because the model is locked
-                                            ref_elem_locked.content[0] = ElementContent::CharacterData(
-                                                CharacterData::String(refpath_new.clone()),
-                                            );
-                                        }
+                                for weak_ref_elem in &reflist {
+                                    if let Some(ref_elem) = weak_ref_elem.upgrade() {
+                                        let mut ref_elem_locked = ref_elem.0.write();
+                                        // can't use .set_character_data() here, because the model is locked
+                                        ref_elem_locked.content[0] =
+                                            ElementContent::CharacterData(CharacterData::String(refpath_new.clone()));
                                     }
-                                    model_locked.reference_origins.insert(refpath_new, reflist);
                                 }
+                                model_locked.reference_origins.insert(refpath_new, reflist);
                             }
                         }
                     }
@@ -146,10 +144,10 @@ impl ElementRaw {
         // is this element named in any autosar version? - If it's not named here then we'll simply fail in the next step
         if self.elemtype.is_named() {
             // if an item is named, then the SHORT-NAME sub element that contains the name is always the first sub element
-            if let Some(ElementContent::Element(subelem)) = self.content.first() {
-                if subelem.element_name() == ElementName::ShortName {
-                    return true;
-                }
+            if let Some(ElementContent::Element(subelem)) = self.content.first()
+                && subelem.element_name() == ElementName::ShortName
+            {
+                return true;
             }
         }
         false
@@ -518,10 +516,10 @@ impl ElementRaw {
                 path_parts.push(None);
             }
             // add all references to the reference_origins hashmap
-            if sub_elem.is_reference() {
-                if let Some(CharacterData::String(reference)) = sub_elem.character_data() {
-                    model.add_reference_origin(&reference, sub_elem.downgrade());
-                }
+            if sub_elem.is_reference()
+                && let Some(CharacterData::String(reference)) = sub_elem.character_data()
+            {
+                model.add_reference_origin(&reference, sub_elem.downgrade());
             }
         }
 
@@ -584,11 +582,10 @@ impl ElementRaw {
                             .elemtype
                             .find_sub_element(sub_elem_name, target_version as u32)
                             .is_some()
+                            && let Ok(copied_sub_elem) = sub_elem.0.read().deep_copy(target_version)
                         {
-                            if let Ok(copied_sub_elem) = sub_elem.0.read().deep_copy(target_version) {
-                                copied_sub_elem.0.write().parent = ElementOrModel::Element(copy_wrapped.downgrade());
-                                copy.content.push(ElementContent::Element(copied_sub_elem));
-                            }
+                            copied_sub_elem.0.write().parent = ElementOrModel::Element(copy_wrapped.downgrade());
+                            copy.content.push(ElementContent::Element(copied_sub_elem));
                         }
                     }
                     ElementContent::CharacterData(cdata) => {
@@ -1010,15 +1007,14 @@ impl ElementRaw {
                                         // are identical elements of this type allowed at all?
                                         if let Some(multiplicity) =
                                             elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                            && multiplicity != ElementMultiplicity::Any
                                         {
-                                            if multiplicity != ElementMultiplicity::Any {
-                                                // the new element is identical to an existing one, but repetitions are not allowed
-                                                return Err(AutosarDataError::ElementInsertionConflict {
-                                                    parent: self.element_name(),
-                                                    element: element_name,
-                                                    parent_path: self.xml_path(),
-                                                });
-                                            }
+                                            // the new element is identical to an existing one, but repetitions are not allowed
+                                            return Err(AutosarDataError::ElementInsertionConflict {
+                                                parent: self.element_name(),
+                                                element: element_name,
+                                                parent_path: self.xml_path(),
+                                            });
                                         }
                                     }
                                 }
@@ -1035,15 +1031,14 @@ impl ElementRaw {
                             // can't insert anything else
                             if new_element_indices == existing_element_indices {
                                 if let Some(multiplicity) = elemtype.get_sub_element_multiplicity(&new_element_indices)
+                                    && multiplicity != ElementMultiplicity::Any
                                 {
-                                    if multiplicity != ElementMultiplicity::Any {
-                                        // the new element is identical to an existing one, but repetitions are not allowed
-                                        return Err(AutosarDataError::ElementInsertionConflict {
-                                            parent: self.element_name(),
-                                            element: element_name,
-                                            parent_path: self.xml_path(),
-                                        });
-                                    }
+                                    // the new element is identical to an existing one, but repetitions are not allowed
+                                    return Err(AutosarDataError::ElementInsertionConflict {
+                                        parent: self.element_name(),
+                                        element: element_name,
+                                        parent_path: self.xml_path(),
+                                    });
                                 }
                                 // the existing element and the new element are equal in positioning
                                 // start_pos remains at its current value (< current position), while
@@ -1142,22 +1137,22 @@ impl ElementRaw {
 
     // remove all of the content of an element
     pub(crate) fn remove_internal(&mut self, self_weak: WeakElement, model: &AutosarModel, mut path: Cow<str>) {
-        if self.is_identifiable() {
-            if let Some(name) = self.item_name() {
-                let mut new_path = String::with_capacity(path.len() + name.len() + 1);
-                new_path.push_str(&path);
-                new_path.push('/');
-                new_path.push_str(&name);
-                path = Cow::from(new_path.clone());
+        if self.is_identifiable()
+            && let Some(name) = self.item_name()
+        {
+            let mut new_path = String::with_capacity(path.len() + name.len() + 1);
+            new_path.push_str(&path);
+            new_path.push('/');
+            new_path.push_str(&name);
+            path = Cow::from(new_path.clone());
 
-                model.remove_identifiable(&path);
-            }
+            model.remove_identifiable(&path);
         }
-        if self.elemtype.is_ref() {
-            if let Some(CharacterData::String(reference)) = self.character_data() {
-                // remove the references-reference (ugh. terminology???)
-                model.remove_reference_origin(&reference, self_weak);
-            }
+        if self.elemtype.is_ref()
+            && let Some(CharacterData::String(reference)) = self.character_data()
+        {
+            // remove the references-reference (ugh. terminology???)
+            model.remove_reference_origin(&reference, self_weak);
         }
         for item in &self.content {
             if let ElementContent::Element(sub_element) = item {
@@ -1190,20 +1185,18 @@ impl ElementRaw {
         chardata: CharacterData,
         version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
-        if self.elemtype.content_mode() == ContentMode::Characters
-            || (self.elemtype.content_mode() == ContentMode::Mixed && self.content.len() <= 1)
+        if (self.elemtype.content_mode() == ContentMode::Characters
+            || (self.elemtype.content_mode() == ContentMode::Mixed && self.content.len() <= 1))
+            && let Some(cdata_spec) = self.elemtype.chardata_spec()
+            && CharacterData::check_value(&chardata, cdata_spec, version)
         {
-            if let Some(cdata_spec) = self.elemtype.chardata_spec() {
-                if CharacterData::check_value(&chardata, cdata_spec, version) {
-                    // update the character data
-                    if self.content.is_empty() {
-                        self.content.push(ElementContent::CharacterData(chardata));
-                    } else {
-                        self.content[0] = ElementContent::CharacterData(chardata);
-                    }
-                    return Ok(());
-                }
+            // update the character data
+            if self.content.is_empty() {
+                self.content.push(ElementContent::CharacterData(chardata));
+            } else {
+                self.content[0] = ElementContent::CharacterData(chardata);
             }
+            return Ok(());
         }
         Err(AutosarDataError::IncorrectContentType {
             element: self.element_name(),
@@ -1218,10 +1211,9 @@ impl ElementRaw {
         if self.content.len() == 1
             && (self.elemtype.content_mode() == ContentMode::Characters
                 || self.elemtype.content_mode() == ContentMode::Mixed)
+            && let Some(ElementContent::CharacterData(cdata)) = self.content.first()
         {
-            if let Some(ElementContent::CharacterData(cdata)) = self.content.first() {
-                return Some(cdata.clone());
-            }
+            return Some(cdata.clone());
         }
         None
     }

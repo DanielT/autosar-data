@@ -23,17 +23,18 @@ impl CharacterData {
             CharacterDataSpec::Pattern {
                 check_fn, max_length, ..
             } => {
-                if let CharacterData::String(stringval) = &value {
-                    if stringval.len() <= max_length.unwrap_or(usize::MAX) && check_fn(stringval.as_bytes()) {
-                        return true;
-                    }
+                if let CharacterData::String(stringval) = &value
+                    && stringval.len() <= max_length.unwrap_or(usize::MAX)
+                    && check_fn(stringval.as_bytes())
+                {
+                    return true;
                 }
             }
             CharacterDataSpec::String { max_length, .. } => {
-                if let CharacterData::String(stringval) = &value {
-                    if stringval.len() <= max_length.unwrap_or(usize::MAX) {
-                        return true;
-                    }
+                if let CharacterData::String(stringval) = &value
+                    && stringval.len() <= max_length.unwrap_or(usize::MAX)
+                {
+                    return true;
                 }
             }
             CharacterDataSpec::UnsignedInteger => {
@@ -79,12 +80,11 @@ impl CharacterData {
     pub(crate) fn parse(input: &str, character_data_spec: &CharacterDataSpec, version: AutosarVersion) -> Option<Self> {
         match character_data_spec {
             CharacterDataSpec::Enum { items } => {
-                if let Ok(enumitem) = EnumItem::from_str(input) {
-                    if let Some((_, version_mask)) = items.iter().find(|(item, _)| *item == enumitem) {
-                        if version as u32 & version_mask != 0 {
-                            return Some(CharacterData::Enum(enumitem));
-                        }
-                    }
+                if let Ok(enumitem) = EnumItem::from_str(input)
+                    && let Some((_, version_mask)) = items.iter().find(|(item, _)| *item == enumitem)
+                    && version as u32 & version_mask != 0
+                {
+                    return Some(CharacterData::Enum(enumitem));
                 }
             }
             CharacterDataSpec::Pattern {

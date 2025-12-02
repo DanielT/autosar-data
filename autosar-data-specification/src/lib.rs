@@ -407,13 +407,12 @@ impl ElementType {
 
     pub(crate) fn short_name_version_mask(self) -> Option<u32> {
         let sub_elements = ElementType::get_sub_elements(self.typ);
-        if !sub_elements.is_empty() {
-            if let SubElement::Element(idx) = sub_elements[0] {
-                if ELEMENTS[idx as usize].name == ElementName::ShortName {
-                    let ver_idx = ElementType::get_sub_element_ver(self.typ);
-                    return Some(VERSION_INFO[ver_idx]);
-                }
-            }
+        if !sub_elements.is_empty()
+            && let SubElement::Element(idx) = sub_elements[0]
+            && ELEMENTS[idx as usize].name == ElementName::ShortName
+        {
+            let ver_idx = ElementType::get_sub_element_ver(self.typ);
+            return Some(VERSION_INFO[ver_idx]);
         }
         None
     }
@@ -704,10 +703,10 @@ pub fn expand_version_mask(version_mask: u32) -> Vec<AutosarVersion> {
     let mut versions = vec![];
     for i in 0..u32::BITS {
         let val = 1u32 << i;
-        if version_mask & val != 0 {
-            if let Some(enum_value) = AutosarVersion::from_val(val) {
-                versions.push(enum_value);
-            }
+        if version_mask & val != 0
+            && let Some(enum_value) = AutosarVersion::from_val(val)
+        {
+            versions.push(enum_value);
         }
     }
 

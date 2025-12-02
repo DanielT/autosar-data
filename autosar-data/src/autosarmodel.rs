@@ -195,14 +195,14 @@ impl AutosarModel {
             // in this case we only keep the first one
             if let Some(existing_element) = data.identifiables.get(&key).and_then(WeakElement::upgrade) {
                 // present in both
-                if let Some(new_element) = value.upgrade() {
-                    if existing_element.element_name() != new_element.element_name() {
-                        // referenced element is different on both sides
-                        return Err(AutosarDataError::OverlappingDataError {
-                            filename,
-                            path: new_element.xml_path(),
-                        });
-                    }
+                if let Some(new_element) = value.upgrade()
+                    && existing_element.element_name() != new_element.element_name()
+                {
+                    // referenced element is different on both sides
+                    return Err(AutosarDataError::OverlappingDataError {
+                        filename,
+                        path: new_element.xml_path(),
+                    });
                 }
             } else {
                 data.identifiables.insert(key, value);
@@ -1017,13 +1017,13 @@ impl AutosarModel {
         let keys: Vec<String> = model.identifiables.keys().cloned().collect();
         for key in keys {
             // find keys referring to entries inside the renamed package
-            if let Some(suffix) = key.strip_prefix(old_path) {
-                if suffix.is_empty() || suffix.starts_with('/') {
-                    let new_key = format!("{new_path}{suffix}");
-                    // fix the identifiables hashmap
-                    if let Some(entry) = model.identifiables.swap_remove(&key) {
-                        model.identifiables.insert(new_key, entry);
-                    }
+            if let Some(suffix) = key.strip_prefix(old_path)
+                && (suffix.is_empty() || suffix.starts_with('/'))
+            {
+                let new_key = format!("{new_path}{suffix}");
+                // fix the identifiables hashmap
+                if let Some(entry) = model.identifiables.swap_remove(&key) {
+                    model.identifiables.insert(new_key, entry);
                 }
             }
         }
@@ -1050,11 +1050,11 @@ impl AutosarModel {
             let mut data = self.0.write();
             let mut remove_list = false;
             // remove the old entry
-            if let Some(referrer_list) = data.reference_origins.get_mut(old_ref) {
-                if let Some(index) = referrer_list.iter().position(|x| *x == origin) {
-                    referrer_list.swap_remove(index);
-                    remove_list = referrer_list.is_empty();
-                }
+            if let Some(referrer_list) = data.reference_origins.get_mut(old_ref)
+                && let Some(index) = referrer_list.iter().position(|x| *x == origin)
+            {
+                referrer_list.swap_remove(index);
+                remove_list = referrer_list.is_empty();
             }
             if remove_list {
                 data.reference_origins.remove(old_ref);
