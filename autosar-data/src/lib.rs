@@ -253,12 +253,14 @@ pub enum AutosarDataError {
     },
 
     /// Could not insert a sub element, because it conflicts with an existing sub element
-    #[error("Element insertion conflict: {} could not be inserted in {}", .element, .parent)]
+    #[error("Element insertion conflict: {} could not be inserted in {} ({})", .element, .parent, .parent_path)]
     ElementInsertionConflict {
         /// The name of the parent element
         parent: ElementName,
         /// The name of the element that could not be inserted
         element: ElementName,
+        /// path of the parent element
+        parent_path: String,
     },
 
     /// The `ElementName` is not a valid sub element according to the specification.

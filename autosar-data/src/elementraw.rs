@@ -1016,6 +1016,7 @@ impl ElementRaw {
                                                 return Err(AutosarDataError::ElementInsertionConflict {
                                                     parent: self.element_name(),
                                                     element: element_name,
+                                                    parent_path: self.xml_path(),
                                                 });
                                             }
                                         }
@@ -1040,6 +1041,7 @@ impl ElementRaw {
                                         return Err(AutosarDataError::ElementInsertionConflict {
                                             parent: self.element_name(),
                                             element: element_name,
+                                            parent_path: self.xml_path(),
                                         });
                                     }
                                 }
@@ -1051,6 +1053,7 @@ impl ElementRaw {
                                 return Err(AutosarDataError::ElementInsertionConflict {
                                     parent: self.element_name(),
                                     element: element_name,
+                                    parent_path: self.xml_path(),
                                 });
                             }
                         }

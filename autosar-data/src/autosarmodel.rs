@@ -2,6 +2,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use crate::*;
 
+#[derive(Debug)]
 // actions to be taken when merging two elements
 enum MergeAction {
     MergeEqual,
@@ -232,7 +233,17 @@ impl AutosarModel {
         let root = self.root_element();
         let files: HashSet<WeakArxmlFile> = self.files().map(|f| f.downgrade()).collect();
 
-        Self::merge_element(&root, &files, new_root, &new_file)?;
+        Self::merge_element(&root, &files, new_root, &new_file).map_err(|e| {
+            // transform ElementInsertionConflict into InvalidFileMerge
+            if let AutosarDataError::ElementInsertionConflict { parent_path, .. } = &e {
+                AutosarDataError::InvalidFileMerge {
+                    path: parent_path.clone(),
+                }
+            } else {
+                e
+            }
+        })?;
+
         self.root_element().0.write().file_membership.insert(new_file);
 
         Ok(())
@@ -340,11 +351,13 @@ impl AutosarModel {
                 files.clone_into(&mut elem_locked.file_membership);
             }
         }
+
         // elements in elements_b_only are not present in the model yet, so they need to be added
+        // this step can fail, in which case the merge of this element fails
         Self::import_new_items(parent_a, elements_b_only, new_file, min_ver_b)?;
 
         // recurse for sub elements that are present on both sides: these need to be checked and merged
-        Self::merge_sub_elements(elements_merge, files, new_file)?;
+        Self::merge_sub_elements(parent_a, elements_merge, files, new_file, version)?;
 
         Ok(())
     }
@@ -400,9 +413,15 @@ impl AutosarModel {
 
         if defref_a == defref_b {
             // either: defrefs exist and are identical, OR they are both None.
-            // if they are None, then there is nothing else that can be compared, so we just assume the elements are identical.
-            // Merge them and advance both iterators.
-            MergeAction::MergeEqual
+            if elem_a.character_data() != elem_b.character_data() {
+                // they have different character data, so they are not identical
+                // take only a, defer b
+                MergeAction::AOnly
+            } else {
+                // if they are None, then there is nothing else that can be compared, so we just assume the elements are identical.
+                // Merge them and advance both iterators.
+                MergeAction::MergeEqual
+            }
         } else {
             // check if a sibling of elem_b has the same definiton-ref as elem_a
             // this handles the case where the the elements on both sides are ordered differently
@@ -430,41 +449,53 @@ impl AutosarModel {
         parent_a: &Element,
         elements_b_only: Vec<(Element, usize)>,
         new_file: &WeakArxmlFile,
-        min_ver_b: AutosarVersion,
+        version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
         // elements in elements_b_only are not present in the model yet, so they need to be added
-        let mut parent_a_locked = parent_a.0.write();
         for (idx, (new_element, insert_pos)) in elements_b_only.into_iter().enumerate() {
-            new_element.set_parent(ElementOrModel::Element(parent_a.downgrade()));
-            // restrict new_element, it is only present in new_file
-            new_element.0.write().file_membership.insert(new_file.clone());
-
-            // add the new_element (from side b) to the content of parent_a
-            // to do this, first check valid element insertion positions
-            let (first_pos, last_pos) = parent_a_locked
-                .calc_element_insert_range(new_element.element_name(), min_ver_b)
-                .map_err(|_| AutosarDataError::InvalidFileMerge {
-                    path: new_element.element_name().to_string(),
-                })?;
-
             // idx number of elements have already been inserted, so the destination position must be adjusted
             let dest = insert_pos + idx;
 
-            // clamp dest, so that first_pos <= dest <= last_pos
-            let dest = dest.max(first_pos).min(last_pos);
-
-            // insert the element from b at the calculated position
-            parent_a_locked
-                .content
-                .insert(dest, ElementContent::Element(new_element));
+            Self::import_single_item(parent_a, new_element, dest, new_file, version)?;
         }
         Ok(())
     }
 
+    fn import_single_item(
+        parent_a: &Element,
+        new_element: Element,
+        dest: usize,
+        new_file: &WeakArxmlFile,
+        version: AutosarVersion,
+    ) -> Result<(), AutosarDataError> {
+        let mut parent_a_locked = parent_a.0.write();
+        let weak_parent_a = parent_a.downgrade();
+
+        new_element.set_parent(ElementOrModel::Element(weak_parent_a));
+        // restrict new_element, it is only present in new_file
+        new_element.0.write().file_membership.insert(new_file.clone());
+
+        // add the new_element (from side b) to the content of parent_a
+        // to do this, first check valid element insertion positions
+        let (first_pos, last_pos) = parent_a_locked.calc_element_insert_range(new_element.element_name(), version)?;
+
+        // clamp dest, so that first_pos <= dest <= last_pos
+        let dest = dest.max(first_pos).min(last_pos);
+
+        // insert the element from b at the calculated position
+        parent_a_locked
+            .content
+            .insert(dest, ElementContent::Element(new_element));
+
+        Ok(())
+    }
+
     fn merge_sub_elements(
+        parent_a: &Element,
         elements_merge: Vec<(Element, Element)>,
         files: &HashSet<WeakArxmlFile>,
         new_file: &WeakArxmlFile,
+        version: AutosarVersion,
     ) -> Result<(), AutosarDataError> {
         for (elem_a, elem_b) in elements_merge {
             // get the list of files that the element from a is present in
@@ -475,12 +506,34 @@ impl AutosarModel {
             };
 
             // merge the two elements
-            AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file)?;
+            let result = AutosarModel::merge_element(&elem_a, &files, &elem_b, new_file);
+            match result {
+                Ok(()) => {
+                    // update the file membership of the merged element, if there was any
+                    let mut elem_a_locked = elem_a.0.write();
+                    if !elem_a_locked.file_membership.is_empty() {
+                        elem_a_locked.file_membership.insert(new_file.clone());
+                    }
+                }
+                Err(e) => {
+                    if let AutosarDataError::ElementInsertionConflict { parent_path, .. } = &e {
+                        // failed to merge sub element due to insertion conflict
+                        if elem_a.is_identifiable() {
+                            // if the merge of an identifiable element fails, then the whole merge fails
+                            return Err(AutosarDataError::InvalidFileMerge {
+                                path: parent_path.clone(),
+                            });
+                        } else if parent_a.element_type().splittable_in(version) {
+                            elem_a.set_file_membership(files);
+                            // try to import elem_b as a new item instead
+                            let dest = elem_a.position().unwrap_or_default() + 1;
+                            return Self::import_single_item(parent_a, elem_b, dest, new_file, version).map_err(|_| e);
+                        }
+                    }
 
-            // update the file membership of the merged element, if there was any
-            let mut elem_a_locked = elem_a.0.write();
-            if !elem_a_locked.file_membership.is_empty() {
-                elem_a_locked.file_membership.insert(new_file.clone());
+                    // propagate the error back to the parent, perhaps it can be handled there
+                    return Err(e);
+                }
             }
         }
         Ok(())
@@ -1733,5 +1786,63 @@ mod test {
 
         println!("{}\n\n=======================\n{}\n\n", model_txt, model2_txt);
         assert_eq!(model_txt, model2_txt);
+    }
+
+    #[test]
+    fn model_merge_2() {
+        // regression test for github issue #30
+        const FILEBUF1: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-3-0.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>BSWMD_Package</SHORT-NAME>
+      <ELEMENTS>
+        <BSW-MODULE-DESCRIPTION>
+          <SHORT-NAME>BSWMD</SHORT-NAME>
+          <IMPLEMENTED-ENTRYS>
+            <BSW-MODULE-ENTRY-REF-CONDITIONAL>
+              <BSW-MODULE-ENTRY-REF DEST="BSW-MODULE-ENTRY">/path/to/entry_A0</BSW-MODULE-ENTRY-REF>
+            </BSW-MODULE-ENTRY-REF-CONDITIONAL>
+          </IMPLEMENTED-ENTRYS>
+        </BSW-MODULE-DESCRIPTION>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#;
+        const FILEBUF2: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-3-0.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>BSWMD_Package</SHORT-NAME>
+      <ELEMENTS>
+        <BSW-MODULE-DESCRIPTION>
+          <SHORT-NAME>BSWMD</SHORT-NAME>
+          <IMPLEMENTED-ENTRYS>
+            <BSW-MODULE-ENTRY-REF-CONDITIONAL>
+              <BSW-MODULE-ENTRY-REF DEST="BSW-MODULE-ENTRY">/path/to/entry_B0</BSW-MODULE-ENTRY-REF>
+            </BSW-MODULE-ENTRY-REF-CONDITIONAL>
+            <BSW-MODULE-ENTRY-REF-CONDITIONAL>
+              <BSW-MODULE-ENTRY-REF DEST="BSW-MODULE-ENTRY">/path/to/entry_B1</BSW-MODULE-ENTRY-REF>
+            </BSW-MODULE-ENTRY-REF-CONDITIONAL>
+          </IMPLEMENTED-ENTRYS>
+        </BSW-MODULE-DESCRIPTION>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#;
+
+        let model = AutosarModel::new();
+        let (_, _) = model.load_buffer(FILEBUF1, "file1", true).unwrap();
+        let (_, _) = model.load_buffer(FILEBUF2, "file2", true).unwrap();
+
+        let a0_refs = model.get_references_to("/path/to/entry_A0");
+        assert!(a0_refs.len() == 1);
+        assert!(a0_refs[0].upgrade().is_some());
+        let b0_refs = model.get_references_to("/path/to/entry_B0");
+        assert!(b0_refs.len() == 1);
+        assert!(b0_refs[0].upgrade().is_some());
+        let b1_refs = model.get_references_to("/path/to/entry_B1");
+        assert!(b1_refs.len() == 1);
+        assert!(b1_refs[0].upgrade().is_some());
     }
 }
