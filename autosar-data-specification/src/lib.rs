@@ -906,7 +906,7 @@ mod test {
             .unwrap();
 
         let se_iter = elements_type.sub_element_spec_iter();
-        assert_eq!(se_iter.count(), 664); // this test breaks when support for new versions is added
+        assert_eq!(se_iter.count(), 692); // this test breaks when support for new versions is added
 
         let prm_char_type = get_prm_char_element_type();
         let pc_iter = prm_char_type.sub_element_spec_iter();
@@ -1004,6 +1004,10 @@ mod test {
             AutosarVersion::from_str("AUTOSAR_00053.xsd").unwrap(),
             AutosarVersion::Autosar_00053
         );
+        assert_eq!(
+            AutosarVersion::from_str("AUTOSAR_00054.xsd").unwrap(),
+            AutosarVersion::Autosar_00054
+        );
 
         // do all the version descriptions exist & make sense?
         assert!(AutosarVersion::Autosar_4_0_1.describe().starts_with("AUTOSAR"));
@@ -1027,6 +1031,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00051.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00052.describe().starts_with("AUTOSAR"));
         assert!(AutosarVersion::Autosar_00053.describe().starts_with("AUTOSAR"));
+        assert!(AutosarVersion::Autosar_00054.describe().starts_with("AUTOSAR"));
 
         // do all the xsd file names exist?
         assert!(AutosarVersion::Autosar_4_0_1.filename().ends_with(".xsd"));
@@ -1050,6 +1055,7 @@ mod test {
         assert!(AutosarVersion::Autosar_00051.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00052.filename().ends_with(".xsd"));
         assert!(AutosarVersion::Autosar_00053.filename().ends_with(".xsd"));
+        assert!(AutosarVersion::Autosar_00054.filename().ends_with(".xsd"));
 
         // to_string() should give the same result as describe()
         assert_eq!(
@@ -1340,6 +1346,7 @@ mod test {
                 AutosarVersion::Autosar_00051,
                 AutosarVersion::Autosar_00052,
                 AutosarVersion::Autosar_00053,
+                AutosarVersion::Autosar_00054,
             ],
             &*expand_version_mask(version_mask)
         );
@@ -1368,6 +1375,7 @@ mod test {
         assert_eq!(AutosarVersion::from_u64(0x40000), Some(AutosarVersion::Autosar_00051));
         assert_eq!(AutosarVersion::from_u64(0x80000), Some(AutosarVersion::Autosar_00052));
         assert_eq!(AutosarVersion::from_u64(0x100000), Some(AutosarVersion::Autosar_00053));
+        assert_eq!(AutosarVersion::from_u64(0x200000), Some(AutosarVersion::Autosar_00054));
         // invalid version mask: more than one bit set
         assert_eq!(AutosarVersion::from_u64(0xF), None);
 

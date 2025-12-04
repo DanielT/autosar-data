@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use autosar_data::*;
 use autosar_data_specification::CharacterDataSpec;
 
-static VERSIONS: [AutosarVersion; 21] = [
+static VERSIONS: [AutosarVersion; 22] = [
     AutosarVersion::Autosar_4_0_1,
     AutosarVersion::Autosar_4_0_2,
     AutosarVersion::Autosar_4_0_3,
@@ -25,6 +25,7 @@ static VERSIONS: [AutosarVersion; 21] = [
     AutosarVersion::Autosar_00051,
     AutosarVersion::Autosar_00052,
     AutosarVersion::Autosar_00053,
+    AutosarVersion::Autosar_00054,
 ];
 
 fn main() {
