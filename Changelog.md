@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 0.21.0
+
+Released 2025-12-05
+
+### Feature
+
+- Support Autosar version 25-11
+
+### Fixes
+
+- Fix a bug in the model merge when loading multiple files.
+
 ## Version 0.20.0
 
 Released 2025-04-16
