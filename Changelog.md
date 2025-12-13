@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.21.1
+
+### Fixes
+
+- revert automatic element ordering. There are some cases where the ordering of elements with different element nams is semantically meaningful.
+
 ## Version 0.21.0
 
 Released 2025-12-05
@@ -7,6 +13,7 @@ Released 2025-12-05
 ### Feature
 
 - Support Autosar version 25-11
+- Automatically order elements by their element names
 
 ### Fixes
 
