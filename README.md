@@ -7,6 +7,8 @@
 This crate provides functionality to read, modify and write Autosar 4 arxml files,
 both separately and in projects consisting of multiple files.
 
+The crate [autosar-data-abstraction](https://github.com/DanielT/autosar-data-abstraction) provides an abstraction layer on top of this crate.
+
 There is also a Python module which is based on this crate: [autosar-data-py](https://github.com/DanielT/autosar-data-py) [![PyPI version](https://badge.fury.io/py/autosar-data.svg)](https://badge.fury.io/py/autosar-data)
 
 ## Features
