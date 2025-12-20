@@ -15,7 +15,7 @@ use crate::{
     Attribute, AutosarDataError, CharacterData, Element, ElementContent, ElementOrModel, ElementRaw, WeakElement,
 };
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 #[non_exhaustive]
 /// `ArxmlParserError` contains all the errors that can occur while parsing a file
 pub enum ArxmlParserError {

@@ -167,7 +167,7 @@ pub enum AutosarDataError {
         ioerror: std::io::Error,
     },
 
-    /// `DuplicateFilenameError`: The model can'#'t contain two files with identical names
+    /// `DuplicateFilenameError`: The model can't contain two files with identical names
     #[error("Could not {verb} file {}: A file with this name is already loaded", .filename.to_string_lossy())]
     DuplicateFilenameError {
         /// description of the operation that failed
@@ -454,6 +454,7 @@ pub(crate) enum ElementOrModel {
 }
 
 /// Possible kinds of compatibility errors that can be found by `ArxmlFile::check_version_compatibility()`
+#[derive(Debug, PartialEq, Clone)]
 pub enum CompatibilityError {
     /// The element is not allowed in the target version
     IncompatibleElement {
@@ -487,6 +488,7 @@ pub enum CompatibilityError {
 /// information about a sub element
 ///
 /// This structure is returned by [`Element::list_valid_sub_elements()`]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ValidSubElementInfo {
     /// name of the potential sub element
     pub element_name: ElementName,
