@@ -1293,8 +1293,92 @@ impl ElementRaw {
                     }
 
                     // sort the elements, first by their indices, then by their content
+                    // Helper to create a comparable key for natural sorting
+                    // Returns (base_part, numeric_part, full_name) where numeric_part is Some for names
+                    // ending in digits. This ensures a total order: sort by base, then by number, then by full name.
+                    fn natural_sort_key(name: &str) -> (&str, Option<u64>, &str) {
+                        let bytestr = name.as_bytes();
+                        let mut pos = bytestr.len();
+                        while pos > 0 && bytestr[pos - 1].is_ascii_digit() {
+                            pos -= 1;
+                        }
+                        if pos < bytestr.len() {
+                            if let Ok(index) = name[pos..].parse::<u64>() {
+                                return (&name[0..pos], Some(index), name);
+                            }
+                        }
+                        (name, None, name)
+                    }
+
+                    // Use a simple key-based comparison to avoid Ord implementation issues
+                    // that can violate Rust's total ordering requirements
                     sorting_vec.sort_by(|(elem_indices_a, elem_a), (elem_indices_b, elem_b)| {
-                        elem_indices_a.cmp(elem_indices_b).then(elem_a.cmp(elem_b))
+                        elem_indices_a.cmp(elem_indices_b).then_with(|| {
+                            // Compare by INDEX sub-element first (for BSW elements with indices)
+                            // Elements with INDEX come before elements without INDEX
+                            let idx_a = elem_a.get_sub_element(ElementName::Index)
+                                .and_then(|e| e.character_data())
+                                .and_then(|c| c.parse_integer::<u64>());
+                            let idx_b = elem_b.get_sub_element(ElementName::Index)
+                                .and_then(|e| e.character_data())
+                                .and_then(|c| c.parse_integer::<u64>());
+                            match (idx_a, idx_b) {
+                                (Some(a), Some(b)) => {
+                                    let result = a.cmp(&b);
+                                    if result != std::cmp::Ordering::Equal {
+                                        return result;
+                                    }
+                                }
+                                (Some(_), None) => return std::cmp::Ordering::Less,
+                                (None, Some(_)) => return std::cmp::Ordering::Greater,
+                                (None, None) => {}
+                            }
+
+                            // Compare by item name (for identifiable elements)
+                            // Use natural sorting with a consistent total order
+                            let name_a = elem_a.item_name();
+                            let name_b = elem_b.item_name();
+                            match (&name_a, &name_b) {
+                                (Some(a), Some(b)) => {
+                                    let key_a = natural_sort_key(a);
+                                    let key_b = natural_sort_key(b);
+                                    return key_a.cmp(&key_b);
+                                }
+                                (Some(_), None) => return std::cmp::Ordering::Less,
+                                (None, Some(_)) => return std::cmp::Ordering::Greater,
+                                (None, None) => {}
+                            }
+
+                            // Fall back to definition ref for BSW elements
+                            let def_a = elem_a.get_sub_element(ElementName::DefinitionRef)
+                                .and_then(|e| e.character_data())
+                                .and_then(|c| c.string_value());
+                            let def_b = elem_b.get_sub_element(ElementName::DefinitionRef)
+                                .and_then(|e| e.character_data())
+                                .and_then(|c| c.string_value());
+                            match (&def_a, &def_b) {
+                                (Some(a), Some(b)) => return a.cmp(b),
+                                (Some(_), None) => return std::cmp::Ordering::Less,
+                                (None, Some(_)) => return std::cmp::Ordering::Greater,
+                                (None, None) => {}
+                            }
+
+                            // For reference elements: compare first child's character data
+                            // This handles elements like FIBEX-ELEMENT-REF-CONDITIONAL
+                            // which contain a reference element with DEST and path
+                            let ref_a = elem_a.sub_elements().next()
+                                .and_then(|e| e.character_data())
+                                .and_then(|c| c.string_value());
+                            let ref_b = elem_b.sub_elements().next()
+                                .and_then(|e| e.character_data())
+                                .and_then(|c| c.string_value());
+                            match (&ref_a, &ref_b) {
+                                (Some(a), Some(b)) => a.cmp(b),
+                                (Some(_), None) => std::cmp::Ordering::Less,
+                                (None, Some(_)) => std::cmp::Ordering::Greater,
+                                (None, None) => std::cmp::Ordering::Equal,
+                            }
+                        })
                     });
 
                     self.content.clear();
