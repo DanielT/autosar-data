@@ -13,7 +13,7 @@
 //!  - all operations are thread safe, e.g. it is possible to load mutliple files on separate threads
 //!
 //! The crate `autosar-data-abstraction` provides higher level abstractions on top of this crate, which simplify common tasks.
-//! 
+//!
 //! # Examples
 //!
 //! ```no_run

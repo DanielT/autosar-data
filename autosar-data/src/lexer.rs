@@ -135,19 +135,47 @@ impl<'a> ArxmlLexer<'a> {
         let text = &self.buffer[self.bufpos + 2..endpos - 1];
         self.bufpos = endpos + 1;
 
-        let mut splitter = text.split(u8::is_ascii_whitespace);
-        let elemname = splitter.next().unwrap();
+        let text_trimmed = text.trim_ascii();
+        let (elemname, mut rest) = if let Some(ws_pos) = text_trimmed.iter().position(|c| c.is_ascii_whitespace()) {
+            (&text_trimmed[..ws_pos], &text_trimmed[ws_pos..])
+        } else {
+            (text_trimmed, &text_trimmed[text_trimmed.len()..])
+        };
 
         let result = if elemname == b"xml" {
             let mut ver = &text[0..0];
             let mut encoding = &text[0..0];
             let mut standalone: Option<bool> = None;
-            for attr_text in splitter {
-                let (attr_name, attr_val) = if let Some(pos) = attr_text.iter().position(|c| *c == b'=') {
-                    (&attr_text[0..pos], &attr_text[pos + 2..attr_text.len() - 1])
-                } else {
-                    (attr_text, &attr_text[0..0])
+
+            let valid = loop {
+                rest = rest.trim_ascii_start();
+                if rest.is_empty() {
+                    break true;
+                }
+
+                let Some(eq_pos) = rest.iter().position(|c| *c == b'=') else {
+                    break false;
                 };
+
+                let attr_name = rest[..eq_pos].trim_ascii_end();
+                if attr_name.is_empty() || attr_name.iter().any(|c| c.is_ascii_whitespace()) {
+                    break false;
+                }
+
+                rest = rest[eq_pos + 1..].trim_ascii_start();
+                if rest.is_empty() || (rest[0] != b'"' && rest[0] != b'\'') {
+                    break false;
+                }
+
+                let quote = rest[0];
+                rest = &rest[1..];
+                let Some(end_quote_pos) = rest.iter().position(|c| *c == quote) else {
+                    break false;
+                };
+
+                let attr_val = &rest[..end_quote_pos];
+                rest = &rest[end_quote_pos + 1..];
+
                 if attr_name == b"version" {
                     ver = attr_val;
                 } else if attr_name == b"encoding" {
@@ -155,9 +183,10 @@ impl<'a> ArxmlLexer<'a> {
                 } else if attr_name == b"standalone" {
                     standalone = Some(attr_val == b"yes");
                 }
-            }
+            };
 
-            if ver != b"1.0"
+            if !valid
+                || ver != b"1.0"
                 || (encoding != b"utf-8" && encoding != b"UTF-8" && encoding != b"utf8" && encoding != b"UTF8")
             {
                 Some(Err(self.error(ArxmlLexerError::InvalidXmlHeader)))
@@ -388,5 +417,13 @@ mod test {
         let data = b"<!-- declarations for <head> & <body> -->";
         let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
         assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::Comment(_)))));
+    }
+
+    /// github issue #32 - extra spaces in the XML header should be tolerated
+    #[test]
+    fn test_xml_header_with_extra_spaces() {
+        let data = b"<?xml   version =   \"1.0\"   encoding =   \"utf-8\"   standalone = \"yes\"  ?>";
+        let mut lexer = ArxmlLexer::new(data, PathBuf::from("(buffer)"));
+        assert!(matches!(lexer.next(), Ok((_, ArxmlEvent::ArxmlHeader(Some(true))))));
     }
 }
