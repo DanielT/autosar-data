@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.21.2
+
+### Fixes
+
+- Allow extra spaces in the XML header. For example, `<?xml  version = "1.0" encoding = "utf-8" ?>` is a valid header.
+
 ## Version 0.21.1
 
 ### Fixes
