@@ -110,6 +110,13 @@ pub use autosar_data_specification::EnumItem;
 
 type FxIndexMap<K, V> = IndexMap<K, V, FxBuildHasher>;
 
+#[derive(Debug, Clone)]
+pub(crate) struct ReferenceBaseInfo {
+    pub(crate) owner_package_path: String,
+    pub(crate) package_ref: String,
+    pub(crate) package_ref_base: Option<String>,
+}
+
 /// `AutosarModel` is the top level data type in the autosar-data crate.
 ///
 /// An instance of `AutosarModel` is required for all other operations.
@@ -134,8 +141,12 @@ pub(crate) struct AutosarModelRaw {
     files: Vec<ArxmlFile>,
     /// `identifiables` is a `HashMap` of all named elements, needed to resolve references without doing a full search.
     identifiables: FxIndexMap<String, WeakElement>,
-    /// `reference_origins` is a `HashMap` of all referencing elements. This is needed to efficiently fix up the references when a referenced element is renamed.
+    /// `reference_origins` is a `HashMap` of all referencing elements.
     reference_origins: FxHashMap<String, Vec<WeakElement>>,
+    /// `relative_reference_origins` is a `HashMap` of all referencing elements with relative paths.
+    relative_reference_origins: FxHashMap<String, Vec<(WeakElement, String)>>, // Relative path -> [(referencing element, base label)]*
+    /// `reference_bases` stores all REFERENCE-BASE declarations indexed by short label.
+    reference_bases: FxHashMap<String, Vec<ReferenceBaseInfo>>,
 }
 
 /// The error type `AutosarDataError` wraps all errors that can be generated anywhere in the crate
@@ -294,6 +305,10 @@ pub enum AutosarDataError {
     /// The reference is invalid
     #[error("The reference is not valid")]
     InvalidReference,
+
+    /// The reference base of a relative reference is not valid (not a valid label, or not a prefix of the target element)
+    #[error("The reference base is not valid")]
+    InvalidReferenceBase,
 
     /// An element could not be renamed, since this item name is already used by a different element
     #[error("Duplicate item name {} in {}", .item_name, .element)]

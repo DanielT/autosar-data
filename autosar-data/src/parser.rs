@@ -12,7 +12,8 @@ use thiserror::Error;
 
 use crate::lexer::{ArxmlEvent, ArxmlLexer};
 use crate::{
-    Attribute, AutosarDataError, CharacterData, Element, ElementContent, ElementOrModel, ElementRaw, WeakElement,
+    Attribute, AutosarDataError, CharacterData, Element, ElementContent, ElementOrModel, ElementRaw, ReferenceBaseInfo,
+    WeakElement,
 };
 
 #[derive(Debug, Error, PartialEq)]
@@ -256,7 +257,8 @@ pub(crate) struct ArxmlParser<'a> {
     strict: bool,
     version_compatibility: u32,
     pub(crate) identifiables: Vec<(String, WeakElement)>,
-    pub(crate) references: Vec<(String, WeakElement)>,
+    pub(crate) references: Vec<(String, WeakElement, Option<String>)>,
+    pub(crate) reference_bases: Vec<(String, ReferenceBaseInfo)>,
     pub(crate) warnings: Vec<AutosarDataError>,
     standalone: Option<bool>,
 }
@@ -273,6 +275,7 @@ impl<'a> ArxmlParser<'a> {
             version_compatibility: u32::MAX,
             identifiables: Vec::new(),
             references: Vec::new(),
+            reference_bases: Vec::new(),
             warnings: Vec::new(),
             standalone: None,
         }
@@ -528,7 +531,11 @@ impl<'a> ArxmlParser<'a> {
                         if element.elemtype.is_ref()
                             && let CharacterData::String(refpath) = &value
                         {
-                            self.references.push((refpath.to_owned(), wrapped_element.downgrade()));
+                            let base = element
+                                .attribute_value(AttributeName::Base)
+                                .and_then(|cdata| cdata.string_value());
+                            self.references
+                                .push((refpath.to_owned(), wrapped_element.downgrade(), base));
                         }
                         element.content.push(ElementContent::CharacterData(value));
                     } else {
@@ -557,6 +564,39 @@ impl<'a> ArxmlParser<'a> {
                 element: element.elemname,
                 sub_element: ElementName::ShortName,
             })?;
+        }
+
+        if element.elemname == ElementName::ReferenceBase {
+            let mut short_label = None;
+            let mut package_ref = None;
+            let mut package_ref_base = None;
+
+            for item in &element.content {
+                if let ElementContent::Element(sub_elem) = item {
+                    let sub_locked = sub_elem.0.read();
+                    if sub_locked.elemname == ElementName::ShortLabel {
+                        short_label = sub_locked.character_data().and_then(|cdata| cdata.string_value());
+                    } else if sub_locked.elemname == ElementName::PackageRef {
+                        package_ref = sub_locked.character_data().and_then(|cdata| cdata.string_value());
+                        package_ref_base = sub_locked
+                            .attribute_value(AttributeName::Base)
+                            .and_then(|cdata| cdata.string_value());
+                    }
+                }
+            }
+
+            if let (Some(short_label), Some(package_ref)) = (short_label, package_ref)
+                && !path.is_empty()
+            {
+                self.reference_bases.push((
+                    short_label,
+                    ReferenceBaseInfo {
+                        owner_package_path: path.as_ref().to_string(),
+                        package_ref,
+                        package_ref_base,
+                    },
+                ));
+            }
         }
 
         Ok(wrapped_element.clone())
@@ -1534,6 +1574,58 @@ mod test {
         let mut parser = ArxmlParser::new(PathBuf::from("test_buffer.arxml"), PARSER_TEST_DATA.as_bytes(), true);
         let result = parser.parse_arxml();
         assert!(result.is_ok());
+    }
+
+    const PARSER_TEST_RELATIVE_REFERENCE_BASE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+    <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+            <AR-PACKAGE>
+                <SHORT-NAME>base</SHORT-NAME>
+                <REFERENCE-BASES>
+                    <REFERENCE-BASE>
+                        <SHORT-LABEL>default</SHORT-LABEL>
+                        <PACKAGE-REF DEST="AR-PACKAGE">/base</PACKAGE-REF>
+                    </REFERENCE-BASE>
+                </REFERENCE-BASES>
+                <ELEMENTS>
+                    <SYSTEM>
+                        <SHORT-NAME>System</SHORT-NAME>
+                        <FIBEX-ELEMENTS>
+                            <FIBEX-ELEMENT-REF-CONDITIONAL>
+                                <FIBEX-ELEMENT-REF DEST="I-SIGNAL-I-PDU" BASE="default">Pdu</FIBEX-ELEMENT-REF>
+                            </FIBEX-ELEMENT-REF-CONDITIONAL>
+                        </FIBEX-ELEMENTS>
+                    </SYSTEM>
+                    <I-SIGNAL-I-PDU>
+                        <SHORT-NAME>Pdu</SHORT-NAME>
+                    </I-SIGNAL-I-PDU>
+                </ELEMENTS>
+            </AR-PACKAGE>
+        </AR-PACKAGES>
+    </AUTOSAR>
+    "#;
+
+    #[test]
+    fn parse_reference_base_and_relative_reference() {
+        let mut parser = ArxmlParser::new(
+            PathBuf::from("test_buffer.arxml"),
+            PARSER_TEST_RELATIVE_REFERENCE_BASE.as_bytes(),
+            true,
+        );
+
+        let result = parser.parse_arxml();
+        assert!(result.is_ok());
+
+        assert_eq!(parser.reference_bases.len(), 1);
+        let (base_label, base_info) = &parser.reference_bases[0];
+        assert_eq!(base_label, "default");
+        assert_eq!(base_info.package_ref, "/base");
+        assert_eq!(base_info.owner_package_path, "/base");
+        assert_eq!(base_info.package_ref_base, None);
+
+        assert_eq!(parser.references.len(), 2);
+        assert!(parser.references.iter().any(|(refpath, _, _)| refpath == "/base"));
+        assert!(parser.references.iter().any(|(refpath, _, _)| refpath == "Pdu"));
     }
 
     const EMPTY_CHARACTER_DATA: &str = r#"<?xml version="1.0" encoding="utf-8"?>
