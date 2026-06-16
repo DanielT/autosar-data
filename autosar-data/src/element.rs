@@ -244,6 +244,60 @@ impl Element {
         self.0.read().path()
     }
 
+    /// Get the package element containing the current element
+    ///
+    /// It never returns the current element, even if the current element is a package, but always
+    /// goes up the hierarchy to find the nearest parent package.
+    ///
+    /// Returns
+    ///   Ok(Some(Element)) if a parent package is found
+    ///   Ok(None) at the top level.
+    ///   Err if the action cannot be completed
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = model.root_element().create_sub_element(ElementName::ArPackages)?.create_named_sub_element(ElementName::ArPackage, "Pkg")?;
+    /// let package = element.package()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    /// - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///   The operation was aborted to avoid a deadlock, but can be retried.
+    pub fn package(&self) -> Result<Option<Element>, AutosarDataError> {
+        let mut cur_elem = self.clone();
+        loop {
+            let parent = {
+                let element = cur_elem
+                    .0
+                    .try_read_for(std::time::Duration::from_millis(10))
+                    .ok_or(AutosarDataError::ParentElementLocked)?;
+                match &element.parent {
+                    ElementOrModel::Element(weak_parent) => {
+                        let parent = weak_parent.upgrade().ok_or(AutosarDataError::ItemDeleted)?;
+                        if parent.element_name() == ElementName::ArPackage {
+                            return Ok(Some(parent));
+                        }
+                        parent
+                    }
+                    ElementOrModel::Model(_) => {
+                        return Ok(None);
+                    }
+                    ElementOrModel::None => return Err(AutosarDataError::ItemDeleted),
+                }
+            };
+            cur_elem = parent;
+        }
+    }
+
     /// Get a reference to the [`AutosarModel`] containing the current element
     ///
     /// # Example
@@ -792,41 +846,130 @@ impl Element {
     ///  - [`AutosarDataError::ElementNotIdentifiable`]: The target element is not identifiable, so it cannot be referenced by an Autosar path
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_reference_target(&self, target: &Element) -> Result<(), AutosarDataError> {
+        self.set_reference_target_internal(target, None)
+    }
+
+    /// Set the reference target using a relative path and explicit BASE label
+    ///
+    /// This method behaves like [`Self::set_reference_target`], but it writes
+    /// a relative reference path and sets the BASE attribute to `base_label`.
+    ///
+    /// # Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    ///  - [`AutosarDataError::NotReferenceElement`]: The current element is not a reference, so it is not possible to set a reference target
+    ///  - [`AutosarDataError::InvalidReference`]: The target element is not a valid reference target for this reference
+    ///  - [`AutosarDataError::InvalidReferenceBase`]: The target element uses an invalid base label
+    ///  - [`AutosarDataError::ElementNotIdentifiable`]: The target element is not identifiable, so it cannot be referenced by an Autosar path
+    ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
+    pub fn set_relative_reference_target(&self, target: &Element, base_label: &str) -> Result<(), AutosarDataError> {
+        self.set_reference_target_internal(target, Some(base_label))
+    }
+
+    fn set_reference_target_internal(
+        &self,
+        target: &Element,
+        base_label: Option<&str>,
+    ) -> Result<(), AutosarDataError> {
         // the current element must be a reference
-        if self.is_reference() {
-            // the target element must be identifiable, i.e. it has an autosar path
-            let new_ref = target.path()?;
-            // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
-            if let Some(enum_item) = EnumItem::from_str(target.element_name().to_str())
-                .ok()
-                .or(self.element_type().reference_dest_value(&target.element_type()))
-            {
-                let model = self.model()?;
-                let version = self.min_version()?;
-                let mut element = self.0.write();
-                // set the DEST attribute first - this could fail if the target element has the wrong type
-                if element
-                    .set_attribute_internal(AttributeName::Dest, CharacterData::Enum(enum_item), version)
-                    .is_ok()
-                {
-                    // if this reference previously referenced some other element, update
-                    if let Some(CharacterData::String(old_ref)) = element.character_data() {
-                        model.fix_reference_origins(&old_ref, &new_ref, self.downgrade());
-                    } else {
-                        // else initialise the new reference
-                        model.add_reference_origin(&new_ref, self.downgrade());
-                    }
-                    element.set_character_data(CharacterData::String(new_ref), version)?;
-                    Ok(())
-                } else {
-                    Err(AutosarDataError::InvalidReference)
-                }
-            } else {
-                Err(AutosarDataError::InvalidReference)
-            }
-        } else {
-            Err(AutosarDataError::NotReferenceElement)
+        if !self.is_reference() {
+            return Err(AutosarDataError::NotReferenceElement);
         }
+
+        // the target element must be identifiable, i.e. it has an autosar path
+        let new_ref = target.path()?;
+        // it must be possible to use the name of the referenced element name as an enum item in the dest attribute of the reference
+        let Some(enum_item) = EnumItem::from_str(target.element_name().to_str())
+            .ok()
+            .or(self.element_type().reference_dest_value(&target.element_type()))
+        else {
+            return Err(AutosarDataError::InvalidReference);
+        };
+
+        let model = self.model()?;
+        // build a target string, which is either the absolute path or the relative path depending on whether a base label was provided
+        let target_string = if let Some(base_label) = base_label {
+            // note - a reference can never occur outside a package, so we can unwrap Some(package) here without risking a panic
+            let ref_package_path = self.package()?.unwrap().path()?;
+            let base_path = model
+                .resolve_reference_base(base_label, &ref_package_path)
+                .ok_or(AutosarDataError::InvalidReferenceBase)?;
+            let mut trimmed_target_path = new_ref
+                .strip_prefix(&base_path)
+                .ok_or(AutosarDataError::InvalidReferenceBase)?;
+            if let Some(no_leading_slash) = trimmed_target_path.strip_prefix('/') {
+                trimmed_target_path = no_leading_slash;
+            }
+            trimmed_target_path.to_string()
+        } else {
+            new_ref
+        };
+
+        let version = self.min_version()?;
+        let mut element = self.0.write();
+        // set the DEST attribute first - this could fail if the target element has the wrong type
+        if element
+            .set_attribute_internal(AttributeName::Dest, CharacterData::Enum(enum_item), version)
+            .is_err()
+        {
+            return Err(AutosarDataError::InvalidReference);
+        }
+
+        let opt_old_ref = element.character_data().and_then(|cdata| cdata.string_value());
+
+        // if this reference previously referenced some other element, update
+        if let Some(old_ref) = opt_old_ref {
+            let old_base = element
+                .attribute_value(AttributeName::Base)
+                .and_then(|cdata| cdata.string_value());
+            model.fix_reference_origins(
+                &old_ref,
+                &target_string,
+                old_base.as_deref(),
+                base_label,
+                self.downgrade(),
+            );
+        } else {
+            // else initialise the new reference
+            model.add_reference_origin(&target_string, base_label, self.downgrade());
+        }
+
+        // if this is the PackageRef of a ReferenceBase, then we need to update the ReferenceBase index in the model
+        if element.element_name() == ElementName::PackageRef
+            && let Ok(Some(parent)) = element.parent()
+            && parent.element_name() == ElementName::ReferenceBase
+            && let Some(label) = parent
+                .get_sub_element(ElementName::ShortLabel)
+                .and_then(|e| e.character_data())
+                .and_then(|c| c.string_value())
+            && let Ok(Some(package)) = parent.package()
+            && let Ok(owner_package_path) = package.path()
+        {
+            model.fix_reference_base(
+                Some(label.clone()),
+                label,
+                target_string.clone(),
+                base_label.map(|s| s.to_string()),
+                owner_package_path,
+            );
+        }
+
+        // do the update
+        element.set_character_data(CharacterData::String(target_string), version)?;
+        if let Some(base_label) = base_label {
+            element.set_attribute_internal(
+                AttributeName::Base,
+                CharacterData::String(base_label.to_string()),
+                version,
+            )?;
+        } else {
+            // ensure BASE does not remain when retargeting from a relative reference to an absolute reference
+            element.remove_attribute(AttributeName::Base);
+        }
+
+        Ok(())
     }
 
     /// Get the referenced element
@@ -871,8 +1014,22 @@ impl Element {
         if self.is_reference() {
             if let Some(CharacterData::String(reference)) = self.character_data() {
                 let model = self.model()?;
+
+                let full_path = if let Some(base_label) = self
+                    .attribute_value(AttributeName::Base)
+                    .and_then(|cdata| cdata.string_value())
+                {
+                    // note - a reference can never occur outside a package, so we can unwrap Some(package) here without risking a panic
+                    let ref_package_path = self.package()?.unwrap().path()?;
+                    let reference_base = model
+                        .resolve_reference_base(&base_label, &ref_package_path)
+                        .ok_or(AutosarDataError::InvalidReference)?;
+                    format!("{reference_base}/{reference}")
+                } else {
+                    reference
+                };
                 let target_elem = model
-                    .get_element_by_path(&reference)
+                    .get_element_by_path(&full_path)
                     .ok_or(AutosarDataError::InvalidReference)?;
 
                 let dest_value = self
@@ -960,6 +1117,12 @@ impl Element {
                     None
                 };
 
+                let old_label = if self.element_name() == ElementName::ShortLabel {
+                    self.character_data().and_then(|cdata| cdata.string_value())
+                } else {
+                    None
+                };
+
                 // update the character data
                 {
                     let mut element = self.0.write();
@@ -979,10 +1142,37 @@ impl Element {
                 if elemtype.is_ref()
                     && let Some(CharacterData::String(refval)) = self.character_data()
                 {
+                    let base = self
+                        .attribute_value(AttributeName::Base)
+                        .and_then(|cdata| cdata.string_value());
                     if let Some(old_refval) = old_refval {
-                        model.fix_reference_origins(&old_refval, &refval, self.downgrade());
+                        model.fix_reference_origins(
+                            &old_refval,
+                            &refval,
+                            base.as_deref(),
+                            base.as_deref(),
+                            self.downgrade(),
+                        );
                     } else {
-                        model.add_reference_origin(&refval, self.downgrade());
+                        model.add_reference_origin(&refval, base.as_deref(), self.downgrade());
+                    }
+                } else if self.element_name() == ElementName::ShortLabel
+                    && let Ok(Some(parent)) = self.parent()
+                    && parent.element_name() == ElementName::ReferenceBase
+                    && let Ok(Some(package)) = parent.package()
+                    && let Ok(owner_package_path) = package.path()
+                {
+                    // setting or updating the label of a ReferenceBase
+                    if let Some(package_ref) = parent.get_sub_element(ElementName::PackageRef)
+                        && let Some(package_ref_val) =
+                            package_ref.character_data().and_then(|cdata| cdata.string_value())
+                    {
+                        let base_attr = package_ref
+                            .attribute_value(AttributeName::Base)
+                            .and_then(|cdata| cdata.string_value());
+                        // obviously the new label exists since we just set it
+                        let new_label = self.character_data().and_then(|cdata| cdata.string_value()).unwrap();
+                        model.fix_reference_base(old_label, new_label, package_ref_val, base_attr, owner_package_path);
                     }
                 }
 
@@ -1033,7 +1223,10 @@ impl Element {
                     if self.is_reference() {
                         let model = self.model()?;
                         if let Some(CharacterData::String(reference)) = self.character_data() {
-                            model.remove_reference_origin(&reference, self.downgrade());
+                            let base = self
+                                .attribute_value(AttributeName::Base)
+                                .and_then(|cdata| cdata.string_value());
+                            model.remove_reference_origin(&reference, base.as_deref(), self.downgrade());
                         }
                     }
                     self.0.write().content.clear();
@@ -1538,7 +1731,13 @@ impl Element {
         value: T,
     ) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
-        self.0.write().set_attribute_internal(attrname, value.into(), version)
+        let (old_base, reference_value) = self.base_attribute_info(attrname);
+
+        self.0.write().set_attribute_internal(attrname, value.into(), version)?;
+
+        self.base_attribute_fixup(attrname, old_base, reference_value);
+
+        Ok(())
     }
 
     /// Set the value of a named attribute from a string
@@ -1564,7 +1763,14 @@ impl Element {
     ///  - [`AutosarDataError::NoFilesInModel`]: The operation cannot be completed because the model does not contain any files
     pub fn set_attribute_string(&self, attrname: AttributeName, stringvalue: &str) -> Result<(), AutosarDataError> {
         let version = self.min_version()?;
-        self.0.write().set_attribute_string(attrname, stringvalue, version)
+        let (old_base, reference_value) = self.base_attribute_info(attrname);
+
+        self.0.write().set_attribute_string(attrname, stringvalue, version)?;
+
+        // post-change fixup for BASE attribute changes only
+        self.base_attribute_fixup(attrname, old_base, reference_value);
+
+        Ok(())
     }
 
     /// Remove an attribute from the element
@@ -1583,7 +1789,46 @@ impl Element {
     /// ```
     #[must_use]
     pub fn remove_attribute(&self, attrname: AttributeName) -> bool {
-        self.0.write().remove_attribute(attrname)
+        let (old_base, reference_value) = self.base_attribute_info(attrname);
+
+        let removed = self.0.write().remove_attribute(attrname);
+
+        if removed {
+            // fix the cache of reference origins if a BASE attribute was removed
+            self.base_attribute_fixup(attrname, old_base, reference_value);
+        }
+        removed
+    }
+
+    /// helper function to get the old BASE attribute value and the reference value before changing or removing the attribute
+    fn base_attribute_info(&self, attrname: AttributeName) -> (Option<String>, Option<String>) {
+        if !self.is_reference() || attrname != AttributeName::Base {
+            return (None, None);
+        }
+        let old_base = self
+            .attribute_value(AttributeName::Base)
+            .and_then(|cdata| cdata.string_value());
+        let reference_value = self.character_data().and_then(|cdata| cdata.string_value());
+        (old_base, reference_value)
+    }
+
+    /// fix the reference origins of a reference element if the BASE attribute was changed or removed
+    fn base_attribute_fixup(&self, attrname: AttributeName, old_base: Option<String>, reference_value: Option<String>) {
+        if attrname == AttributeName::Base
+            && let Some(reference_value) = reference_value
+            && let Ok(model) = self.model()
+        {
+            let new_base = self
+                .attribute_value(AttributeName::Base)
+                .and_then(|cdata| cdata.string_value());
+            model.fix_reference_origins(
+                &reference_value,
+                &reference_value,
+                old_base.as_deref(),
+                new_base.as_deref(),
+                self.downgrade(),
+            );
+        }
     }
 
     /// Recursively sort all sub-elements of this element
@@ -2701,6 +2946,29 @@ mod test {
     }
 
     #[test]
+    fn package() {
+        let model = AutosarModel::new();
+        model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Package")
+            .unwrap();
+        let el_ar_packages_2 = el_ar_package.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package_2 = el_ar_packages_2
+            .create_named_sub_element(ElementName::ArPackage, "SubPackage")
+            .unwrap();
+
+        assert_eq!(el_ar_package.package().unwrap(), None); // top level package has no parent package
+        assert_eq!(el_ar_packages_2.package().unwrap().unwrap(), el_ar_package);
+        assert_eq!(el_ar_package_2.package().unwrap().unwrap(), el_ar_package); // SubPackage -> Package
+
+        drop(el_autosar);
+        drop(model);
+        assert!(el_ar_package.package().is_err()); // the model is dropped, so the package cannot be accessed anymore
+    }
+
+    #[test]
     fn element_rename() {
         let model = AutosarModel::new();
         model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
@@ -3351,6 +3619,45 @@ mod test {
         // update with a different valid reference and verify that the reference can be used
         el_fibex_element_ref.set_reference_target(&el_ecu_instance2).unwrap();
         assert_eq!(el_fibex_element_ref.get_reference_target().unwrap(), el_ecu_instance2);
+
+        // define a REFERENCE-BASE and then set a relative reference via BASE
+        let el_reference_bases = el_ar_package.create_sub_element(ElementName::ReferenceBases).unwrap();
+        let el_reference_base = el_reference_bases
+            .create_sub_element(ElementName::ReferenceBase)
+            .unwrap();
+        el_reference_base
+            .create_sub_element(ElementName::ShortLabel)
+            .and_then(|short_label| short_label.set_character_data("default"))
+            .unwrap();
+        el_reference_base
+            .create_sub_element(ElementName::PackageRef)
+            .and_then(|package_ref| package_ref.set_reference_target(&el_ar_package))
+            .unwrap();
+        assert!(model.0.read().reference_bases.contains_key("default"));
+
+        el_fibex_element_ref
+            .set_relative_reference_target(&el_ecu_instance2, "default")
+            .unwrap();
+        assert_eq!(
+            el_fibex_element_ref
+                .attribute_value(AttributeName::Base)
+                .and_then(|cdata| cdata.string_value())
+                .unwrap(),
+            "default"
+        );
+        assert_eq!(
+            el_fibex_element_ref
+                .character_data()
+                .and_then(|cdata| cdata.string_value())
+                .unwrap(),
+            "EcuInstance2"
+        );
+        assert_eq!(el_fibex_element_ref.get_reference_target().unwrap(), el_ecu_instance2);
+        assert!(
+            model
+                .get_references_to("/Package/EcuInstance2")
+                .contains(&el_fibex_element_ref.downgrade())
+        );
 
         // set a valid reference to <CAN-TP-CONNECTION><IDENT>.
         // This is a complex case, as the correct DEST attribute must be looked up in the specification
@@ -4175,5 +4482,355 @@ mod test {
         for elem in ar_packages_elem.elements_dfs_with_max_depth(2) {
             assert!(elem.0 <= 2);
         }
+    }
+
+    #[test]
+    fn parse_reference_bases() {
+        // from issue #36
+        const FILEBUF: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>My</SHORT-NAME>
+      <AR-PACKAGES>
+        <AR-PACKAGE>
+          <SHORT-NAME>Lib</SHORT-NAME>
+          <AR-PACKAGES>
+            <AR-PACKAGE>
+              <SHORT-NAME>Hierarchy</SHORT-NAME>
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Units</SHORT-NAME>
+                  <ELEMENTS>
+                    <UNIT>
+                      <SHORT-NAME>MyUnit</SHORT-NAME>
+                      <FACTOR-SI-TO-UNIT>1</FACTOR-SI-TO-UNIT>
+                      <OFFSET-SI-TO-UNIT>0</OFFSET-SI-TO-UNIT>
+                    </UNIT>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AR-PACKAGE>
+          </AR-PACKAGES>
+        </AR-PACKAGE>
+        <AR-PACKAGE>
+          <SHORT-NAME>SWC</SHORT-NAME>
+          <REFERENCE-BASES>
+            <REFERENCE-BASE>
+              <SHORT-LABEL>Units</SHORT-LABEL>
+              <PACKAGE-REF DEST="AR-PACKAGE">/My/Lib/Hierarchy/Units</PACKAGE-REF>
+            </REFERENCE-BASE>
+          </REFERENCE-BASES>
+          <AR-PACKAGES>
+            <AR-PACKAGE>
+              <SHORT-NAME>ApplicationDataTypes</SHORT-NAME>
+              <ELEMENTS>
+                <APPLICATION-PRIMITIVE-DATA-TYPE>
+                  <SHORT-NAME>MyDataType</SHORT-NAME>
+                  <CATEGORY>VALUE</CATEGORY>
+                  <SW-DATA-DEF-PROPS>
+                    <SW-DATA-DEF-PROPS-VARIANTS>
+                      <SW-DATA-DEF-PROPS-CONDITIONAL>
+                        <SW-CALIBRATION-ACCESS>NOT-ACCESSIBLE</SW-CALIBRATION-ACCESS>
+                        <UNIT-REF DEST="UNIT" BASE="Units">MyUnit</UNIT-REF>
+                      </SW-DATA-DEF-PROPS-CONDITIONAL>
+                    </SW-DATA-DEF-PROPS-VARIANTS>
+                  </SW-DATA-DEF-PROPS>
+                </APPLICATION-PRIMITIVE-DATA-TYPE>
+              </ELEMENTS>
+            </AR-PACKAGE>
+          </AR-PACKAGES>
+        </AR-PACKAGE>
+      </AR-PACKAGES>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#.as_bytes();
+        let model = AutosarModel::new();
+        let (_, _) = model.load_buffer(FILEBUF, "test1", true).unwrap();
+
+        let unit_elem = model.get_element_by_path("/My/Lib/Hierarchy/Units/MyUnit").unwrap();
+        assert_eq!(unit_elem.element_name(), ElementName::Unit);
+
+        // verify that the reference base has been correctly parsed and cached
+        assert_eq!(model.0.read().reference_bases.len(), 1);
+        let locked_model = model.0.read();
+        let (rb, rb_infos) = &locked_model.reference_bases.iter().next().unwrap();
+        assert_eq!(*rb, "Units");
+        assert_eq!(rb_infos.len(), 1);
+        assert_eq!(rb_infos[0].package_ref, "/My/Lib/Hierarchy/Units");
+        drop(locked_model);
+
+        // verify that we're correctly tracking incoming references to the unit element from the reference base
+        let refs_to_unit = model.get_references_to(&unit_elem.path().unwrap());
+        assert_eq!(refs_to_unit.len(), 1);
+        let reference_elem = refs_to_unit[0].upgrade().unwrap();
+        assert_eq!(reference_elem.element_name(), ElementName::UnitRef);
+        assert!(reference_elem.attribute_value(AttributeName::Base).is_some());
+
+        // verify that we can navigate from the reference element to the target unit element
+        let target = reference_elem.get_reference_target().unwrap();
+        assert_eq!(target, unit_elem);
+    }
+
+    #[test]
+    fn modify_relative_ref() {
+        const FILEBUF: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>First</SHORT-NAME>
+      <AR-PACKAGES>
+        <AR-PACKAGE>
+          <SHORT-NAME>Second</SHORT-NAME>
+          <ELEMENTS>
+            <ECU-INSTANCE>
+              <SHORT-NAME>Ecu</SHORT-NAME>
+            </ECU-INSTANCE>
+          </ELEMENTS>
+        </AR-PACKAGE>
+      </AR-PACKAGES>
+    </AR-PACKAGE>
+    <AR-PACKAGE>
+      <SHORT-NAME>Ref</SHORT-NAME>
+      <REFERENCE-BASES>
+        <REFERENCE-BASE>
+          <SHORT-LABEL>First</SHORT-LABEL>
+          <PACKAGE-REF DEST="AR-PACKAGE">/First</PACKAGE-REF>
+        </REFERENCE-BASE>
+        <REFERENCE-BASE>
+          <SHORT-LABEL>Second</SHORT-LABEL>
+          <PACKAGE-REF DEST="AR-PACKAGE">/First/Second</PACKAGE-REF>
+        </REFERENCE-BASE>
+      </REFERENCE-BASES>
+      <ELEMENTS>
+        <SYSTEM>
+          <SHORT-NAME>System</SHORT-NAME>
+          <FIBEX-ELEMENTS>
+            <FIBEX-ELEMENT-REF-CONDITIONAL>
+              <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE" BASE="First">Second/Ecu</FIBEX-ELEMENT-REF>
+            </FIBEX-ELEMENT-REF-CONDITIONAL>
+          </FIBEX-ELEMENTS>
+        </SYSTEM>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#.as_bytes();
+        let model = AutosarModel::new();
+        let (_, _) = model.load_buffer(FILEBUF, "test1", true).unwrap();
+
+        let ref_elem = model
+            .get_element_by_path("/Ref/System")
+            .unwrap()
+            .get_sub_element(ElementName::FibexElements)
+            .unwrap()
+            .get_sub_element(ElementName::FibexElementRefConditional)
+            .unwrap()
+            .get_sub_element(ElementName::FibexElementRef)
+            .unwrap();
+        let ecu_elem = ref_elem.get_reference_target().unwrap();
+        assert_eq!(ecu_elem.element_name(), ElementName::EcuInstance);
+        assert_eq!(model.get_references_to(&ecu_elem.path().unwrap()).len(), 1);
+
+        ref_elem.set_relative_reference_target(&ecu_elem, "Second").unwrap();
+        assert_eq!(ref_elem.character_data().unwrap().string_value().unwrap(), "Ecu");
+        assert_eq!(model.get_references_to(&ecu_elem.path().unwrap()).len(), 1);
+    }
+
+    #[test]
+    fn create_modify_delete_ref_bases() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+        let el_autosar = model.root_element();
+        let el_ar_packages = el_autosar.create_sub_element(ElementName::ArPackages).unwrap();
+        let el_ar_package = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
+        let el_ar_package2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg2")
+            .unwrap();
+        let el_reference_bases = el_ar_package.create_sub_element(ElementName::ReferenceBases).unwrap();
+        let el_reference_base = el_reference_bases
+            .create_sub_element(ElementName::ReferenceBase)
+            .unwrap();
+        // no cached reference base, because label and packageref are missing
+        assert_eq!(model.0.read().reference_bases.len(), 0);
+        let el_short_label = el_reference_base.create_sub_element(ElementName::ShortLabel).unwrap();
+        el_short_label.set_character_data("Units").unwrap();
+        // no cached reference base, because packageref is missing
+        assert_eq!(model.0.read().reference_bases.len(), 0);
+        let el_package_ref = el_reference_base.create_sub_element(ElementName::PackageRef).unwrap();
+        el_package_ref.set_reference_target(&el_ar_package2).unwrap();
+        // cached reference base should be created now
+        assert_eq!(model.0.read().reference_bases.len(), 1);
+
+        el_short_label.set_character_data("Modified").unwrap();
+        // cached reference base should be updated with the new label
+        let locked_model = model.0.read();
+        let (rb, rb_infos) = &locked_model.reference_bases.iter().next().unwrap();
+        assert_eq!(*rb, "Modified");
+        assert_eq!(rb_infos[0].package_ref, "/Pkg2");
+        assert_eq!(rb_infos.len(), 1);
+        drop(locked_model);
+
+        el_package_ref.set_reference_target(&el_ar_package).unwrap();
+        // cached reference base should be updated with the new package ref
+        let locked_model = model.0.read();
+        let (rb, rb_infos) = &locked_model.reference_bases.iter().next().unwrap();
+        assert_eq!(*rb, "Modified");
+        assert_eq!(rb_infos[0].package_ref, "/Pkg");
+        drop(locked_model);
+
+        el_reference_base.remove_sub_element(el_package_ref).unwrap();
+        // cached reference base should be removed again
+        assert_eq!(model.0.read().reference_bases.len(), 0);
+        // create it again
+        let el_package_ref = el_reference_base.create_sub_element(ElementName::PackageRef).unwrap();
+        el_package_ref.set_reference_target(&el_ar_package2).unwrap();
+        assert_eq!(model.0.read().reference_bases.len(), 1);
+        // remove the SHORT-LABEL
+        el_reference_base.remove_sub_element(el_short_label).unwrap();
+        // cached reference base should be removed again, because the label is missing
+        assert_eq!(model.0.read().reference_bases.len(), 0);
+        let el_short_label = el_reference_base.create_sub_element(ElementName::ShortLabel).unwrap();
+        el_short_label.set_character_data("Units").unwrap();
+        // cached reference base should be created again
+        assert_eq!(model.0.read().reference_bases.len(), 1);
+
+        el_reference_bases.remove_sub_element(el_reference_base).unwrap();
+        // cached reference base should be removed again, because the reference base itself is removed
+        assert_eq!(model.0.read().reference_bases.len(), 0);
+    }
+
+    #[test]
+    fn rename_reference_base() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+
+        let el_ar_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let owner1 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Owner1")
+            .unwrap();
+        let owner2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Owner2")
+            .unwrap();
+        let target1 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Target1")
+            .unwrap();
+        let target2 = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "Target2")
+            .unwrap();
+
+        let short_label_1 = owner1
+            .create_sub_element(ElementName::ReferenceBases)
+            .and_then(|e| e.create_sub_element(ElementName::ReferenceBase))
+            .and_then(|e| {
+                e.create_sub_element(ElementName::ShortLabel)
+                    .and_then(|l| l.set_character_data("Shared").map(|_| l))
+            })
+            .unwrap();
+        let owner1_reference_base = owner1
+            .get_sub_element(ElementName::ReferenceBases)
+            .and_then(|e| e.get_sub_element(ElementName::ReferenceBase))
+            .unwrap();
+        owner1_reference_base
+            .create_sub_element(ElementName::PackageRef)
+            .and_then(|p| p.set_reference_target(&target1))
+            .unwrap();
+
+        owner2
+            .create_sub_element(ElementName::ReferenceBases)
+            .and_then(|e| e.create_sub_element(ElementName::ReferenceBase))
+            .and_then(|e| {
+                e.create_sub_element(ElementName::ShortLabel)
+                    .and_then(|l| l.set_character_data("Shared").map(|_| l))
+            })
+            .unwrap();
+        let owner2_reference_base = owner2
+            .get_sub_element(ElementName::ReferenceBases)
+            .and_then(|e| e.get_sub_element(ElementName::ReferenceBase))
+            .unwrap();
+        owner2_reference_base
+            .create_sub_element(ElementName::PackageRef)
+            .and_then(|p| p.set_reference_target(&target2))
+            .unwrap();
+
+        assert_eq!(model.0.read().reference_bases.get("Shared").unwrap().len(), 2);
+
+        short_label_1.set_character_data("Renamed").unwrap();
+
+        let data = model.0.read();
+        let shared_entries = data.reference_bases.get("Shared").unwrap();
+        assert_eq!(shared_entries.len(), 1);
+        assert_eq!(shared_entries[0].owner_package_path, "/Owner2");
+        assert_eq!(shared_entries[0].package_ref, "/Target2");
+
+        let renamed_entries = data.reference_bases.get("Renamed").unwrap();
+        assert_eq!(renamed_entries.len(), 1);
+        assert_eq!(renamed_entries[0].owner_package_path, "/Owner1");
+        assert_eq!(renamed_entries[0].package_ref, "/Target1");
+    }
+
+    #[test]
+    fn changing_base_attribute() {
+        let model = AutosarModel::new();
+        model.create_file("test", AutosarVersion::LATEST).unwrap();
+
+        let el_ar_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let base_a = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "BaseA")
+            .unwrap();
+        let base_b = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "BaseB")
+            .unwrap();
+        let ref_pkg = el_ar_packages
+            .create_named_sub_element(ElementName::ArPackage, "RefPkg")
+            .unwrap();
+
+        let ecu_a = base_a
+            .create_sub_element(ElementName::Elements)
+            .and_then(|e| e.create_named_sub_element(ElementName::EcuInstance, "Ecu"))
+            .unwrap();
+        let _ecu_b = base_b
+            .create_sub_element(ElementName::Elements)
+            .and_then(|e| e.create_named_sub_element(ElementName::EcuInstance, "Ecu"))
+            .unwrap();
+
+        let ref_bases = ref_pkg.create_sub_element(ElementName::ReferenceBases).unwrap();
+        let rb_a = ref_bases.create_sub_element(ElementName::ReferenceBase).unwrap();
+        rb_a.create_sub_element(ElementName::ShortLabel)
+            .and_then(|e| e.set_character_data("A"))
+            .unwrap();
+        rb_a.create_sub_element(ElementName::PackageRef)
+            .and_then(|e| e.set_reference_target(&base_a))
+            .unwrap();
+
+        let rb_b = ref_bases.create_sub_element(ElementName::ReferenceBase).unwrap();
+        rb_b.create_sub_element(ElementName::ShortLabel)
+            .and_then(|e| e.set_character_data("B"))
+            .unwrap();
+        rb_b.create_sub_element(ElementName::PackageRef)
+            .and_then(|e| e.set_reference_target(&base_b))
+            .unwrap();
+
+        let ref_elem = ref_pkg
+            .create_sub_element(ElementName::Elements)
+            .and_then(|e| e.create_named_sub_element(ElementName::System, "Sys"))
+            .and_then(|e| e.create_sub_element(ElementName::FibexElements))
+            .and_then(|e| e.create_sub_element(ElementName::FibexElementRefConditional))
+            .and_then(|e| e.create_sub_element(ElementName::FibexElementRef))
+            .unwrap();
+        ref_elem.set_relative_reference_target(&ecu_a, "A").unwrap();
+
+        ref_elem.set_attribute_string(AttributeName::Base, "B").unwrap();
+
+        let origins = model.0.read().relative_reference_origins.get("Ecu").unwrap().clone();
+        let ref_origin = ref_elem.downgrade();
+        assert!(origins.iter().any(|(elem, base)| *elem == ref_origin && base == "B"));
     }
 }

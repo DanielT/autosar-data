@@ -519,7 +519,10 @@ impl ElementRaw {
             if sub_elem.is_reference()
                 && let Some(CharacterData::String(reference)) = sub_elem.character_data()
             {
-                model.add_reference_origin(&reference, sub_elem.downgrade());
+                let base = sub_elem
+                    .attribute_value(AttributeName::Base)
+                    .and_then(|cdata| cdata.string_value());
+                model.add_reference_origin(&reference, base.as_deref(), sub_elem.downgrade());
             }
         }
 
@@ -913,7 +916,10 @@ impl ElementRaw {
         }
         // delete all reference origin info for elements under move_element
         for (path, elem) in &original_refs {
-            model_src.remove_reference_origin(path, elem.downgrade());
+            let base = elem
+                .attribute_value(AttributeName::Base)
+                .and_then(|cdata| cdata.string_value());
+            model_src.remove_reference_origin(path, base.as_deref(), elem.downgrade());
         }
 
         // set the parent of the new element to the current element
@@ -943,7 +949,10 @@ impl ElementRaw {
                     refstr = format!("{dest_path}{suffix}");
                     ref_element.0.write().set_character_data(refstr.clone(), version)?;
                 }
-                model.add_reference_origin(&refstr, ref_element.downgrade());
+                let base = ref_element
+                    .attribute_value(AttributeName::Base)
+                    .and_then(|cdata| cdata.string_value());
+                model.add_reference_origin(&refstr, base.as_deref(), ref_element.downgrade());
             }
         }
 
@@ -1100,6 +1109,14 @@ impl ElementRaw {
         if self.elemtype.is_named() && sub_element_locked.elemname == ElementName::ShortName {
             // may not remove the SHORT-NAME, because that would leave the data in an invalid state
             return Err(AutosarDataError::ShortNameRemovalForbidden);
+        } else if self.elemname == ElementName::ReferenceBases
+            && sub_element_locked.elemname == ElementName::ReferenceBase
+        {
+            // removing a whole reference base
+            self.remove_reference_base(model, &sub_element_locked);
+        } else if self.elemname == ElementName::ReferenceBase {
+            // removing data from a reference base, making it invalid
+            self.remove_incomplete_reference_base(model, &sub_element_locked);
         }
         sub_element_locked.remove_internal(sub_element.downgrade(), model, path);
         self.content.remove(pos);
@@ -1123,7 +1140,10 @@ impl ElementRaw {
             && let Some(CharacterData::String(reference)) = self.character_data()
         {
             // remove the references-reference (ugh. terminology???)
-            model.remove_reference_origin(&reference, self_weak);
+            let base = self
+                .attribute_value(AttributeName::Base)
+                .and_then(|cdata| cdata.string_value());
+            model.remove_reference_origin(&reference, base.as_deref(), self_weak);
         }
         for item in &self.content {
             if let ElementContent::Element(sub_element) = item {
@@ -1314,6 +1334,62 @@ impl ElementRaw {
             }
             ContentMode::Characters | ContentMode::Mixed => {}
         }
+    }
+
+    fn remove_reference_base(&mut self, model: &AutosarModel, sub_element_locked: &ElementRaw) -> Option<()> {
+        // here self is a REFERENCE-BASES element and sub_element_locked is the REFERENCE-BASE element that is being removed from it.
+        let base_label = sub_element_locked.content.iter().find_map(|item| {
+            if let ElementContent::Element(elem) = item
+                && elem.element_name() == ElementName::ShortLabel
+            {
+                elem.character_data()?.string_value()
+            } else {
+                None
+            }
+        })?;
+        // the parent of REFERENCE-BASES is an AR-PACKAGE, so the owner package path can be obtained from it
+        let owner_package_path = if let ElementOrModel::Element(weak_parent) = &self.parent {
+            weak_parent.upgrade()?.path().ok()?
+        } else {
+            return None;
+        };
+        model.remove_reference_base(&base_label, &owner_package_path);
+
+        Some(())
+    }
+
+    fn remove_incomplete_reference_base(
+        &mut self,
+        model: &AutosarModel,
+        sub_element_locked: &parking_lot::lock_api::RwLockWriteGuard<'_, parking_lot::RawRwLock, ElementRaw>,
+    ) -> Option<()> {
+        // self is a a REFERENCE-BASE element
+        let base_label = if sub_element_locked.elemname == ElementName::ShortLabel {
+            sub_element_locked.character_data()?.string_value()?
+        } else if sub_element_locked.elemname == ElementName::PackageRef {
+            self.content
+                .iter()
+                .find_map(|item| {
+                    if let ElementContent::Element(elem) = item
+                        && elem.element_name() == ElementName::ShortLabel
+                    {
+                        Some(elem)
+                    } else {
+                        None
+                    }
+                })?
+                .character_data()?
+                .string_value()?
+        } else {
+            return None;
+        };
+        let ElementOrModel::Element(weak_parent) = &self.parent else {
+            return None;
+        };
+        let owner_package_path = weak_parent.upgrade()?.package().ok()??.path().ok()?;
+        model.remove_reference_base(&base_label, &owner_package_path);
+
+        Some(())
     }
 
     pub(crate) fn wrap(self) -> Element {

@@ -1,4 +1,7 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{HashMap, VecDeque},
+    hash::Hash,
+};
 
 use crate::*;
 
@@ -58,6 +61,8 @@ impl AutosarModel {
             files: Vec::new(),
             identifiables: FxIndexMap::default(),
             reference_origins: FxHashMap::default(),
+            relative_reference_origins: FxHashMap::default(),
+            reference_bases: FxHashMap::default(),
             root_element: root_elem.clone(),
         }
         .wrap();
@@ -189,6 +194,7 @@ impl AutosarModel {
         }
 
         let mut data = self.0.write();
+        // import identifiables from the parser, check for conflicts with existing data
         data.identifiables.reserve(parser.identifiables.len());
         for (key, value) in parser.identifiables {
             // the same identifiables can be present in multiple files
@@ -208,14 +214,38 @@ impl AutosarModel {
                 data.identifiables.insert(key, value);
             }
         }
+
+        // import references from the parser
         data.reference_origins.reserve(parser.references.len());
-        for (refpath, referring_element) in parser.references {
-            if let Some(xref) = data.reference_origins.get_mut(&refpath) {
-                xref.push(referring_element);
+        for (refpath, referring_element, base) in parser.references {
+            if let Some(base_label) = base {
+                //relative reference
+                if let Some(xref) = data.relative_reference_origins.get_mut(&refpath) {
+                    xref.push((referring_element, base_label));
+                } else {
+                    data.relative_reference_origins
+                        .insert(refpath, vec![(referring_element, base_label)]);
+                }
             } else {
-                data.reference_origins.insert(refpath, vec![referring_element]);
+                // absolute reference
+                if let Some(xref) = data.reference_origins.get_mut(&refpath) {
+                    xref.push(referring_element);
+                } else {
+                    data.reference_origins.insert(refpath, vec![referring_element]);
+                }
             }
         }
+
+        // import reference bases from the parser
+        data.reference_bases.reserve(parser.reference_bases.len());
+        for (base_key, base_info) in parser.reference_bases {
+            if let Some(existing_base) = data.reference_bases.get_mut(&base_key) {
+                existing_base.push(base_info);
+            } else {
+                data.reference_bases.insert(base_key, vec![base_info]);
+            }
+        }
+
         data.files.push(arxml_file.clone());
 
         Ok((arxml_file, parser.warnings))
@@ -614,11 +644,12 @@ impl AutosarModel {
                 locked_model.root_element.set_file_membership(HashSet::new());
                 locked_model.identifiables.clear();
                 locked_model.reference_origins.clear();
+                locked_model.relative_reference_origins.clear();
+                locked_model.reference_bases.clear();
             } else {
                 drop(locked_model);
                 // other files still contribute elements, so only the elements specifically associated with this file should be removed
                 let _ = self.root_element().remove_from_file(file);
-                // self.unmerge_file(&file.downgrade());
             }
         }
     }
@@ -931,11 +962,43 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn get_references_to(&self, target_path: &str) -> Vec<WeakElement> {
-        if let Some(origins) = self.0.read().reference_origins.get(target_path) {
+        let locked_model = self.0.read();
+        let mut origins = if let Some(origins) = locked_model.reference_origins.get(target_path) {
             origins.clone()
         } else {
             Vec::new()
+        };
+
+        if !locked_model.relative_reference_origins.is_empty() {
+            // also check for relative references
+            let mut pos = target_path.rfind('/').map(|i| i + 1).unwrap_or(0);
+            while pos > 0 {
+                let suffix = &target_path[pos..];
+                if let Some(rel_origins) = locked_model.relative_reference_origins.get(suffix) {
+                    for (origin, base_label) in rel_origins {
+                        let Some(origin_elem) = origin.upgrade() else {
+                            continue;
+                        };
+                        let Some(package_path) = origin_elem.package().ok().flatten().and_then(|p| p.path().ok())
+                        else {
+                            continue;
+                        };
+                        let Some(base_path) = self.resolve_reference_base(base_label, &package_path) else {
+                            continue;
+                        };
+                        if let Some(rest) = target_path.strip_prefix(&base_path) {
+                            let rest = rest.strip_prefix('/').unwrap_or(rest);
+                            if rest == suffix {
+                                origins.push(origin.clone());
+                            }
+                        }
+                    }
+                }
+                pos = target_path[..pos - 1].rfind('/').map(|i| i + 1).unwrap_or(0);
+            }
         }
+
+        origins
     }
 
     /// check all Autosar path references and return a list of elements with invalid references
@@ -1035,7 +1098,15 @@ impl AutosarModel {
         model.identifiables.swap_remove(path);
     }
 
-    pub(crate) fn add_reference_origin(&self, new_ref: &str, origin: WeakElement) {
+    pub(crate) fn add_reference_origin(&self, new_ref: &str, base: Option<&str>, origin: WeakElement) {
+        if let Some(base) = base {
+            self.add_relative_reference_origin(new_ref, base, origin);
+        } else {
+            self.add_absolute_reference_origin(new_ref, origin);
+        }
+    }
+
+    fn add_absolute_reference_origin(&self, new_ref: &str, origin: WeakElement) {
         let mut data = self.0.write();
         // add the new entry
         if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
@@ -1045,30 +1116,39 @@ impl AutosarModel {
         }
     }
 
-    pub(crate) fn fix_reference_origins(&self, old_ref: &str, new_ref: &str, origin: WeakElement) {
-        if old_ref != new_ref {
-            let mut data = self.0.write();
-            let mut remove_list = false;
-            // remove the old entry
-            if let Some(referrer_list) = data.reference_origins.get_mut(old_ref)
-                && let Some(index) = referrer_list.iter().position(|x| *x == origin)
-            {
-                referrer_list.swap_remove(index);
-                remove_list = referrer_list.is_empty();
-            }
-            if remove_list {
-                data.reference_origins.remove(old_ref);
-            }
-            // add the new entry
-            if let Some(referrer_list) = data.reference_origins.get_mut(new_ref) {
-                referrer_list.push(origin);
-            } else {
-                data.reference_origins.insert(new_ref.to_owned(), vec![origin]);
-            }
+    fn add_relative_reference_origin(&self, new_ref: &str, base: &str, origin: WeakElement) {
+        let mut data = self.0.write();
+        if let Some(referrer_list) = data.relative_reference_origins.get_mut(new_ref) {
+            referrer_list.push((origin, base.to_string()));
+        } else {
+            data.relative_reference_origins
+                .insert(new_ref.to_owned(), vec![(origin, base.to_string())]);
         }
     }
 
-    pub(crate) fn remove_reference_origin(&self, reference: &str, element: WeakElement) {
+    pub(crate) fn fix_reference_origins(
+        &self,
+        old_ref: &str,
+        new_ref: &str,
+        old_base: Option<&str>,
+        new_base: Option<&str>,
+        origin: WeakElement,
+    ) {
+        if old_ref != new_ref || old_base != new_base {
+            self.remove_reference_origin(old_ref, old_base, origin.clone());
+            self.add_reference_origin(new_ref, new_base, origin);
+        }
+    }
+
+    pub(crate) fn remove_reference_origin(&self, reference: &str, base: Option<&str>, element: WeakElement) {
+        if let Some(base) = base {
+            self.remove_relative_reference_origin(reference, base, element);
+        } else {
+            self.remove_absolute_reference_origin(reference, element);
+        }
+    }
+
+    fn remove_absolute_reference_origin(&self, reference: &str, element: WeakElement) {
         let mut data = self.0.write();
         let mut count = 1;
         if let Some(referrer_list) = data.reference_origins.get_mut(reference) {
@@ -1079,6 +1159,117 @@ impl AutosarModel {
         }
         if count == 0 {
             data.reference_origins.remove(reference);
+        }
+    }
+
+    fn remove_relative_reference_origin(&self, reference: &str, base: &str, element: WeakElement) {
+        let mut data = self.0.write();
+        let mut count = 1;
+        if let Some(referrer_list) = data.relative_reference_origins.get_mut(reference) {
+            if let Some(index) = referrer_list.iter().position(|(x, b)| *x == element && *b == base) {
+                referrer_list.swap_remove(index);
+            }
+            count = referrer_list.len();
+        }
+        if count == 0 {
+            data.relative_reference_origins.remove(reference);
+        }
+    }
+
+    pub(crate) fn resolve_reference_base(&self, base: &str, ref_package_path: &str) -> Option<String> {
+        let model = self.0.read();
+        let mut current_base = base;
+        let mut path_components = VecDeque::with_capacity(0);
+        let mut ref_package_path = ref_package_path;
+        loop {
+            // get (potentially) a list of reference bases that all have the requested base label
+            let ref_base_info_list = model.reference_bases.get(current_base)?;
+            // select the most applicable reference base from the list based on the owner_package_path (longest prefix match)
+            let ref_base_info = ref_base_info_list
+                .iter()
+                .filter(|info| ref_package_path.starts_with(&info.owner_package_path))
+                .max_by_key(|info| info.owner_package_path.len())?;
+
+            // base is relative to a package, so the path components of the package need to be added to the path
+            if let Some(package_ref_base) = &ref_base_info.package_ref_base {
+                // the reference base uses (at least) another reference base as its own base, so we
+                // loop and build up the path components until we reach a reference base that is absolute
+                path_components.push_front(&ref_base_info.package_ref);
+                current_base = package_ref_base;
+                ref_package_path = &ref_base_info.owner_package_path;
+            } else {
+                if path_components.is_empty() {
+                    return Some(ref_base_info.package_ref.clone());
+                } else {
+                    path_components.push_front(&ref_base_info.package_ref);
+                    // let resolved_path = path_components.join("/"); - join() doesn't exist for &String, so we need to do it manually
+                    let mut resolved_path = String::new();
+                    for component in path_components {
+                        resolved_path.push_str(component);
+                        resolved_path.push('/');
+                    }
+                    resolved_path.pop(); // remove the trailing '/'
+                    return Some(resolved_path);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn fix_reference_base(
+        &self,
+        old_label: Option<String>,
+        new_label: String,
+        package_ref_val: String,
+        ref_base_attr: Option<String>,
+        owner_package_path: String,
+    ) {
+        let mut data = self.0.write();
+        // Remove the previous entry for this owner package under the old label.
+        if let Some(old_label) = old_label {
+            let mut remove_old_key = false;
+            if let Some(ref_base_info_list) = data.reference_bases.get_mut(&old_label) {
+                if let Some(index) = ref_base_info_list
+                    .iter()
+                    .position(|info| info.owner_package_path == owner_package_path)
+                {
+                    ref_base_info_list.swap_remove(index);
+                }
+                remove_old_key = ref_base_info_list.is_empty();
+            }
+            if remove_old_key {
+                data.reference_bases.remove(&old_label);
+            }
+        }
+
+        // Upsert the new entry for this owner package under the new label.
+        let ref_base_info_list = data.reference_bases.entry(new_label).or_default();
+        if let Some(existing_info) = ref_base_info_list
+            .iter_mut()
+            .find(|info| info.owner_package_path == owner_package_path)
+        {
+            existing_info.package_ref = package_ref_val;
+            existing_info.package_ref_base = ref_base_attr;
+        } else {
+            ref_base_info_list.push(ReferenceBaseInfo {
+                package_ref: package_ref_val,
+                package_ref_base: ref_base_attr,
+                owner_package_path,
+            });
+        }
+    }
+
+    /// remove a reference base from the cache
+    pub(crate) fn remove_reference_base(&self, label: &str, owner_package_path: &str) {
+        let mut data = self.0.write();
+        if let Some(ref_base_info_list) = data.reference_bases.get_mut(label)
+            && let Some(index) = ref_base_info_list
+                .iter()
+                .position(|info| info.owner_package_path == owner_package_path)
+        {
+            ref_base_info_list.swap_remove(index);
+            if ref_base_info_list.is_empty() {
+                data.reference_bases.remove(label);
+            }
         }
     }
 }
@@ -1109,6 +1300,8 @@ impl std::fmt::Debug for AutosarModel {
         dbgstruct.field("files", &model.files);
         dbgstruct.field("identifiables", &model.identifiables);
         dbgstruct.field("reference_origins", &model.reference_origins);
+        dbgstruct.field("relative_reference_origins", &model.relative_reference_origins);
+        dbgstruct.field("reference_bases", &model.reference_bases);
         dbgstruct.finish()
     }
 }
@@ -1456,6 +1649,51 @@ mod test {
     }
 
     #[test]
+    fn remove_last_file_clears_relative_reference_origins() {
+        const FILEBUF: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>BasePkg</SHORT-NAME>
+            <ELEMENTS>
+                <ECU-INSTANCE>
+                    <SHORT-NAME>Ecu</SHORT-NAME>
+                </ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+        <AR-PACKAGE>
+            <SHORT-NAME>RefPkg</SHORT-NAME>
+            <REFERENCE-BASES>
+                <REFERENCE-BASE>
+                    <SHORT-LABEL>BaseA</SHORT-LABEL>
+                    <PACKAGE-REF DEST="AR-PACKAGE">/BasePkg</PACKAGE-REF>
+                </REFERENCE-BASE>
+            </REFERENCE-BASES>
+            <ELEMENTS>
+                <SYSTEM>
+                    <SHORT-NAME>Sys</SHORT-NAME>
+                    <FIBEX-ELEMENTS>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE" BASE="BaseA">Ecu</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                    </FIBEX-ELEMENTS>
+                </SYSTEM>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#
+                        .as_bytes();
+
+        let model = AutosarModel::new();
+        let (file, _) = model.load_buffer(FILEBUF, "test", true).unwrap();
+
+        assert!(!model.0.read().relative_reference_origins.is_empty());
+        model.remove_file(&file);
+
+        assert!(model.0.read().relative_reference_origins.is_empty());
+    }
+
+    #[test]
     fn refcount() {
         let model = AutosarModel::default();
         let weak = model.downgrade();
@@ -1784,7 +2022,6 @@ mod test {
         model2.sort();
         let model2_txt = model2.root_element().serialize();
 
-        println!("{}\n\n=======================\n{}\n\n", model_txt, model2_txt);
         assert_eq!(model_txt, model2_txt);
     }
 
@@ -1844,5 +2081,85 @@ mod test {
         let b1_refs = model.get_references_to("/path/to/entry_B1");
         assert!(b1_refs.len() == 1);
         assert!(b1_refs[0].upgrade().is_some());
+    }
+
+    #[test]
+    fn complex_reference_bases() {
+        const FILEBUF1: &[u8] = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <AR-PACKAGES>
+    <AR-PACKAGE><SHORT-NAME>BasesPkg</SHORT-NAME>
+      <REFERENCE-BASES>
+        <REFERENCE-BASE>
+          <SHORT-LABEL>BaseA</SHORT-LABEL>
+          <PACKAGE-REF DEST="AR-PACKAGE">/ContentPkg</PACKAGE-REF>
+        </REFERENCE-BASE>
+        <REFERENCE-BASE>
+          <SHORT-LABEL>BaseC</SHORT-LABEL>
+          <PACKAGE-REF DEST="AR-PACKAGE">/ContentPkg2</PACKAGE-REF>
+        </REFERENCE-BASE>
+      </REFERENCE-BASES>
+      <AR-PACKAGES>
+        <AR-PACKAGE><SHORT-NAME>SubPackage</SHORT-NAME>
+          <REFERENCE-BASES>
+            <REFERENCE-BASE>
+              <SHORT-LABEL>BaseB</SHORT-LABEL>
+              <PACKAGE-REF DEST="AR-PACKAGE" BASE="BaseA">SubPackage</PACKAGE-REF>
+            </REFERENCE-BASE>
+          </REFERENCE-BASES>
+          <ELEMENTS>
+            <SYSTEM><SHORT-NAME>System</SHORT-NAME>
+              <FIBEX-ELEMENTS>
+                <FIBEX-ELEMENT-REF-CONDITIONAL>
+                  <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE" BASE="BaseB">Ecu</FIBEX-ELEMENT-REF>
+                </FIBEX-ELEMENT-REF-CONDITIONAL>
+                <FIBEX-ELEMENT-REF-CONDITIONAL>
+                  <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE" BASE="BaseC">Ecu</FIBEX-ELEMENT-REF>
+                </FIBEX-ELEMENT-REF-CONDITIONAL>
+              </FIBEX-ELEMENTS>
+            </SYSTEM>
+          </ELEMENTS>
+        </AR-PACKAGE>
+      </AR-PACKAGES>
+    </AR-PACKAGE>
+    <AR-PACKAGE><SHORT-NAME>ContentPkg</SHORT-NAME>
+      <AR-PACKAGES>
+        <AR-PACKAGE><SHORT-NAME>SubPackage</SHORT-NAME>
+          <ELEMENTS>
+            <ECU-INSTANCE><SHORT-NAME>Ecu</SHORT-NAME></ECU-INSTANCE>
+          </ELEMENTS>
+        </AR-PACKAGE>
+      </AR-PACKAGES>
+    </AR-PACKAGE>
+    <AR-PACKAGE><SHORT-NAME>ContentPkg2</SHORT-NAME>
+      <ELEMENTS>
+        <ECU-INSTANCE><SHORT-NAME>Ecu</SHORT-NAME></ECU-INSTANCE>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#.as_bytes();
+        let model = AutosarModel::new();
+        let result = model.load_buffer(FILEBUF1, "test", true);
+        assert!(result.is_ok());
+
+        let el_system = model.get_element_by_path("/BasesPkg/SubPackage/System").unwrap();
+        let el_fibex_elements = el_system.get_sub_element(ElementName::FibexElements).unwrap();
+        let el_fibex_element_ref = el_fibex_elements
+            .get_sub_element_at(0)
+            .and_then(|ferc| ferc.get_sub_element(ElementName::FibexElementRef))
+            .unwrap();
+
+        // check that we can resolve the reference across multiple levels of reference bases
+        let el_ecu = el_fibex_element_ref.get_reference_target().unwrap();
+        assert_eq!(el_ecu.element_name(), ElementName::EcuInstance);
+
+        // check that the reference origins are correct
+        let origins = model.get_references_to(&el_ecu.path().unwrap());
+        assert_eq!(origins.len(), 1);
+        let origin = origins[0].upgrade().unwrap();
+        assert_eq!(origin.element_name(), ElementName::FibexElementRef);
+
+        let origins2 = model.get_references_to("/ContentPkg2/Ecu");
+        assert_eq!(origins2.len(), 1);
     }
 }
