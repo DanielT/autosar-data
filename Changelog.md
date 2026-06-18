@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.22.0
+
+### Features
+
+- Support for relative references using the BASE attribute and a REFERENCE-BASE
+
 ## Version 0.21.2
 
 ### Fixes
