@@ -1,7 +1,7 @@
 use std::env;
 
 use autosar_data::{AutosarModel, CharacterData, Element, ElementName, EnumItem};
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 
 enum TimeRangeTolerance {
     Relative(i64),

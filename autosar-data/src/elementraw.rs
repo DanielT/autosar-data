@@ -4,7 +4,7 @@ use std::{borrow::Cow, time::Duration};
 use autosar_data_specification::{
     AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementMultiplicity, ElementName,
 };
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use std::collections::HashSet;
