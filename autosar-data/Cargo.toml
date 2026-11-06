@@ -15,7 +15,7 @@ thiserror = "2.0"
 smallvec = { version = "1.14.0", features = ["union", "const_generics"]}
 parking_lot = "0.12"
 indexmap = "2.2.0"
-fxhash = "0.2.1"
+rustc-hash = "2.1"
 num-traits = "0.2.18"
 memchr = "2.8.3"
 

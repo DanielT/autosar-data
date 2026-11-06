@@ -77,7 +77,7 @@
 #![warn(missing_docs)]
 
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
-use fxhash::{FxBuildHasher, FxHashMap};
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use indexmap::IndexMap;
 pub use iterators::*;
 use parking_lot::RwLock;
