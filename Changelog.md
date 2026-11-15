@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.23.1
+
+### Fixes
+
+- Replace the unmaintained fxhash with rustc_hash
+
 ## Version 0.23.0
 
 ### API

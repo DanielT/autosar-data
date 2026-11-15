@@ -77,11 +77,11 @@
 #![warn(missing_docs)]
 
 use autosar_data_specification::{AttributeSpec, CharacterDataSpec, ContentMode, ElementType};
-use rustc_hash::{FxBuildHasher, FxHashMap};
 use indexmap::IndexMap;
 pub use iterators::*;
 use parking_lot::RwLock;
 use parser::ArxmlParser;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use smallvec::SmallVec;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
