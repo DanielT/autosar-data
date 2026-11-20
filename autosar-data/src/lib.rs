@@ -83,7 +83,7 @@ use parking_lot::RwLock;
 use parser::ArxmlParser;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use smallvec::SmallVec;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, Bound, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::{fs::File, io::Read};
@@ -161,6 +161,25 @@ pub(crate) struct AutosarModelRaw {
     /// recomputed at the moment it is needed: de-registration happens while element locks are held and
     /// after the element has been detached from the tree, when its base can no longer be resolved.
     relative_references: FxHashMap<WeakElement, Option<String>>, // referencing element -> target path
+    /// Sorted copies of the keys of `identifiables` and `reference_origins`.
+    ///
+    /// `fix_element_paths` and `fix_reference_paths` need the subset of keys that lie inside a
+    /// remapped path prefix. Scanning every key on every call makes a run that moves N subtrees
+    /// in a model holding M identifiable elements cost O(N*M); on a multi-file ARXML composition
+    /// workload the key scans dominated the runtime and grew quadratically with the number of
+    /// input files.
+    ///
+    /// A path-ordered key set turns the prefix lookup into a range scan over exactly the matching
+    /// keys, maintained incrementally wherever the maps themselves are mutated. The results are
+    /// unchanged: the visited keys, and the order in which they are visited, are the ones the full
+    /// scans produced.
+    ///
+    /// None of the three are needed to load a file: a load only fills the two maps, and the indexes
+    /// are read by the renaming/moving operations and by the two lookups below. Both of them are
+    /// rare in a read-only tool, so the indexes are materialized on first use instead of at the end
+    /// of every load, where rebuilding them over the whole model cost ~240ms on a 188MB file.
+    path_index: LazyPathSet,
+    refpath_index: LazyPathSet,
     /// `short name -> paths` index over `identifiables`.
     ///
     /// Resolving a dangling reference by its last path segment requires every identifiable whose
@@ -170,7 +189,79 @@ pub(crate) struct AutosarModelRaw {
     ///
     /// Maintained at every key mutation of `identifiables`. Each bucket keeps `identifiables`
     /// insertion order, so a lookup returns the same sequence a full scan would.
-    shortname_index: FxHashMap<String, Vec<String>>,
+    shortname_index: LazyShortnameIndex,
+}
+
+/// A `BTreeSet` of paths which is built from a map on first use.
+///
+/// See [`AutosarModelRaw::path_index`] for why the model keeps these lazily.
+#[derive(Default)]
+pub(crate) enum LazyPathSet {
+    /// not built yet; the owning map is the source of truth
+    #[default]
+    Missing,
+    /// built from the owning map, and kept in sync with it by every mutation
+    Ready(BTreeSet<String>),
+}
+
+impl LazyPathSet {
+    /// the built set, or `None` if it would have to be built first
+    ///
+    /// Callers that read the set build it with the matching `materialize_*` method; callers that
+    /// only mutate the owning map leave it alone, so that a mutation never pays for a build which
+    /// the next reader would have to redo anyway.
+    pub(crate) fn get(&self) -> Option<&BTreeSet<String>> {
+        match self {
+            LazyPathSet::Missing => None,
+            LazyPathSet::Ready(set) => Some(set),
+        }
+    }
+
+    pub(crate) fn get_mut(&mut self) -> Option<&mut BTreeSet<String>> {
+        match self {
+            LazyPathSet::Missing => None,
+            LazyPathSet::Ready(set) => Some(set),
+        }
+    }
+
+    /// forget the set; the next reader rebuilds it from the owning map
+    pub(crate) fn clear(&mut self) {
+        *self = LazyPathSet::Missing;
+    }
+}
+
+/// The `short name -> paths` index over `identifiables`, built on first use.
+///
+/// See [`AutosarModelRaw::path_index`] for why the model keeps these lazily.
+#[derive(Default)]
+pub(crate) enum LazyShortnameIndex {
+    #[default]
+    Missing,
+    Ready(FxHashMap<String, Vec<String>>),
+}
+
+impl LazyShortnameIndex {
+    pub(crate) fn get(&self) -> Option<&FxHashMap<String, Vec<String>>> {
+        match self {
+            LazyShortnameIndex::Missing => None,
+            LazyShortnameIndex::Ready(index) => Some(index),
+        }
+    }
+
+    /// the built index for in-place maintenance, or `None` if it would have to be built first
+    ///
+    /// A mutation keeps an already-built index in sync through this instead of dropping it, so a
+    /// pipeline that interleaves lookups with moves pays for one build, not one per lookup.
+    pub(crate) fn get_mut(&mut self) -> Option<&mut FxHashMap<String, Vec<String>>> {
+        match self {
+            LazyShortnameIndex::Missing => None,
+            LazyShortnameIndex::Ready(index) => Some(index),
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self = LazyShortnameIndex::Missing;
+    }
 }
 
 /// The error type `AutosarDataError` wraps all errors that can be generated anywhere in the crate
@@ -440,7 +531,7 @@ pub(crate) struct ElementRaw {
     pub(crate) parent: ElementOrModel,
     pub(crate) elemname: ElementName,
     pub(crate) elemtype: ElementType,
-    pub(crate) content: SmallVec<[ElementContent; 4]>,
+    pub(crate) content: SmallVec<[ElementContent; 2]>,
     pub(crate) attributes: SmallVec<[Attribute; 1]>,
     /// the files that this element is a member of, or `None` if it inherits the membership of its
     /// parent element

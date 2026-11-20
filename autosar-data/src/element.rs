@@ -2450,9 +2450,14 @@ impl Element {
         None
     }
 
-    /// return the file membership of this element without trying to get an inherited value
-    pub(crate) fn file_membership_local(&self) -> HashSet<WeakArxmlFile> {
-        self.0.read().file_membership_cloned()
+    /// true if this element is a member of `file`, without copying the set
+    ///
+    /// The membership test the file iterator needs, borrowing under the element
+    /// lock instead of cloning the set. It runs for every element of every file
+    /// walk, so the clone it replaces dominated a whole-model scan: the pack
+    /// phase walked ~45M elements per class over 27 classes.
+    pub(crate) fn is_in_file_cheap(&self, file: &WeakArxmlFile) -> bool {
+        self.0.read().is_in_file(file)
     }
 
     /// set the file membership of an element
@@ -2602,6 +2607,12 @@ impl Element {
 
                 // current_fileset is the set of files which contain the current element
                 let (_, current_fileset) = self.file_membership()?;
+                if !current_fileset.contains(&weak_file) {
+                    // the file does not contain this element, so there is nothing to remove. Bailing
+                    // out here skips the subtree walk below, which is otherwise a no-op that visits
+                    // every descendant of a large moved element for nothing.
+                    return Ok(());
+                }
                 let mut restricted_fileset = current_fileset;
                 restricted_fileset.remove(&weak_file);
                 if restricted_fileset.is_empty() {
@@ -3034,7 +3045,7 @@ fn decompose_item_name(name: &str) -> Option<(String, u64)> {
 }
 
 // a helper that provides compact debug output for the content of an element
-struct ElementContentFormatter<'a>(&'a SmallVec<[ElementContent; 4]>);
+struct ElementContentFormatter<'a>(&'a SmallVec<[ElementContent; 2]>);
 impl std::fmt::Debug for ElementContentFormatter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut list_fmt = f.debug_list();
