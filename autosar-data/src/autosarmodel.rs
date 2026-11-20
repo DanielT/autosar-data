@@ -1562,14 +1562,22 @@ impl AutosarModel {
     }
 
     // remove a deleted element from the cache
-    pub(crate) fn remove_identifiable(&self, path: &str) {
+    //
+    // The cache is keyed by path, but a path does not identify an element: when two inputs define
+    // the same identifiable and merge them, the element that survives can belong to either input,
+    // while only one of them ever owns the cache entry. Removing the other one must therefore leave
+    // the entry alone, otherwise the surviving element becomes unreachable by path forever.
+    pub(crate) fn remove_identifiable(&self, path: &str, elem: &WeakElement) {
         let mut model = self.0.write();
-        if model.identifiables.swap_remove(path).is_some() {
-            if let Some(index) = model.path_index.get_mut() {
-                index.remove(path);
-            }
-            model.unindex_shortname(path);
+        let owns_entry = model.identifiables.get(path).is_some_and(|existing| existing == elem);
+        if !owns_entry {
+            return;
         }
+        model.identifiables.swap_remove(path);
+        if let Some(index) = model.path_index.get_mut() {
+            index.remove(path);
+        }
+        model.unindex_shortname(path);
     }
 
     /// Register a reference element
@@ -2495,6 +2503,49 @@ mod test {
         let modeltxt_1_x_x = model.root_element().serialize();
         assert_eq!(modeltxt_1, modeltxt_1_x_x);
         assert_eq!(model.files().count(), 1);
+    }
+
+    // Two files define the same identifiable, but list the package children in opposite order, so the
+    // merge imports the second file's element while the first file still owns the cache entry. Removing
+    // the second file must not evict the entry of the element that survives - otherwise that element can
+    // never be found by path again.
+    #[test]
+    fn remove_duplicate_file_keeps_index_entry() {
+        const FILEBUF_A: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+                <DATA-CONSTR><SHORT-NAME>Dc</SHORT-NAME></DATA-CONSTR>
+                <CLIENT-SERVER-INTERFACE><SHORT-NAME>If</SHORT-NAME></CLIENT-SERVER-INTERFACE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#;
+        const FILEBUF_B: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+                <CLIENT-SERVER-INTERFACE><SHORT-NAME>If</SHORT-NAME></CLIENT-SERVER-INTERFACE>
+                <DATA-CONSTR><SHORT-NAME>Dc</SHORT-NAME></DATA-CONSTR>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#;
+        let model = AutosarModel::new();
+        model.load_buffer(FILEBUF_A.as_bytes(), "a", true).unwrap();
+        let (file_b, _) = model.load_buffer(FILEBUF_B.as_bytes(), "b", true).unwrap();
+        assert!(model.get_element_by_path("/Pkg/Dc").is_some());
+        assert!(model.get_element_by_path("/Pkg/If").is_some());
+        model.remove_file(&file_b);
+        assert!(
+            model.get_element_by_path("/Pkg/Dc").is_some(),
+            "removing a duplicate file dropped the index entry of the surviving element"
+        );
+        assert!(model.get_element_by_path("/Pkg/If").is_some());
     }
 
     #[test]

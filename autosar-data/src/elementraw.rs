@@ -1051,8 +1051,8 @@ impl ElementRaw {
         }
 
         // remove all cached references for elements under move_element - they all become invalid as a result of moving it
-        for path in original_paths.keys() {
-            model_src.remove_identifiable(path);
+        for (path, elem) in &original_paths {
+            model_src.remove_identifiable(path, &elem.downgrade());
         }
         // delete all reference origin info for elements under move_element
         for (path, elem) in &original_refs {
@@ -1341,7 +1341,7 @@ impl ElementRaw {
             new_path.push_str(&name);
             path = Cow::from(new_path.clone());
 
-            model.remove_identifiable(&path);
+            model.remove_identifiable(&path, &self_weak);
         }
         if self.elemtype.is_ref()
             && let Some(CharacterData::String(reference)) = self.character_data()
