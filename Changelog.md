@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### API
+
+- Add `Element::find_named_sub_element(name, except)`: the first child whose item name equals `name`, in document order, optionally ignoring one element. It compares the stored short name under the child lock, so unlike walking `sub_elements()` and calling `item_name()` it allocates nothing per child — the difference between linear and quadratic for a container that grows to tens of thousands of children.
+- Add `Element::remove_from_files`: remove an element from several files in one subtree walk, equivalent to calling `Element::remove_from_file` for each file. Callers that strip a moved element's source membership looped over its whole file set, and each call walks the moved subtree — in a model merged from N inputs that is N walks per move.
+
 ## Version 0.23.1
 
 ### Fixes
