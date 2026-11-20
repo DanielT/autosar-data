@@ -132,8 +132,7 @@ impl Iterator for ArxmlFileElementsDfsIterator {
         let iter = self.dfs_iter.as_mut()?;
         let mut next_element = iter.next();
         while let Some((depth, elem)) = next_element {
-            let files = elem.file_membership_local();
-            if files.is_empty() || files.contains(&self.weak_file) {
+            if elem.is_in_file_cheap(&self.weak_file) {
                 // found an element that is present in this file
                 return Some((depth, elem));
             }
