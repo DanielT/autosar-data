@@ -784,6 +784,94 @@ impl Element {
         moved
     }
 
+    /// Reorder the existing sub elements to match `desired`.
+    ///
+    /// `desired` must be a permutation of the current sub elements; any
+    /// element it does not mention, or any element it mentions that is not
+    /// a current child, makes the call a no-op returning `false`.
+    ///
+    /// This is the bulk form of repeated [`Element::move_element_here_at`]:
+    /// a caller that permutes a whole container has to find the new position
+    /// of every element, and each `move_element_here_at` costs a sibling scan
+    /// plus a content-list splice, so the per-element API is quadratic in the
+    /// container size. Packed AUTOSAR outputs routinely contain `ELEMENTS`
+    /// lists with thousands of entries.
+    ///
+    /// The character data of an element with mixed content is not part of
+    /// the permutation: it keeps its position between the sub elements, so
+    /// only the sub elements themselves change places.
+    ///
+    /// Unlike `move_element_here_at`, this does not use the insert range of
+    /// each individual element, but it still rejects an order that the
+    /// specification does not allow: in a `Sequence` the sub elements have to
+    /// stay sorted by their position in the schema, and in a `Choice` a
+    /// different alternative may not be moved in front of the selected one.
+    /// `Bag` and `Mixed` containers accept any order.
+    ///
+    /// Returns `true` when the content was reordered, `false` when `desired`
+    /// was not a permutation of the current sub elements or would have
+    /// produced an invalid order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let root = model.root_element();
+    /// let pkgs = root.create_sub_element(ElementName::ArPackages).unwrap();
+    /// let b = pkgs.create_named_sub_element(ElementName::ArPackage, "b").unwrap();
+    /// let a = pkgs.create_named_sub_element(ElementName::ArPackage, "a").unwrap();
+    /// assert!(pkgs.reorder_sub_elements(&[a.clone(), b.clone()]));
+    /// ```
+    pub fn reorder_sub_elements(&self, desired: &[Element]) -> bool {
+        let Some(version) = self.min_version().ok() else {
+            return false;
+        };
+        let mut locked = self.0.write();
+        let mut current: Vec<Element> = Vec::with_capacity(locked.content.len());
+        for item in &locked.content {
+            if let ElementContent::Element(elem) = item {
+                current.push(elem.clone());
+            }
+        }
+        if current.len() != desired.len() {
+            return false;
+        }
+        // `desired` must be exactly the current children, each once. Elements are compared by
+        // identity, so their allocation address is used as the key: the contents of an element can
+        // be modified through a lock, which disqualifies `Element` itself as a `HashSet` key.
+        let current_ids: HashSet<usize> = current.iter().map(|elem| Arc::as_ptr(&elem.0) as usize).collect();
+        let mut desired_ids = HashSet::with_capacity(desired.len());
+        for want in desired {
+            let id = Arc::as_ptr(&want.0) as usize;
+            if !current_ids.contains(&id) || !desired_ids.insert(id) {
+                return false;
+            }
+        }
+        if current.iter().zip(desired).all(|(have, want)| have == want) {
+            return false;
+        }
+        if !locked.is_valid_sub_element_order(desired, version) {
+            return false;
+        }
+        // fill the element slots with the new order; the character data of a mixed content element
+        // stays in its position between them
+        let mut wanted = desired.iter();
+        let mut next: Vec<ElementContent> = Vec::with_capacity(locked.content.len());
+        for item in &locked.content {
+            match item {
+                ElementContent::Element(_) => match wanted.next() {
+                    Some(want) => next.push(ElementContent::Element(want.clone())),
+                    None => return false,
+                },
+                ElementContent::CharacterData(cdata) => next.push(ElementContent::CharacterData(cdata.clone())),
+            }
+        }
+        locked.content = next.into();
+        true
+    }
+
     /// Remove the sub element `sub_element`
     ///
     /// The `sub_element` will be unlinked from the hierarchy of elements.
@@ -1601,6 +1689,68 @@ impl Element {
         ElementsIterator::new(self.clone())
     }
 
+    /// Find the first child whose item name equals `name`, ignoring `except`
+    ///
+    /// Like [`Element::get_sub_element`] this searches the children of an element,
+    /// but here the comparison is against the item name instead of the
+    /// `ElementName`. The comparison happens under the child lock against the
+    /// stored short name, so no `String` is allocated per child; doing the same
+    /// by walking [`Element::sub_elements`] and calling [`Element::item_name`]
+    /// costs one lock and one allocation per child.
+    ///
+    /// Document order is preserved, so when several children share the name the
+    /// first one is returned. `except` skips one element, which is what a caller
+    /// needs when it holds an element it is about to rename and wants to know
+    /// whether the new name is already taken by a different sibling.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # fn main() -> Result<(), AutosarDataError> {
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let pkgs_element = model.root_element().create_sub_element(ElementName::ArPackages)?;
+    /// # let base = pkgs_element.create_named_sub_element(ElementName::ArPackage, "Package")
+    /// #    .and_then(|p| p.create_sub_element(ElementName::Elements))?;
+    /// # let other = base.create_named_sub_element(ElementName::System, "Path")?;
+    /// assert_eq!(base.find_named_sub_element("Path", None), Some(other));
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn find_named_sub_element(&self, name: &str, except: Option<&Element>) -> Option<Element> {
+        self.0.read().find_named_sub_element(name, except)
+    }
+
+    /// Get a single raw content entry by index
+    ///
+    /// The index counts entries of the element's content list — both
+    /// character data and sub elements — so it is *not* a child ordinal.
+    /// This gives positional access to a sub element without walking the
+    /// container from the start, which matters for containers holding tens
+    /// of thousands of children. [`Element::content_item_count`] gives the
+    /// number of valid indices.
+    ///
+    /// Returns `None` when the index is out of range or the element has
+    /// been deleted.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// # let element = model.root_element();
+    /// if let Some(content) = element.content_at(0) {
+    ///     let _ = content.unwrap_element();
+    /// }
+    /// ```
+    #[must_use]
+    pub fn content_at(&self, index: usize) -> Option<ElementContent> {
+        self.0.read().content.get(index).cloned()
+    }
+
     /// Get the sub element with the given element name
     ///
     /// Returns None if no such element exists. if there are multiple sub elements with the requested name, then only the first is returned
@@ -2009,7 +2159,10 @@ impl Element {
     pub fn serialize(&self) -> String {
         let mut outstring = String::new();
 
-        self.0.read().serialize_internal(&mut outstring, 0, false, &None, None);
+        self.0
+            .read()
+            .serialize_internal(&mut outstring, 0, false, &None, None)
+            .expect("writing to a String never fails");
 
         outstring
     }
@@ -2193,6 +2346,85 @@ impl Element {
 
         // no file membership info found at any level - this only happens if the model does not contain any files
         Err(AutosarDataError::NoFilesInModel)
+    }
+
+    /// Number of files in this element's (inherited) file membership, without
+    /// materialising the set.
+    ///
+    /// Answers the "is this element shared between files" question that
+    /// [`Element::file_membership`] answers by cloning the whole set.
+    ///
+    /// Returns `Ok(None)` when no enclosing element restricts the membership
+    /// (the model does not contain any files).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// let model = AutosarModel::new();
+    /// let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let root = model.root_element();
+    /// assert_eq!(root.inherited_file_count().ok(), Some(Some(1)));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    pub fn inherited_file_count(&self) -> Result<Option<usize>, AutosarDataError> {
+        let mut cur_elem_opt = Some(self.clone());
+        while let Some(cur_elem) = &cur_elem_opt {
+            let locked_cur_elem = cur_elem
+                .0
+                .try_read_for(LOCK_CONTENTION_TIMEOUT)
+                .ok_or(AutosarDataError::ParentElementLocked)?;
+            if let Some(files) = locked_cur_elem.file_membership.as_deref() {
+                return Ok(Some(files.len()));
+            }
+            let parent = locked_cur_elem.parent()?;
+            drop(locked_cur_elem);
+            cur_elem_opt = parent;
+        }
+        Ok(None)
+    }
+
+    /// Test whether `file` is part of this element's (inherited) file
+    /// membership, without materialising the set.
+    ///
+    /// [`Element::file_membership`] clones the whole
+    /// `HashSet<WeakArxmlFile>`, which on a model with hundreds of files
+    /// means allocating and copying hundreds of entries for a single
+    /// membership test. Callers that test membership per element while
+    /// walking the tree should use this instead.
+    ///
+    /// Returns `Ok(None)` when no enclosing element restricts the membership
+    /// (the model does not contain any files) — the caller decides what
+    /// that means.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// let model = AutosarModel::new();
+    /// let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let root = model.root_element();
+    /// assert_eq!(root.is_member_of_file(&file), Some(true));
+    /// ```
+    #[must_use]
+    pub fn is_member_of_file(&self, file: &ArxmlFile) -> Option<bool> {
+        let target = file.downgrade();
+        let mut cur_elem_opt = Some(self.clone());
+        while let Some(cur_elem) = &cur_elem_opt {
+            let locked_cur_elem = cur_elem.0.try_read_for(LOCK_CONTENTION_TIMEOUT)?;
+            if let Some(files) = locked_cur_elem.file_membership.as_deref() {
+                return Some(files.contains(&target));
+            }
+            let parent = locked_cur_elem.parent().ok()?;
+            drop(locked_cur_elem);
+            cur_elem_opt = parent;
+        }
+        None
     }
 
     /// return the file membership of this element without trying to get an inherited value
@@ -2387,6 +2619,80 @@ impl Element {
         } else {
             Err(AutosarDataError::FilesetModificationForbidden)
         }
+    }
+
+    /// Remove this element from several files at once
+    ///
+    /// Semantically identical to calling [`Element::remove_from_file`] for
+    /// every file in `files`, but visits the subtree ONCE instead of once per
+    /// file. Callers that move an element between resources must strip the
+    /// source membership, and a model merged from N inputs gives every
+    /// element a membership set of up to N entries: the per-file loop then
+    /// walks the whole moved subtree N times.
+    ///
+    /// The membership sets are shrunk by the whole batch in one pass, and the
+    /// elements left without any file are deleted at the end, exactly like the
+    /// single-file version.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Element::remove_from_file`]; the first failure aborts the
+    /// batch, so callers that tolerate individual failures should keep the
+    /// per-file loop.
+    pub fn remove_from_files(&self, files: &[ArxmlFile]) -> Result<(), AutosarDataError> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        let model = self.model()?;
+        let parent_splittable = self.parent()?.is_none_or(|p| p.element_type().splittable() != 0);
+        if !parent_splittable {
+            return Err(AutosarDataError::FilesetModificationForbidden);
+        }
+        for file in files {
+            if file.model()? != model {
+                return Err(AutosarDataError::InvalidFile);
+            }
+        }
+        let targets: HashSet<WeakArxmlFile> = files.iter().map(ArxmlFile::downgrade).collect();
+        let (_, current_fileset) = self.file_membership()?;
+        if !current_fileset.iter().any(|f| targets.contains(f)) {
+            return Ok(());
+        }
+        let mut restricted = current_fileset;
+        restricted.retain(|f| !targets.contains(f));
+        if restricted.is_empty() {
+            let Some(parent) = self.parent()? else {
+                return Err(AutosarDataError::RootElementRemovalForbidden);
+            };
+            return parent.remove_sub_element(self.to_owned()).map(|_| ());
+        }
+        self.0.write().set_file_membership(restricted);
+
+        // One walk for the whole batch: only elements with an EXPLICIT
+        // membership need attention (the rest inherit from their parent).
+        let mut to_delete = Vec::new();
+        for (_, subelem) in self.elements_dfs() {
+            if subelem.0.read().file_membership.is_some() {
+                {
+                    let mut locked = subelem.0.write();
+                    if let Some(owned) = locked.file_membership.as_mut() {
+                        owned.retain(|f| !targets.contains(f));
+                        if owned.is_empty() {
+                            locked.file_membership = None;
+                        }
+                    }
+                }
+                if subelem.0.read().file_membership.is_none() {
+                    to_delete.push(subelem);
+                }
+            }
+        }
+        for delete_elem in to_delete {
+            if let Ok(Some(parent)) = delete_elem.parent() {
+                let _ = parent.remove_sub_element(delete_elem);
+            }
+        }
+        Ok(())
     }
 
     /// Return a path that includes non-identifiable elements by their xml names
@@ -2845,6 +3151,83 @@ impl std::fmt::Debug for ElementContent {
 mod test {
     use crate::*;
     use std::ffi::OsString;
+
+    /// `remove_from_files` must be exactly the per-file loop: same surviving
+    /// membership sets, same deletions (an element whose set empties is
+    /// deleted), same early-out when no target file is present.
+    ///
+    /// The batch exists because a model merged from N inputs gives an element
+    /// up to N membership entries, so the loop walked the moved subtree N
+    /// times. A batching bug would surface as a surviving element that the
+    /// loop deleted, or a stale file entry.
+    #[test]
+    fn remove_from_files_matches_per_file_loop() {
+        fn build() -> (AutosarModel, ArxmlFile, ArxmlFile, ArxmlFile, Element) {
+            let model = AutosarModel::new();
+            let f1 = model.create_file("a.arxml", AutosarVersion::Autosar_4_2_2).unwrap();
+            let f2 = model.create_file("b.arxml", AutosarVersion::Autosar_4_2_2).unwrap();
+            let f3 = model.create_file("c.arxml", AutosarVersion::Autosar_4_2_2).unwrap();
+            let pkgs = model
+                .root_element()
+                .create_sub_element(ElementName::ArPackages)
+                .unwrap();
+            let pkg = pkgs.create_named_sub_element(ElementName::ArPackage, "P").unwrap();
+            let elems = pkg.get_or_create_sub_element(ElementName::Elements).unwrap();
+            let elt = elems
+                .create_named_sub_element(ElementName::ImplementationDataType, "T")
+                .unwrap();
+            elt.create_sub_element(ElementName::SubElements).unwrap();
+            // give the element (and one explicit child) a wide membership
+            for f in [&f1, &f2, &f3] {
+                elt.add_to_file(f).unwrap();
+            }
+            let child = elt
+                .get_sub_element(ElementName::SubElements)
+                .unwrap()
+                .create_named_sub_element(ElementName::ImplementationDataTypeElement, "C")
+                .unwrap();
+            for f in [&f1, &f2] {
+                child.add_to_file(f).unwrap();
+            }
+            (model, f1, f2, f3, elt)
+        }
+
+        // batch: strip f1 + f2, keeping f3
+        let (_m1, f1, f2, f3, elt) = build();
+        elt.remove_from_files(&[f1, f2]).unwrap();
+        let (local_batch, set_batch) = elt.file_membership().unwrap();
+        let batch_len = set_batch.len();
+        assert!(local_batch);
+        assert_eq!(batch_len, 1);
+        assert!(set_batch.contains(&f3.downgrade()));
+        // the child's set emptied -> it is deleted
+        let child_alive = elt
+            .get_sub_element(ElementName::SubElements)
+            .map(|s| s.sub_elements().count())
+            .unwrap_or(0);
+        assert_eq!(child_alive, 1, "child still holds f3, so it survives");
+
+        // loop: same operations, one file at a time
+        let (_m2, f1, f2, f3, elt) = build();
+        elt.remove_from_file(&f1).unwrap();
+        elt.remove_from_file(&f2).unwrap();
+        let (local_loop, set_loop) = elt.file_membership().unwrap();
+        assert!(local_loop);
+        assert_eq!(set_loop.len(), batch_len);
+        assert!(set_loop.contains(&f3.downgrade()));
+        let child_alive_loop = elt
+            .get_sub_element(ElementName::SubElements)
+            .map(|s| s.sub_elements().count())
+            .unwrap_or(0);
+        assert_eq!(child_alive_loop, child_alive);
+
+        // unknown file: no-op, matching the loop's early-out
+        let (_m3, _f1, _f2, f3, elt) = build();
+        elt.remove_from_files(&[]).unwrap();
+        elt.remove_from_files(&[f3]).unwrap();
+        let (_, after) = elt.file_membership().unwrap();
+        assert_eq!(after.len(), 2);
+    }
 
     const BASIC_AUTOSAR_FILE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -3323,6 +3706,132 @@ mod test {
         let result = el_ar_package_clone.model();
         assert!(matches!(result, Err(AutosarDataError::ItemDeleted)));
         assert_eq!(el_ar_package_clone.position(), None);
+    }
+
+    #[test]
+    fn reorder_sub_elements() {
+        let model = AutosarModel::new();
+        model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
+        let el_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let el_a = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "a")
+            .unwrap();
+        let el_b = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "b")
+            .unwrap();
+        let el_c = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "c")
+            .unwrap();
+
+        // a permutation of all children is applied
+        assert!(el_packages.reorder_sub_elements(&[el_c.clone(), el_a.clone(), el_b.clone()]));
+        let names: Vec<String> = el_packages.sub_elements().filter_map(|e| e.item_name()).collect();
+        assert_eq!(names, ["c", "a", "b"]);
+
+        // repeating the current order is not a change
+        assert!(!el_packages.reorder_sub_elements(&[el_c.clone(), el_a.clone(), el_b.clone()]));
+
+        // anything which is not exactly a permutation of the children is rejected, and changes nothing
+        assert!(!el_packages.reorder_sub_elements(&[el_a.clone(), el_b.clone()]));
+        assert!(!el_packages.reorder_sub_elements(&[el_a.clone(), el_a.clone(), el_b.clone()]));
+        let el_other = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "d")
+            .unwrap();
+        // a child of a different parent, which is not part of this content at all
+        let el_other_parent = el_other
+            .create_sub_element(ElementName::Elements)
+            .and_then(|elements| elements.create_named_sub_element(ElementName::System, "s"))
+            .unwrap();
+        // a child that is not part of the permutation
+        assert!(!el_packages.reorder_sub_elements(&[el_a.clone(), el_b.clone(), el_c.clone()]));
+        // an element that is a child of a different parent is rejected
+        assert!(!el_packages.reorder_sub_elements(&[el_a.clone(), el_b.clone(), el_c.clone(), el_other_parent]));
+        // a duplicated element is rejected
+        assert!(!el_packages.reorder_sub_elements(&[el_a.clone(), el_a.clone(), el_b.clone(), el_c.clone()]));
+        assert_eq!(el_packages.content_item_count(), 4);
+        let names: Vec<String> = el_packages.sub_elements().filter_map(|e| e.item_name()).collect();
+        assert_eq!(names, ["c", "a", "b", "d"]);
+    }
+
+    #[test]
+    fn reorder_sub_elements_keeps_mixed_content() {
+        // L-4 is a mixed content element: its character data sits between the sub elements, and a
+        // reorder may not drop it
+        let filebuf = br#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+  <AR-PACKAGES>
+    <AR-PACKAGE>
+      <SHORT-NAME>Pkg</SHORT-NAME>
+      <LONG-NAME>
+        <L-4 L="FOR-ALL">head<E>aa</E><E>bb</E>tail</L-4>
+      </LONG-NAME>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>"#;
+        let model = AutosarModel::new();
+        model.load_buffer(filebuf, "test", true).unwrap();
+        let el_l4 = model
+            .get_element_by_path("/Pkg")
+            .and_then(|pkg| pkg.get_sub_element(ElementName::LongName))
+            .and_then(|ln| ln.get_sub_element(ElementName::L4))
+            .unwrap();
+        assert_eq!(el_l4.content_item_count(), 4);
+
+        let mut reversed: Vec<Element> = el_l4.sub_elements().collect();
+        reversed.reverse();
+        assert!(el_l4.reorder_sub_elements(&reversed));
+
+        // both text items are still there, in their positions, and only the elements swapped
+        let text = el_l4.serialize();
+        assert!(
+            text.contains("head<E>bb</E><E>aa</E>tail"),
+            "unexpected content: {text}"
+        );
+        assert_eq!(el_l4.content_item_count(), 4);
+    }
+
+    #[test]
+    fn reorder_sub_elements_checks_schema_order() {
+        let model = AutosarModel::new();
+        model.create_file("test.arxml", AutosarVersion::Autosar_00050).unwrap();
+        let el_packages = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap();
+        let el_package = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap();
+        let el_short_name = el_package.get_sub_element(ElementName::ShortName).unwrap();
+        let el_elements = el_package.create_sub_element(ElementName::Elements).unwrap();
+
+        // AR-PACKAGE is a sequence: SHORT-NAME has to stay in front of ELEMENTS. Reordering them into
+        // an order the schema does not allow is rejected, exactly as move_element_here_at rejects it
+        assert!(!el_package.reorder_sub_elements(&[el_elements.clone(), el_short_name.clone()]));
+        assert_eq!(el_package.get_sub_element_at(0).unwrap(), el_short_name);
+
+        // AR-PACKAGES is a bag: any order is allowed there
+        let el_pkg_b = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "PkgB")
+            .unwrap();
+        let el_pkg_a = el_packages
+            .create_named_sub_element(ElementName::ArPackage, "PkgA")
+            .unwrap();
+        let mut reversed: Vec<Element> = el_packages.sub_elements().collect();
+        reversed.reverse();
+        assert_eq!(reversed.len(), 3);
+        assert!(el_packages.reorder_sub_elements(&reversed));
+        let names: Vec<String> = el_packages.sub_elements().filter_map(|e| e.item_name()).collect();
+        assert_eq!(names, ["PkgA", "PkgB", "Pkg"]);
+        assert!(!el_packages.reorder_sub_elements(&reversed), "no change on repeat");
+        assert_eq!(
+            el_packages.get_sub_element_at(1).unwrap(),
+            el_pkg_b,
+            "the middle position holds the element the reversed order put there"
+        );
+        assert_eq!(el_packages.get_sub_element_at(0).unwrap(), el_pkg_a);
     }
 
     #[test]
@@ -4109,7 +4618,8 @@ mod test {
         el_autosar
             .0
             .read()
-            .serialize_internal(&mut outstring, 0, false, &None, None);
+            .serialize_internal(&mut outstring, 0, false, &None, None)
+            .unwrap();
 
         assert_eq!(FILEBUF, outstring);
     }
@@ -5739,6 +6249,48 @@ mod test {
             Some("Inner")
         );
         assert_eq!(model.verify_reference_caches(), Ok(()));
+    }
+
+    #[test]
+    fn find_named_sub_element_matches_item_name() {
+        // The lookup must agree with `item_name` exactly, including the
+        // `except` exclusion and document order among same-named siblings.
+        let model = AutosarModel::new();
+        let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+        let _ = file;
+        let base = model
+            .root_element()
+            .create_sub_element(ElementName::ArPackages)
+            .unwrap()
+            .create_named_sub_element(ElementName::ArPackage, "Pkg")
+            .unwrap()
+            .create_sub_element(ElementName::Elements)
+            .unwrap();
+        let alpha = base
+            .create_named_sub_element(ElementName::CompuMethod, "Alpha")
+            .unwrap();
+        let beta = base.create_named_sub_element(ElementName::CompuMethod, "Beta").unwrap();
+
+        assert_eq!(
+            base.find_named_sub_element("Beta", None).unwrap(),
+            beta,
+            "finds an existing child by name"
+        );
+        assert!(base.find_named_sub_element("Gamma", None).is_none(), "reports absence");
+        assert!(
+            base.find_named_sub_element("Beta", Some(&beta)).is_none(),
+            "excludes the given element, leaving no other candidate"
+        );
+        assert_eq!(
+            base.find_named_sub_element("Alpha", Some(&alpha)),
+            None,
+            "excluding the only child with that name reports absence"
+        );
+        assert_eq!(
+            base.find_named_sub_element("Alpha", Some(&beta)),
+            Some(alpha),
+            "excluding an unrelated element does not hide the name"
+        );
     }
 
     #[test]

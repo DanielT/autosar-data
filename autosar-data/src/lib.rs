@@ -161,6 +161,16 @@ pub(crate) struct AutosarModelRaw {
     /// recomputed at the moment it is needed: de-registration happens while element locks are held and
     /// after the element has been detached from the tree, when its base can no longer be resolved.
     relative_references: FxHashMap<WeakElement, Option<String>>, // referencing element -> target path
+    /// `short name -> paths` index over `identifiables`.
+    ///
+    /// Resolving a dangling reference by its last path segment requires every identifiable whose
+    /// short name equals a given string. Doing that by scanning `identifiables` (an
+    /// `FxIndexMap` of every named element) costs one model lock plus a key clone per element;
+    /// tools that run such lookups per unresolved reference need a hash probe instead.
+    ///
+    /// Maintained at every key mutation of `identifiables`. Each bucket keeps `identifiables`
+    /// insertion order, so a lookup returns the same sequence a full scan would.
+    shortname_index: FxHashMap<String, Vec<String>>,
 }
 
 /// The error type `AutosarDataError` wraps all errors that can be generated anywhere in the crate
