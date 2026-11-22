@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::hash::Hash;
 
 use crate::*;
@@ -215,28 +216,59 @@ impl ArxmlFile {
     /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
     /// [`AutosarDataError::EmptyFile`]: The file is empty and cannot be serialized
     pub fn serialize(&self) -> Result<String, AutosarDataError> {
+        let mut outstring = String::with_capacity(1024 * 1024);
+        self.serialize_to(&mut outstring)?;
+        Ok(outstring)
+    }
+
+    /// Serialize the content of the file to a writer
+    ///
+    /// Streaming counterpart of [`ArxmlFile::serialize`] and the only implementation of it: the
+    /// text is produced in document order straight into `outstring`, so no intermediate copy of
+    /// the whole file is ever held in memory. Any [`std::fmt::Write`] will do — a `String` (what
+    /// `serialize` does), or a writer that applies further transformations and forwards the bytes
+    /// to a file.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use autosar_data::*;
+    /// # let model = AutosarModel::new();
+    /// # let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
+    /// let mut text = String::new();
+    /// file.serialize_to(&mut text).unwrap();
+    /// assert!(text.starts_with("<?xml"));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`AutosarDataError::ItemDeleted`]: The model is no longer valid
+    /// [`AutosarDataError::EmptyFile`]: The file is empty and cannot be serialized
+    /// [`AutosarDataError::IoErrorWrite`]: `outstring` rejected the text
+    pub fn serialize_to<W: Write + ?Sized>(&self, outstring: &mut W) -> Result<(), AutosarDataError> {
         let model = self.model()?;
+        let filename = self.filename();
         if !model.root_element().file_membership()?.1.contains(&self.downgrade()) {
             return Err(AutosarDataError::EmptyFile);
         }
 
-        let mut outstring = String::with_capacity(1024 * 1024);
-
-        match self.xml_standalone() {
-            Some(true) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>"),
-            Some(false) => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>"),
-            None => outstring.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
-        }
+        let header = match self.xml_standalone() {
+            Some(true) => "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>",
+            Some(false) => "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>",
+            None => "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+        };
+        let write_error = |_| AutosarDataError::IoErrorWrite {
+            filename: filename.clone(),
+            ioerror: std::io::Error::other("the writer rejected the serialized text"),
+        };
+        outstring.write_str(header).map_err(write_error)?;
         let file_version = self.0.read().version;
-        model.root_element().0.read().serialize_internal(
-            &mut outstring,
-            0,
-            false,
-            &Some(self.downgrade()),
-            Some(file_version),
-        );
-
-        Ok(outstring)
+        model
+            .root_element()
+            .0
+            .read()
+            .serialize_internal(outstring, 0, false, &Some(self.downgrade()), Some(file_version))
+            .map_err(write_error)
     }
 
     /// Return the standalone attribute from the xml header

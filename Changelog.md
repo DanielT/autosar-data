@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### API
+
+- Add `ArxmlFile::serialize_to(writer)`: the streaming form of `ArxmlFile::serialize`, and the only implementation of it. The text is produced in document order straight into any `std::fmt::Write`, so no intermediate copy of the whole file is ever held in memory. `serialize` is now a thin wrapper that writes into a `String`.
+- Add `AutosarModel::references_under_path_prefix(prefix)`: every element whose reference resolves to the path component `prefix` or to a path nested below it. `reference_origins` is keyed by resolved target path, so this is a range scan over the sorted keys instead of walking the element tree. Absolute references are matched by their character data; relative references are matched by their resolved target, which is what a caller rewriting a moved subtree needs.
+- Add `AutosarModel::identifiables_with_shortname(name)`: every identifiable element whose short name equals `name`, in `identifiables` order. Resolving a dangling reference by its last path segment previously meant scanning every identifiable in the model; the model now keeps a `short name -> paths` index for this lookup, maintained alongside `identifiables`.
+- Add `Element::reorder_sub_elements(desired)`: permute the children of an element in one operation, returning `false` and changing nothing if `desired` is not exactly a permutation of the current children or if the resulting order is invalid for a `Sequence` / `Choice` container. Repeated `move_element_here_at` is quadratic in the container size, because each call scans the siblings for the old position.
+- Add `Element::find_named_sub_element(name, except)`: the first child whose item name equals `name`, in document order, optionally ignoring one element. It compares the stored short name under the child lock, so unlike walking `sub_elements()` and calling `item_name()` it allocates nothing per child.
+- Add `Element::content_at(index)`: positional access to one entry of the content list, i.e. a sub element or a character data item, which is what a caller holding a position (e.g. from `position()`) already has. Walking `sub_elements()` to the same index is linear in the container size.
+- Add `Element::inherited_file_count()` and `Element::is_member_of_file(file)`: answer the membership question that `file_membership()` answers by cloning the whole `HashSet<WeakArxmlFile>`, without materialising the set. `Ok(None)` means no enclosing element restricts the membership, i.e. the model contains no files; a lock timeout is an error, so the two cases cannot be confused.
+- Add `Element::remove_from_files(files)`: remove an element from several files in one subtree walk, equivalent to calling `Element::remove_from_file` for each file. Callers that strip a moved element's source membership looped over its whole file set, and each call walks the moved subtree — in a model merged from N inputs that is N walks per move.
+
+### Enhancements
+
+- `fix_element_paths` and `fix_reference_paths` no longer scan every key of `identifiables` and `reference_origins`. The model keeps the same keys in two path-ordered sets, so the keys inside a renamed or moved subtree are selected by a range scan, and an operation that moves N subtrees in a model holding M elements no longer costs O(N*M). The visited keys and their order are unchanged.
+- The three derived indexes (`path_index`, `refpath_index`, `shortname_index`) are built on first use instead of at the end of every load, and an already-built index is maintained in place by each mutation rather than dropped. Loading no longer pays for a pass over every key already in the model, and a pipeline that interleaves lookups with moves builds each index once.
+- Loading: the parser memoizes the specification lookup for each (parent type, sub element name, file version) tuple, which removes the repeated specification walks and the per-element index allocation. The version diagnostics that depend on the element and line are still produced for every occurrence.
+- The file iterator tests file membership under the element lock instead of cloning the membership set for every visited element, and `ElementRaw::content` uses a smaller inline capacity.
+- `Element::remove_from_file` returns early when the element is not in the requested file, instead of walking its whole subtree for nothing.
+
 ## Version 0.23.1
 
 ### Fixes

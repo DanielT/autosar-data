@@ -1,4 +1,5 @@
 use smallvec::smallvec;
+use std::fmt::Write;
 use std::{borrow::Cow, time::Duration};
 
 use autosar_data_specification::{
@@ -136,6 +137,50 @@ impl ElementRaw {
                     && let Some(CharacterData::String(name)) = subelem_locked.character_data()
                 {
                     return Some(name);
+                }
+            }
+        }
+        None
+    }
+
+    /// the item name of this element, compared to `name` without allocating
+    ///
+    /// `item_name` returns an owned `String`, which makes a scan over a large
+    /// container allocate once per child. This comparison runs against the
+    /// SHORT-NAME child under its own lock instead.
+    pub(crate) fn item_name_eq(&self, name: &str) -> bool {
+        if !self.elemtype.is_named() {
+            return false;
+        }
+        let Some(ElementContent::Element(subelem)) = self.content.first() else {
+            return false;
+        };
+        // same lock-avoidance reasoning as `item_name`: `try_lock`, because
+        // the caller may already hold the SHORT-NAME's lock
+        let Some(subelem_locked) = subelem.0.try_read_for(Duration::from_millis(10)) else {
+            return false;
+        };
+        if subelem_locked.elemname != ElementName::ShortName {
+            return false;
+        }
+        matches!(
+            subelem_locked.character_data(),
+            Some(CharacterData::String(stored)) if stored == name
+        )
+    }
+
+    /// first child whose item name equals `name`, in document order,
+    /// ignoring `except`
+    pub(crate) fn find_named_sub_element(&self, name: &str, except: Option<&Element>) -> Option<Element> {
+        for item in &self.content {
+            if let ElementContent::Element(subelem) = item {
+                if let Some(except) = except
+                    && std::sync::Arc::ptr_eq(&except.0, &subelem.0)
+                {
+                    continue;
+                }
+                if subelem.0.read().item_name_eq(name) {
+                    return Some(subelem.clone());
                 }
             }
         }
@@ -1185,6 +1230,60 @@ impl ElementRaw {
         }
     }
 
+    /// Check that `order` is a schema-legal order of the sub elements of this element
+    ///
+    /// `order` must contain exactly the current sub elements; this is verified by the caller.
+    /// In a `Sequence` the sub elements are kept sorted by their position in the schema. In a
+    /// `Choice` at most one alternative is selected, so all sub elements must belong to the same
+    /// alternative; within it they may appear in any order. `Bag` and `Mixed` accept any order.
+    ///
+    /// The comparison uses the spec with the element's own version, falling back to all versions
+    /// for sub elements a non-strict load retained even though they are not valid in that version.
+    pub(crate) fn is_valid_sub_element_order(&self, order: &[Element], version: AutosarVersion) -> bool {
+        let elemtype = self.elemtype;
+        // (schema position, content mode of the group the sub element belongs to)
+        let mut positions: Vec<(Vec<usize>, ContentMode)> = Vec::with_capacity(order.len());
+        for elem in order {
+            let elemname = elem.0.read().elemname;
+            let Some((_, indices)) = elemtype
+                .find_sub_element(elemname, version as u32)
+                .or_else(|| elemtype.find_sub_element(elemname, u32::MAX))
+            else {
+                return false;
+            };
+            // find_common_group always succeeds here, since both index lists were returned by find_sub_element
+            let Some(group) = elemtype.find_common_group(&indices, &indices) else {
+                return false;
+            };
+            positions.push((indices, group.content_mode()));
+        }
+
+        match self.elemtype.content_mode() {
+            ContentMode::Sequence => {
+                // every pair of sub elements that shares a group has to be sorted by the schema
+                for (pos, left) in positions.iter().enumerate() {
+                    for right in positions.iter().skip(pos + 1) {
+                        let Some(group) = elemtype.find_common_group(&left.0, &right.0) else {
+                            continue;
+                        };
+                        if group.content_mode() == ContentMode::Sequence && left.0 > right.0 {
+                            return false;
+                        }
+                    }
+                }
+                true
+            }
+            ContentMode::Choice => {
+                // all sub elements must belong to the same alternative, i.e. have identical indices
+                positions
+                    .first()
+                    .is_none_or(|(first, _)| positions.iter().all(|(indices, _)| indices == first))
+            }
+            ContentMode::Bag | ContentMode::Mixed => true,
+            ContentMode::Characters => false,
+        }
+    }
+
     /// remove the sub element `sub_element`
     ///
     /// The `sub_element` will be unlinked from the hierarchy of elements. All of the sub-sub-elements nested under the removed element will also be recursively removed.
@@ -1434,36 +1533,41 @@ impl ElementRaw {
         }
     }
 
-    pub(crate) fn serialize_internal(
+    /// Write this element and its content as arxml text.
+    ///
+    /// Generic over the destination: [`crate::Element::serialize`] and
+    /// [`crate::ArxmlFile::serialize`] collect into a `String`, while
+    /// [`crate::ArxmlFile::serialize_to`] streams straight to the caller's writer.
+    pub(crate) fn serialize_internal<W: Write + ?Sized>(
         &self,
-        outstring: &mut String,
+        outstring: &mut W,
         indent: usize,
         inline: bool,
         for_file: &Option<WeakArxmlFile>,
         file_version: Option<AutosarVersion>,
-    ) {
+    ) -> std::fmt::Result {
         let element_name = self.elemname.to_str();
 
         if let Some(comment) = &self.comment {
             // put the comment on a separate line
             if !inline {
-                Self::serialize_newline_indent(outstring, indent);
+                Self::serialize_newline_indent(outstring, indent)?;
             }
-            outstring.push_str("<!--");
-            outstring.push_str(comment);
-            outstring.push_str("-->");
+            outstring.write_str("<!--")?;
+            outstring.write_str(comment)?;
+            outstring.write_str("-->")?;
         }
 
         // write the opening tag on a new line and indent it
         if !inline {
-            Self::serialize_newline_indent(outstring, indent);
+            Self::serialize_newline_indent(outstring, indent)?;
         }
 
         let content_type = self.elemtype.content_mode().into();
 
         if !self.content.is_empty() {
-            outstring.push('<');
-            outstring.push_str(element_name);
+            outstring.write_char('<')?;
+            outstring.write_str(element_name)?;
             if let Some(file_version) = file_version
                 && for_file.is_some()
                 && self.element_name() == ElementName::Autosar
@@ -1477,11 +1581,11 @@ impl ElementRaw {
                         ));
                     }
                 }
-                Self::serialize_attributes(&attributes, outstring);
+                Self::serialize_attributes(&attributes, outstring)?;
             } else {
-                Self::serialize_attributes(&self.attributes, outstring);
+                Self::serialize_attributes(&self.attributes, outstring)?;
             }
-            outstring.push('>');
+            outstring.write_char('>')?;
 
             match content_type {
                 ContentType::Elements => {
@@ -1490,54 +1594,60 @@ impl ElementRaw {
                         if let ElementContent::Element(subelem) = item
                             && (for_file.is_none() || subelem.0.read().is_in_file(for_file.as_ref().unwrap()))
                         {
-                            subelem
-                                .0
-                                .read()
-                                .serialize_internal(outstring, indent + 1, false, for_file, file_version);
+                            subelem.0.read().serialize_internal(
+                                &mut *outstring,
+                                indent + 1,
+                                false,
+                                for_file,
+                                file_version,
+                            )?;
                         }
                     }
                     // put the closing tag on a new line and indent it
-                    Self::serialize_newline_indent(outstring, indent);
-                    outstring.push_str("</");
-                    outstring.push_str(element_name);
-                    outstring.push('>');
+                    Self::serialize_newline_indent(outstring, indent)?;
+                    outstring.write_str("</")?;
+                    outstring.write_str(element_name)?;
+                    outstring.write_char('>')?;
                 }
                 ContentType::CharacterData => {
                     // write the character data on the same line as the opening tag
                     if let Some(ElementContent::CharacterData(chardata)) = self.content.first() {
-                        chardata.serialize_internal(outstring);
+                        chardata.serialize_internal(outstring)?;
                     }
 
                     // write the closing tag on the same line
-                    outstring.push_str("</");
-                    outstring.push_str(element_name);
-                    outstring.push('>');
+                    outstring.write_str("</")?;
+                    outstring.write_str(element_name)?;
+                    outstring.write_char('>')?;
                 }
                 ContentType::Mixed => {
                     for item in &self.content {
                         match item {
                             ElementContent::Element(subelem) => {
                                 if for_file.is_none() || subelem.0.read().is_in_file(for_file.as_ref().unwrap()) {
-                                    subelem
-                                        .0
-                                        .read()
-                                        .serialize_internal(outstring, indent + 1, true, for_file, None);
+                                    subelem.0.read().serialize_internal(
+                                        &mut *outstring,
+                                        indent + 1,
+                                        true,
+                                        for_file,
+                                        None,
+                                    )?;
                                 }
                             }
                             ElementContent::CharacterData(chardata) => {
-                                chardata.serialize_internal(outstring);
+                                chardata.serialize_internal(outstring)?;
                             }
                         }
                     }
                     // write the closing tag on the same line
-                    outstring.push_str("</");
-                    outstring.push_str(element_name);
-                    outstring.push('>');
+                    outstring.write_str("</")?;
+                    outstring.write_str(element_name)?;
+                    outstring.write_char('>')?;
                 }
             }
         } else {
-            outstring.push('<');
-            outstring.push_str(element_name);
+            outstring.write_char('<')?;
+            outstring.write_str(element_name)?;
             if let Some(file_version) = file_version
                 && for_file.is_some()
                 && self.element_name() == ElementName::Autosar
@@ -1551,32 +1661,33 @@ impl ElementRaw {
                         ));
                     }
                 }
-                Self::serialize_attributes(&attributes, outstring);
+                Self::serialize_attributes(&attributes, outstring)?;
             } else {
-                Self::serialize_attributes(&self.attributes, outstring);
+                Self::serialize_attributes(&self.attributes, outstring)?;
             }
-            outstring.push('/');
-            outstring.push('>');
+            outstring.write_char('/')?;
+            outstring.write_char('>')?;
         }
+        Ok(())
     }
 
-    fn serialize_newline_indent(outstring: &mut String, indent: usize) {
-        outstring.push('\n');
+    fn serialize_newline_indent<W: Write + ?Sized>(outstring: &mut W, indent: usize) -> std::fmt::Result {
+        outstring.write_char('\n')?;
         for _ in 0..indent {
-            outstring.push_str("  ");
+            outstring.write_str("  ")?;
         }
+        Ok(())
     }
 
-    fn serialize_attributes(attributes: &[Attribute], outstring: &mut String) {
-        if !attributes.is_empty() {
-            for attribute in attributes {
-                outstring.push(' ');
-                outstring.push_str(attribute.attrname.to_str());
-                outstring.push_str("=\"");
-                attribute.content.serialize_internal(outstring);
-                outstring.push('"');
-            }
+    fn serialize_attributes<W: Write + ?Sized>(attributes: &[Attribute], outstring: &mut W) -> std::fmt::Result {
+        for attribute in attributes {
+            outstring.write_char(' ')?;
+            outstring.write_str(attribute.attrname.to_str())?;
+            outstring.write_str("=\"")?;
+            attribute.content.serialize_internal(outstring)?;
+            outstring.write_char('"')?;
         }
+        Ok(())
     }
 
     /// get the declaration data of a REFERENCE-BASE element

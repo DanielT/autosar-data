@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 use std::str::FromStr;
 
 use super::{AutosarVersion, CharacterData, CharacterDataSpec, EnumItem};
@@ -117,13 +117,18 @@ impl CharacterData {
         None
     }
 
-    pub(crate) fn serialize_internal(&self, outstring: &mut String) {
+    /// Write this character data to `outstring`, escaped exactly as it appears in the arxml text.
+    ///
+    /// Generic over the destination so that a `String` (for [`Element::serialize`]) and a
+    /// streaming writer (for [`crate::ArxmlFile::serialize_to`]) share one code path.
+    pub(crate) fn serialize_internal<W: Write + ?Sized>(&self, outstring: &mut W) -> std::fmt::Result {
         match self {
-            CharacterData::Enum(enumval) => outstring.push_str(enumval.to_str()),
-            CharacterData::String(strval) => outstring.push_str(&escape_text(strval)),
-            CharacterData::UnsignedInteger(intval) => outstring.push_str(&intval.to_string()),
-            CharacterData::Float(floatval) => outstring.push_str(&floatval.to_string()),
+            CharacterData::Enum(enumval) => outstring.write_str(enumval.to_str())?,
+            CharacterData::String(strval) => outstring.write_str(&escape_text(strval))?,
+            CharacterData::UnsignedInteger(intval) => write!(outstring, "{intval}")?,
+            CharacterData::Float(floatval) => write!(outstring, "{floatval}")?,
         }
+        Ok(())
     }
 
     /// Get the contained enum value
@@ -592,31 +597,31 @@ mod test {
     fn serialize() {
         let mut out = "".to_string();
         let data = CharacterData::Enum(EnumItem::Abstract);
-        data.serialize_internal(&mut out);
+        data.serialize_internal(&mut out).unwrap();
         assert_eq!(out, "ABSTRACT");
         assert_eq!(format!("{data}"), "ABSTRACT");
 
         let mut out = "".to_string();
         let data = CharacterData::Float(1.23);
-        data.serialize_internal(&mut out);
+        data.serialize_internal(&mut out).unwrap();
         assert_eq!(out, "1.23");
         assert_eq!(format!("{data}"), "1.23");
 
         let mut out = "".to_string();
         let data = CharacterData::UnsignedInteger(0);
-        data.serialize_internal(&mut out);
+        data.serialize_internal(&mut out).unwrap();
         assert_eq!(out, "0");
         assert_eq!(format!("{data}"), "0");
 
         let mut out = "".to_string();
         let data = CharacterData::String("text".to_string());
-        data.serialize_internal(&mut out);
+        data.serialize_internal(&mut out).unwrap();
         assert_eq!(out, "text");
         assert_eq!(format!("{data}"), "text");
 
         let mut out = "".to_string();
         let data = CharacterData::String("special chars: <, >, &, \', \"".to_string());
-        data.serialize_internal(&mut out);
+        data.serialize_internal(&mut out).unwrap();
         assert_eq!(out, "special chars: &lt;, &gt;, &amp;, &apos;, &quot;");
         assert_eq!(format!("{data}"), "special chars: <, >, &, \', \"");
     }
