@@ -726,13 +726,13 @@ pub(crate) fn hashfunc(mut data: &[u8]) -> (u32, u32, u32) {
     let mut f1 = 0x3314_3C63_u32;
     let mut f2 = 0x88B0_B21E_u32;
     while data.len() >= 4 {
-        let val = u32::from_ne_bytes(data[..4].try_into().unwrap());
+        let val = u32::from_le_bytes(data[..4].try_into().unwrap());
         f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
         f2 = f2.rotate_left(6).bitxor(val).wrapping_mul(HASHCONST2);
         data = &data[4..];
     }
     if data.len() >= 2 {
-        let val = u32::from(u16::from_ne_bytes(data[..2].try_into().unwrap()));
+        let val = u32::from(u16::from_le_bytes(data[..2].try_into().unwrap()));
         f1 = f1.rotate_left(5).bitxor(val).wrapping_mul(HASHCONST1);
         f2 = f2.rotate_left(6).bitxor(val).wrapping_mul(HASHCONST2);
         data = &data[2..];
