@@ -2409,27 +2409,39 @@ impl Element {
     /// let model = AutosarModel::new();
     /// let file = model.create_file("test", AutosarVersion::Autosar_00050).unwrap();
     /// let root = model.root_element();
-    /// assert_eq!(root.is_member_of_file(&file), Some(true));
+    /// assert_eq!(root.is_member_of_file(&file).ok(), Some(Some(true)));
     /// ```
-    #[must_use]
-    pub fn is_member_of_file(&self, file: &ArxmlFile) -> Option<bool> {
+    ///
+    /// # Errors
+    ///
+    ///  - [`AutosarDataError::ItemDeleted`]: The current element is in the deleted state and will be freed once the last reference is dropped
+    ///  - [`AutosarDataError::ParentElementLocked`]: a parent element was locked and did not become available after waiting briefly.
+    ///    The operation was aborted to avoid a deadlock, but can be retried.
+    pub fn is_member_of_file(&self, file: &ArxmlFile) -> Result<Option<bool>, AutosarDataError> {
         let target = file.downgrade();
         let mut cur_elem_opt = Some(self.clone());
         while let Some(cur_elem) = &cur_elem_opt {
-            let locked_cur_elem = cur_elem.0.try_read_for(LOCK_CONTENTION_TIMEOUT)?;
+            let locked_cur_elem = cur_elem
+                .0
+                .try_read_for(LOCK_CONTENTION_TIMEOUT)
+                .ok_or(AutosarDataError::ParentElementLocked)?;
             if let Some(files) = locked_cur_elem.file_membership.as_deref() {
-                return Some(files.contains(&target));
+                return Ok(Some(files.contains(&target)));
             }
-            let parent = locked_cur_elem.parent().ok()?;
+            let parent = locked_cur_elem.parent()?;
             drop(locked_cur_elem);
             cur_elem_opt = parent;
         }
-        None
+        Ok(None)
     }
 
-    /// return the file membership of this element without trying to get an inherited value
-    pub(crate) fn file_membership_local(&self) -> HashSet<WeakArxmlFile> {
-        self.0.read().file_membership_cloned()
+    /// true if this element is a member of `file`, without copying the set
+    ///
+    /// The membership test the file iterator needs, borrowing under the element
+    /// lock instead of cloning the set. It runs for every element of every file
+    /// walk, so cloning the set there costs one allocation per visited element.
+    pub(crate) fn is_in_file_cheap(&self, file: &WeakArxmlFile) -> bool {
+        self.0.read().is_in_file(file)
     }
 
     /// set the file membership of an element
@@ -2579,6 +2591,12 @@ impl Element {
 
                 // current_fileset is the set of files which contain the current element
                 let (_, current_fileset) = self.file_membership()?;
+                if !current_fileset.contains(&weak_file) {
+                    // the file does not contain this element, so there is nothing to remove. Bailing
+                    // out here skips the subtree walk below, which is otherwise a no-op that visits
+                    // every descendant of a large moved element for nothing.
+                    return Ok(());
+                }
                 let mut restricted_fileset = current_fileset;
                 restricted_fileset.remove(&weak_file);
                 if restricted_fileset.is_empty() {
@@ -3010,7 +3028,7 @@ fn decompose_item_name(name: &str) -> Option<(String, u64)> {
 }
 
 // a helper that provides compact debug output for the content of an element
-struct ElementContentFormatter<'a>(&'a SmallVec<[ElementContent; 4]>);
+struct ElementContentFormatter<'a>(&'a SmallVec<[ElementContent; 2]>);
 impl std::fmt::Debug for ElementContentFormatter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut list_fmt = f.debug_list();

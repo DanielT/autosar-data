@@ -53,6 +53,10 @@ pub(crate) fn replace_path_prefix(path: &str, old_prefix: &str, new_prefix: &str
 }
 
 /// returns true if `prefix` is `path` itself or a prefix of it at a '/' boundary
+///
+/// This is the prefix test used by the path index range scans. Unlike a plain `str::starts_with`,
+/// it respects the '/' path component boundaries, so "/package10/Elem" is not considered to be
+/// inside "/package1".
 pub(crate) fn is_path_prefix_of(path: &str, prefix: &str) -> bool {
     path.strip_prefix(prefix).is_some_and(is_component_boundary)
 }
@@ -86,6 +90,11 @@ impl PathRemap {
     /// Returns `None` if the path is not affected by this remapping.
     pub(crate) fn map(&self, path: &str) -> Option<String> {
         self.0.iter().find_map(|(old, new)| replace_path_prefix(path, old, new))
+    }
+
+    /// the (old prefix, new prefix) pairs of this remapping, in order
+    pub(crate) fn entries(&self) -> impl Iterator<Item = &(String, String)> {
+        self.0.iter()
     }
 
     /// returns true if this remapping does not change any path
@@ -142,7 +151,9 @@ impl AutosarModel {
             identifiables: FxIndexMap::default(),
             reference_origins: FxHashMap::default(),
             relative_references: FxHashMap::default(),
-            shortname_index: FxHashMap::default(),
+            path_index: LazyPathSet::Missing,
+            refpath_index: LazyPathSet::Missing,
+            shortname_index: LazyShortnameIndex::Missing,
             root_element: root_elem.clone(),
         }
         .wrap();
@@ -307,7 +318,7 @@ impl AutosarModel {
                     break;
                 }
             } else {
-                data.insert_shortname(&key);
+                data.index_shortname(&key);
                 data.identifiables.insert(key, value);
             }
         }
@@ -317,6 +328,17 @@ impl AutosarModel {
             let _ = self.root_element().remove_from_file(&arxml_file);
             return Err(AutosarDataError::OverlappingDataError { filename, path });
         }
+        // The path and reference-path indexes are derived from the keys of `identifiables` and
+        // `reference_origins`, but nothing in a load reads them: they are materialized on first use
+        // instead (see `path_index`). Building them here would add a pass over every key already in
+        // the model to every load.
+        //
+        // They may however already be built, if an earlier rename or move materialized them: the
+        // keys added by this load are not in them, so they are dropped and rebuilt on the next
+        // reader. The short-name index needs no such treatment, since `index_shortname` above keeps
+        // it up to date while the keys are inserted.
+        data.path_index.clear();
+        data.refpath_index.clear();
 
         // import references from the parser. The parser only knows the character data of each
         // reference, so relative references are recorded as unresolved here; they are resolved once the
@@ -332,6 +354,8 @@ impl AutosarModel {
                     .push(referring_element);
             }
         }
+        // The refpath index is derived from `reference_origins` and is materialized on first use,
+        // like the other two.
 
         locked_file_list.push(arxml_file.clone());
         drop(data);
@@ -870,6 +894,8 @@ impl AutosarModel {
                 locked_model.identifiables.clear();
                 locked_model.reference_origins.clear();
                 locked_model.relative_references.clear();
+                locked_model.path_index.clear();
+                locked_model.refpath_index.clear();
                 locked_model.shortname_index.clear();
             } else {
                 // other files still contribute elements, so only the elements specifically associated with this file should be removed
@@ -1230,7 +1256,9 @@ impl AutosarModel {
     /// below it are selected, while `/package10/Elem` is not selected by `/package1`.
     ///
     /// This is the bulk form of [`Self::get_references_to`], for callers that have to rewrite every
-    /// reference pointing into a subtree that is being renamed or moved.
+    /// reference pointing into a subtree that is being renamed or moved. Since `reference_origins`
+    /// is keyed by the resolved target path, a range scan over its sorted keys replaces walking the
+    /// element tree for each rewritten element.
     ///
     /// Absolute references are registered under their character data, so for those the result is
     /// exactly the references whose text lies under the prefix. Relative references are registered
@@ -1251,13 +1279,21 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn references_under_path_prefix(&self, prefix: &str) -> Vec<Element> {
-        let model = self.0.read();
+        let mut guard = self.0.write();
+        guard.materialize_refpath_index();
+        let model = parking_lot::RwLockWriteGuard::downgrade(guard);
         let mut out = Vec::new();
-        for (key, reflist) in &model.reference_origins {
+        let index = model.refpath_index.get().expect("just materialized");
+        for key in index.range::<str, _>((Bound::Included(prefix), Bound::Unbounded)) {
+            if !key.starts_with(prefix) {
+                break;
+            }
             if !is_path_prefix_of(key, prefix) {
                 continue;
             }
-            out.extend(reflist.iter().filter_map(WeakElement::upgrade));
+            if let Some(reflist) = model.reference_origins.get(key) {
+                out.extend(reflist.iter().filter_map(WeakElement::upgrade));
+            }
         }
         out
     }
@@ -1354,8 +1390,15 @@ impl AutosarModel {
     /// Add an identifiable element to the cache
     pub(crate) fn add_identifiable(&self, new_path: String, elem: WeakElement) {
         let mut model = self.0.write();
-        model.insert_shortname(&new_path);
-        model.identifiables.insert(new_path, elem);
+        if let Some(index) = model.path_index.get_mut() {
+            index.insert(new_path.clone());
+        }
+        // Index only a genuinely new key: re-adding an existing path replaces its entry in place,
+        // and appending it again would leave the bucket with a duplicate.
+        let is_new = model.identifiables.insert(new_path.clone(), elem).is_none();
+        if is_new {
+            model.index_shortname(&new_path);
+        }
     }
 
     /// All identifiable elements whose short name (last path segment) is `name`, in
@@ -1376,8 +1419,10 @@ impl AutosarModel {
     /// ```
     #[must_use]
     pub fn identifiables_with_shortname(&self, name: &str) -> Vec<Element> {
-        let model = self.0.read();
-        let Some(paths) = model.shortname_index.get(name) else {
+        let mut model = self.0.write();
+        model.materialize_shortname_index();
+        let model = parking_lot::RwLockWriteGuard::downgrade(model);
+        let Some(paths) = model.shortname_index.get().and_then(|index| index.get(name)) else {
             return Vec::new();
         };
         if paths.len() == 1 {
@@ -1410,15 +1455,27 @@ impl AutosarModel {
         let mut model = self.0.write();
 
         // the renamed element might contain other identifiable elements that are affected by the renaming
-        let keys: Vec<String> = model.identifiables.keys().cloned().collect();
+        //
+        // Only the keys inside a remapped prefix can be affected; collecting the complete key list
+        // here meant one full scan of `identifiables` per move, which is quadratic over a pipeline
+        // that moves many elements. The result is the same key sequence that the full scan produced.
+        model.materialize_path_index();
+        let keys = model.keys_under_remap_identifiable(remap);
         for key in keys {
             // find keys referring to entries inside the renamed/moved subtree
             if let Some(new_key) = remap.map(&key) {
                 // fix the identifiables hashmap
                 if let Some(entry) = model.identifiables.swap_remove(&key) {
-                    model.remove_shortname(&key);
-                    model.insert_shortname(&new_key);
-                    model.identifiables.insert(new_key, entry);
+                    if let Some(index) = model.path_index.get_mut() {
+                        index.remove(&key);
+                        index.insert(new_key.clone());
+                    }
+                    model.unindex_shortname(&key);
+                    // `insert` replaces an entry that already holds `new_key`; such a key is
+                    // already present in its bucket, and appending it again would duplicate it.
+                    if model.identifiables.insert(new_key.clone(), entry).is_none() {
+                        model.index_shortname(&new_key);
+                    }
                 }
             }
         }
@@ -1443,7 +1500,12 @@ impl AutosarModel {
         // Check all references and update those that point to a renamed/moved element. Since the key is
         // the path of the target, this applies to relative references in exactly the same way; only the
         // character data that has to be written back differs between the two.
-        let refpaths = model.reference_origins.keys().cloned().collect::<Vec<String>>();
+        //
+        // Only the keys inside a remapped prefix need the (expensive) per-reference rewrite below.
+        // Collecting every key relied on `remap.map` returning None for the others, i.e. one full
+        // scan of `reference_origins` per move.
+        model.materialize_refpath_index();
+        let refpaths = model.keys_under_remap_refpaths(remap);
         for refpath in refpaths {
             // if the existing reference points into a renamed/moved subtree, then it needs to be updated
             let Some(refpath_new) = remap.map(&refpath).filter(|new| *new != refpath) else {
@@ -1452,6 +1514,9 @@ impl AutosarModel {
             let Some(reflist) = model.reference_origins.remove(&refpath) else {
                 continue;
             };
+            if let Some(index) = model.refpath_index.get_mut() {
+                index.remove(&refpath);
+            }
             let mut updated = Vec::with_capacity(reflist.len());
             let mut unchanged = Vec::new();
             for weak_ref_elem in reflist {
@@ -1488,9 +1553,15 @@ impl AutosarModel {
                 }
             }
             if !updated.is_empty() {
+                if let Some(index) = model.refpath_index.get_mut() {
+                    index.insert(refpath_new.clone());
+                }
                 model.reference_origins.insert(refpath_new, updated);
             }
             if !unchanged.is_empty() {
+                if let Some(index) = model.refpath_index.get_mut() {
+                    index.insert(refpath.clone());
+                }
                 model.reference_origins.insert(refpath, unchanged);
             }
         }
@@ -1502,7 +1573,10 @@ impl AutosarModel {
     pub(crate) fn remove_identifiable(&self, path: &str) {
         let mut model = self.0.write();
         if model.identifiables.swap_remove(path).is_some() {
-            model.remove_shortname(path);
+            if let Some(index) = model.path_index.get_mut() {
+                index.remove(path);
+            }
+            model.unindex_shortname(path);
         }
     }
 
@@ -1519,6 +1593,9 @@ impl AutosarModel {
         if base.is_some() {
             data.relative_references.insert(origin, None);
         } else {
+            if let Some(index) = data.refpath_index.get_mut() {
+                index.insert(new_ref.to_owned());
+            }
             data.reference_origins
                 .entry(new_ref.to_owned())
                 .or_default()
@@ -1587,7 +1664,12 @@ impl AutosarModel {
                 model.remove_reference_origin_by_key(&old_key, &origin);
             }
             match new_key {
-                Some(new_key) => model.reference_origins.entry(new_key).or_default().push(origin),
+                Some(new_key) => {
+                    if let Some(index) = model.refpath_index.get_mut() {
+                        index.insert(new_key.clone());
+                    }
+                    model.reference_origins.entry(new_key).or_default().push(origin);
+                }
                 // the reference base is not in scope: the reference has no target path, and the entry
                 // is only kept so that check_references() can report it
                 None => {
@@ -1609,38 +1691,133 @@ impl AutosarModel {
     }
 }
 
+/// the keys of `index` that are `prefix` itself or nested inside it
+///
+/// The index is sorted by path, so the matching keys form one contiguous range; the range ends at
+/// the first key which no longer carries the prefix.
+fn keys_under_prefix<'a>(index: &'a BTreeSet<String>, prefix: &str) -> impl Iterator<Item = &'a String> {
+    index
+        .range::<str, _>((Bound::Included(prefix), Bound::Unbounded))
+        .take_while(move |key| key.starts_with(prefix))
+        .filter(move |key| is_path_prefix_of(key, prefix))
+}
+
+/// the short name of an Autosar path, i.e. its last segment
+///
+/// `None` for a path with no non-empty last segment (the empty path, or one ending in `/`), which
+/// is never a key of `identifiables`.
+fn shortname_of(path: &str) -> Option<&str> {
+    path.rsplit('/').next().filter(|name| !name.is_empty())
+}
+
 impl AutosarModelRaw {
-    /// Register `path`'s last segment in the short-name index; mirrors `identifiables`.
-    fn insert_shortname(&mut self, path: &str) {
-        let Some(name) = path.rsplit('/').next() else {
+    /// Add `path` to its short-name bucket, if the index is built.
+    fn index_shortname(&mut self, path: &str) {
+        let Some(name) = shortname_of(path) else {
             return;
         };
-        if name.is_empty() {
+        let Some(index) = self.shortname_index.get_mut() else {
             return;
-        }
-        let entry = self.shortname_index.entry(name.to_string()).or_default();
-        if entry.iter().any(|p| p == path) {
-            return;
-        }
-        // The bucket is kept unordered here: `identifiables` insertion order is recovered by the
-        // lookup. `identifiables` uses `swap_remove`, so a removal moves an arbitrary other entry
-        // into the hole and the order cannot be maintained by appending. Ordering the bucket on
-        // insert would also need a `get_index_of` probe per inserted element, which makes insertion
-        // quadratic over the whole model.
-        entry.push(path.to_string());
+        };
+        index.entry(name.to_owned()).or_default().push(path.to_owned());
     }
 
-    /// Drop `path` from the short-name index.
-    fn remove_shortname(&mut self, path: &str) {
-        let Some(name) = path.rsplit('/').next() else {
+    /// Remove `path` from its short-name bucket, if the index is built.
+    fn unindex_shortname(&mut self, path: &str) {
+        let Some(name) = shortname_of(path) else {
             return;
         };
-        if let Some(bucket) = self.shortname_index.get_mut(name) {
-            bucket.retain(|p| p != path);
-            if bucket.is_empty() {
-                self.shortname_index.remove(name);
+        let Some(index) = self.shortname_index.get_mut() else {
+            return;
+        };
+        let Some(paths) = index.get_mut(name) else {
+            return;
+        };
+        if let Some(pos) = paths.iter().position(|p| p == path) {
+            paths.remove(pos);
+        }
+        if paths.is_empty() {
+            index.remove(name);
+        }
+    }
+
+    /// build `path_index` from the keys of `identifiables`, if it is not built yet
+    fn materialize_path_index(&mut self) {
+        if self.path_index.get().is_some() {
+            return;
+        }
+        let mut keys: Vec<String> = self.identifiables.keys().cloned().collect();
+        keys.sort_unstable();
+        self.path_index = LazyPathSet::Ready(keys.into_iter().collect());
+    }
+
+    /// build `refpath_index` from the keys of `reference_origins`, if it is not built yet
+    fn materialize_refpath_index(&mut self) {
+        if self.refpath_index.get().is_some() {
+            return;
+        }
+        let mut keys: Vec<String> = self.reference_origins.keys().cloned().collect();
+        keys.sort_unstable();
+        self.refpath_index = LazyPathSet::Ready(keys.into_iter().collect());
+    }
+
+    /// build `shortname_index` from the keys of `identifiables`, if it is not built yet
+    fn materialize_shortname_index(&mut self) {
+        if self.shortname_index.get().is_some() {
+            return;
+        }
+        let mut index: FxHashMap<String, Vec<String>> = FxHashMap::default();
+        for key in self.identifiables.keys() {
+            let Some(name) = shortname_of(key) else {
+                continue;
+            };
+            index.entry(name.to_owned()).or_default().push(key.clone());
+        }
+        self.shortname_index = LazyShortnameIndex::Ready(index);
+    }
+
+    /// all keys of `identifiables` inside one of the remap's old prefixes, in `identifiables`
+    /// insertion order - the order in which `keys()` yielded them
+    ///
+    /// `swap_remove` moves the last entry into the hole of a removed one, so the insertion order of
+    /// `identifiables` is observable through the iterator and through `Debug`, and the fixers must
+    /// visit the same keys in the same order as they did when they walked the whole map.
+    fn keys_under_remap_identifiable(&self, remap: &PathRemap) -> Vec<String> {
+        let mut hits: Vec<(usize, &String)> = Vec::new();
+        for (old, _new) in remap.entries() {
+            let Some(index) = self.path_index.get() else {
+                debug_assert!(false, "keys_under_remap_identifiable needs a materialized path_index");
+                return Vec::new();
+            };
+            for key in keys_under_prefix(index, old) {
+                if let Some(ord) = self.identifiables.get_index_of(key) {
+                    hits.push((ord, key));
+                }
             }
         }
+        // a key can lie inside several of the remap's prefixes; it is still a single map entry, and
+        // the full scan visited it once
+        hits.sort_unstable_by_key(|(ord, _)| *ord);
+        hits.dedup_by_key(|(ord, _)| *ord);
+        hits.into_iter().map(|(_, key)| key.clone()).collect()
+    }
+
+    /// all keys of `reference_origins` inside one of the remap's old prefixes
+    ///
+    /// Each key is rewritten independently of the others, so the order does not matter here; the
+    /// order of `reference_origins` is not observable because it is a `HashMap`. A key which lies
+    /// inside several of the remap's prefixes is still a single map entry and is returned once, as
+    /// it was by the full scan.
+    fn keys_under_remap_refpaths(&self, remap: &PathRemap) -> Vec<String> {
+        let mut keys = BTreeSet::new();
+        let Some(index) = self.refpath_index.get() else {
+            debug_assert!(false, "keys_under_remap_refpaths needs a materialized refpath_index");
+            return Vec::new();
+        };
+        for (old, _new) in remap.entries() {
+            keys.extend(keys_under_prefix(index, old).filter(|key| self.reference_origins.contains_key(*key)));
+        }
+        keys.into_iter().cloned().collect()
     }
 
     pub(crate) fn wrap(self) -> AutosarModel {
@@ -1682,6 +1859,9 @@ impl AutosarModelRaw {
             }
             if origins.is_empty() {
                 self.reference_origins.remove(key);
+                if let Some(index) = self.refpath_index.get_mut() {
+                    index.remove(key);
+                }
             }
         }
     }
@@ -1809,7 +1989,11 @@ impl AutosarModel {
             }
         }
 
-        let model = self.0.read();
+        let mut guard = self.0.write();
+        guard.materialize_path_index();
+        guard.materialize_refpath_index();
+        guard.materialize_shortname_index();
+        let model = parking_lot::RwLockWriteGuard::downgrade(guard);
 
         // an absolute reference is registered under its own character data
         for (text, element) in &absolute_refs {
@@ -1903,6 +2087,28 @@ impl AutosarModel {
             }
         }
 
+        // each path index mirrors the keys of the map it indexes: every key is in the index, and
+        // the index contains nothing else. The indexes are lazily built, so they are materialized
+        // here first - that is exactly the state a reader would see.
+        let path_index = model.path_index.get().expect("materialized above");
+        let expected_paths: BTreeSet<&String> = model.identifiables.keys().collect();
+        if path_index.iter().ne(expected_paths.iter().copied()) {
+            return Err(format!(
+                "path_index does not match the keys of identifiables: {} index entries, {} keys",
+                path_index.len(),
+                model.identifiables.len()
+            ));
+        }
+        let refpath_index = model.refpath_index.get().expect("just materialized");
+        let expected_refpaths: BTreeSet<&String> = model.reference_origins.keys().collect();
+        if refpath_index.iter().ne(expected_refpaths.iter().copied()) {
+            return Err(format!(
+                "refpath_index does not match the keys of reference_origins: {} index entries, {} keys",
+                refpath_index.len(),
+                model.reference_origins.len()
+            ));
+        }
+
         // the short-name index maps each short name to exactly the paths of `identifiables` which end
         // in it
         let mut expected_shortnames: FxHashMap<&str, Vec<&String>> = FxHashMap::default();
@@ -1913,15 +2119,16 @@ impl AutosarModel {
                 expected_shortnames.entry(name).or_default().push(path);
             }
         }
-        if model.shortname_index.len() != expected_shortnames.len() {
+        let shortname_index = model.shortname_index.get().expect("just materialized");
+        if shortname_index.len() != expected_shortnames.len() {
             return Err(format!(
                 "shortname_index holds {} names, but identifiables contains {} distinct short names",
-                model.shortname_index.len(),
+                shortname_index.len(),
                 expected_shortnames.len()
             ));
         }
         for (name, paths) in &expected_shortnames {
-            let Some(indexed) = model.shortname_index.get(*name) else {
+            let Some(indexed) = shortname_index.get(*name) else {
                 return Err(format!("shortname_index is missing the entry for \"{name}\""));
             };
             let mut indexed_sorted: Vec<&str> = indexed.iter().map(String::as_str).collect();
@@ -1934,6 +2141,7 @@ impl AutosarModel {
                 ));
             }
         }
+
         Ok(())
     }
 }
@@ -2439,6 +2647,72 @@ mod test {
             .unwrap();
         assert!(model.identifiables_with_shortname("InnerPackage1").is_empty());
         assert_eq!(model.identifiables_with_shortname("Renamed").len(), 1);
+        assert_eq!(model.verify_reference_caches(), Ok(()));
+    }
+
+    #[test]
+    fn shortname_index_survives_mutations_after_materialization() {
+        // The index is maintained in place by every key mutation instead of being dropped, so a
+        // pipeline that interleaves lookups with moves does not rebuild it once per lookup. That
+        // is only correct if every mutation path keeps it in sync: a missed add, remove or re-key
+        // leaves the bucket holding a stale path, a duplicate, or nothing at all.
+        const FILEBUF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+        <AUTOSAR xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd" xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+        <AR-PACKAGES>
+        <AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME>
+            <ELEMENTS>
+                <SW-BASE-TYPE><SHORT-NAME>base</SHORT-NAME><BASE-TYPE-SIZE>8</BASE-TYPE-SIZE></SW-BASE-TYPE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+        </AR-PACKAGES></AUTOSAR>"#;
+        let model = AutosarModel::new();
+        model.load_buffer(FILEBUF.as_bytes(), "test", true).unwrap();
+
+        // Build the index BEFORE any mutation: from here on it is maintained incrementally.
+        assert_eq!(model.identifiables_with_shortname("base").len(), 1);
+
+        let pkg = model.get_element_by_path("/Pkg").unwrap();
+        let elements = pkg.get_sub_element(ElementName::Elements).unwrap();
+
+        // create -> add_identifiable
+        let copy = elements
+            .create_named_sub_element(ElementName::SwBaseType, "copied")
+            .unwrap();
+        assert_eq!(model.identifiables_with_shortname("copied").len(), 1);
+        assert_eq!(model.verify_reference_caches(), Ok(()));
+
+        // deep copy -> add_identifiable for the copy and its subtree
+        let deep = elements.create_copied_sub_element(&copy).unwrap();
+        let deep_name = deep.item_name().unwrap();
+        assert_ne!(deep_name, "copied", "the copy gets a unique name");
+        assert_eq!(model.identifiables_with_shortname(&deep_name).len(), 1);
+        assert_eq!(model.verify_reference_caches(), Ok(()));
+
+        // rename -> fix_element_paths (re-key, not drop)
+        copy.set_item_name("renamed").unwrap();
+        assert!(model.identifiables_with_shortname("copied").is_empty());
+        assert_eq!(model.identifiables_with_shortname("renamed").len(), 1);
+        assert_eq!(model.verify_reference_caches(), Ok(()));
+
+        // move -> fix_element_paths, name unchanged so the bucket entry must survive
+        let other = model
+            .get_element_by_path("/Pkg")
+            .unwrap()
+            .get_or_create_sub_element(ElementName::ArPackages)
+            .unwrap()
+            .create_named_sub_element(ElementName::ArPackage, "Other")
+            .unwrap()
+            .get_or_create_sub_element(ElementName::Elements)
+            .unwrap();
+        other.move_element_here(&copy).unwrap();
+        let moved = model.identifiables_with_shortname("renamed");
+        assert_eq!(moved.len(), 1, "the moved element is still found by name");
+        assert_eq!(moved[0].path().unwrap(), "/Pkg/Other/renamed");
+        assert_eq!(model.verify_reference_caches(), Ok(()));
+
+        // remove -> remove_identifiable
+        other.remove_sub_element(copy).unwrap();
+        assert!(model.identifiables_with_shortname("renamed").is_empty());
         assert_eq!(model.verify_reference_caches(), Ok(()));
     }
 
@@ -3106,6 +3380,128 @@ mod test {
             .and_then(|el_bases| el_bases.get_sub_element_at(0))
             .and_then(|el_base| el_base.get_sub_element(ElementName::PackageRef))
             .unwrap()
+    }
+
+    #[test]
+    fn loading_into_an_indexed_model_refreshes_the_lazy_indexes() {
+        // `path_index` and `refpath_index` are built from the map keys on first use, and loading a
+        // file does not build them. If an earlier rename built them, the keys added by a later load
+        // are missing from the built sets unless the load drops them; the checks in
+        // verify_reference_caches only compare a set that is already built, so they catch exactly
+        // that case.
+        const FILE_A: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>BasePkg</SHORT-NAME>
+            <ELEMENTS>
+                <ECU-INSTANCE><SHORT-NAME>Ecu</SHORT-NAME></ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#;
+        const FILE_B: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>OtherPkg</SHORT-NAME>
+            <ELEMENTS>
+                <ECU-INSTANCE><SHORT-NAME>Ecu2</SHORT-NAME></ECU-INSTANCE>
+                <SYSTEM>
+                    <SHORT-NAME>Sys</SHORT-NAME>
+                    <FIBEX-ELEMENTS>
+                        <FIBEX-ELEMENT-REF-CONDITIONAL>
+                            <FIBEX-ELEMENT-REF DEST="ECU-INSTANCE">/OtherPkg/Ecu2</FIBEX-ELEMENT-REF>
+                        </FIBEX-ELEMENT-REF-CONDITIONAL>
+                    </FIBEX-ELEMENTS>
+                </SYSTEM>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#;
+
+        let model = AutosarModel::new();
+        model.load_buffer(FILE_A.as_bytes(), "a", true).unwrap();
+
+        // a rename builds both indexes through fix_element_paths / fix_reference_paths
+        model
+            .get_element_by_path("/BasePkg/Ecu")
+            .unwrap()
+            .set_item_name("EcuRenamed")
+            .unwrap();
+        assert!(model.0.read().path_index.get().is_some());
+        assert!(model.0.read().refpath_index.get().is_some());
+
+        // the second load adds keys to identifiables and reference_origins
+        model.load_buffer(FILE_B.as_bytes(), "b", true).unwrap();
+        assert_eq!(model.verify_reference_caches(), Ok(()));
+
+        // ... and they are visible through the lookups the indexes serve
+        assert!(model.get_element_by_path("/OtherPkg/Ecu2").is_some());
+        let referenced: Vec<String> = model
+            .references_under_path_prefix("/OtherPkg/Ecu2")
+            .iter()
+            .map(|e| e.xml_path())
+            .collect();
+        assert_eq!(referenced.len(), 1);
+        assert!(
+            referenced[0].ends_with("/<FIBEX-ELEMENT-REF>"),
+            "unexpected referring element: {referenced:?}"
+        );
+    }
+
+    #[test]
+    fn renaming_after_a_later_load_moves_its_keys() {
+        // The same stale index corrupts `identifiables`: `fix_element_paths` only visits the keys
+        // found in `path_index`, so a key added by a later load keeps its old path in the map after
+        // an enclosing element is renamed.
+        const FILE_A: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>BasePkg</SHORT-NAME>
+            <ELEMENTS>
+                <ECU-INSTANCE><SHORT-NAME>Ecu</SHORT-NAME></ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#;
+        const FILE_B: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<AUTOSAR xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://autosar.org/schema/r4.0" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00050.xsd">
+    <AR-PACKAGES>
+        <AR-PACKAGE>
+            <SHORT-NAME>OtherPkg</SHORT-NAME>
+            <ELEMENTS>
+                <ECU-INSTANCE><SHORT-NAME>Ecu2</SHORT-NAME></ECU-INSTANCE>
+            </ELEMENTS>
+        </AR-PACKAGE>
+    </AR-PACKAGES>
+</AUTOSAR>"#;
+
+        let model = AutosarModel::new();
+        model.load_buffer(FILE_A.as_bytes(), "a", true).unwrap();
+        // materialize the path index before the second load
+        model
+            .get_element_by_path("/BasePkg/Ecu")
+            .unwrap()
+            .set_item_name("EcuRenamed")
+            .unwrap();
+        model.load_buffer(FILE_B.as_bytes(), "b", true).unwrap();
+
+        model
+            .get_element_by_path("/OtherPkg")
+            .unwrap()
+            .set_item_name("OtherPkgRenamed")
+            .unwrap();
+
+        assert!(
+            model.get_element_by_path("/OtherPkgRenamed/Ecu2").is_some(),
+            "the key of the later load was not remapped by the rename"
+        );
+        assert!(
+            model.get_element_by_path("/OtherPkg/Ecu2").is_none(),
+            "the rename left the old path in identifiables"
+        );
     }
 
     #[test]
