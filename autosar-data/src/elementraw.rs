@@ -725,9 +725,16 @@ impl ElementRaw {
 
     /// `make_unique_item_name` ensures that a copied element has a unique name
     fn make_unique_item_name(&self, model: &AutosarModel, parent_path: &str) -> Result<String, AutosarDataError> {
-        let orig_name = self.item_name().ok_or(AutosarDataError::ElementNotIdentifiable {
-            xmlpath: self.xml_path(),
-        })?;
+        // The error payload is built only on the failure path. `ok_or` would evaluate `xml_path()`
+        // eagerly, and `xml_path()` walks up the tree with `try_lock` and a ~10 ms timeout: while
+        // the destination of a move/copy is write-locked by the caller, taking the path of the
+        // source waits for that timeout before giving up. That made every move/copy pay the lock
+        // contention timeout even though it succeeds.
+        let orig_name = self
+            .item_name()
+            .ok_or_else(|| AutosarDataError::ElementNotIdentifiable {
+                xmlpath: self.xml_path(),
+            })?;
         let mut name = orig_name.clone();
         let mut counter = 1;
 
