@@ -14,6 +14,7 @@ use crate::lexer::{ArxmlEvent, ArxmlLexer};
 use crate::{
     Attribute, AutosarDataError, CharacterData, Element, ElementContent, ElementOrModel, ElementRaw, WeakElement,
 };
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Error, PartialEq)]
 #[non_exhaustive]
@@ -263,6 +264,23 @@ pub enum ArxmlParserError {
     },
 }
 
+/// The resolved sub-element type and the index of the matching entry in its parent's specification.
+type SpecLookup = (ElementType, ElementIndices);
+
+/// One entry of [`ArxmlParser::sub_element_cache`].
+#[derive(Clone)]
+struct SpecLookupEntry {
+    /// The sub-element type and the matching specification index.
+    lookup: SpecLookup,
+    /// For a sub-element that is not allowed in the file's version but exists in the specification
+    /// under a different version: the version mask it was declared with.
+    ///
+    /// The version check has per-element side effects (it narrows `version_compatibility` and
+    /// reports a warning naming the offending line), so it is repeated for every occurrence; only
+    /// the specification walk is memoized.
+    fallback_version_mask: Option<u32>,
+}
+
 pub(crate) struct ArxmlParser<'a> {
     filename: PathBuf,
     line: usize,
@@ -276,6 +294,22 @@ pub(crate) struct ArxmlParser<'a> {
     pub(crate) warnings: Vec<AutosarDataError>,
     standalone: Option<bool>,
     pub(crate) model: WeakAutosarModel,
+    /// Memoized results of the specification lookups done by
+    /// [`Self::find_element_in_spec_checked`], keyed by the parent type, the sub element name and
+    /// the file version.
+    ///
+    /// The lookup itself is a pure function of those three values and the static specification, and
+    /// it allocates the index list it returns. A load performs it once per element, but the same
+    /// handful of (parent, child) pairs repeats millions of times, so the cache removes the
+    /// repeated specification walks and the per-element index allocation. Everything with
+    /// per-element side effects, i.e. the version check, is still done for every occurrence.
+    sub_element_cache: FxHashMap<(ElementType, ElementName, u32), SpecLookupEntry>,
+    /// The attributes that `AttributeSpec::required` marks as mandatory, per element type.
+    ///
+    /// The check only needs the required ones, but iterating `ElementType::attribute_spec_iter`
+    /// visits every attribute of the type for every element. Most types require none, so the
+    /// cached list is usually empty and the check costs nothing.
+    required_attributes_cache: FxHashMap<ElementType, SmallVec<[AttributeName; 2]>>,
 }
 
 impl<'a> ArxmlParser<'a> {
@@ -293,6 +327,8 @@ impl<'a> ArxmlParser<'a> {
             references: Vec::new(),
             warnings: Vec::new(),
             standalone: None,
+            sub_element_cache: FxHashMap::default(),
+            required_attributes_cache: FxHashMap::default(),
         }
     }
 
@@ -613,38 +649,55 @@ impl<'a> ArxmlParser<'a> {
         &mut self,
         name: ElementName,
         elemtype: ElementType,
-    ) -> Result<(ElementType, ElementIndices), AutosarDataError> {
+    ) -> Result<SpecLookup, AutosarDataError> {
         // Some elements have multiple entries, and the correct one must be chosen based on the autosar version
         // First try to find the sub element using the current file version. If that fails then search again
         // allowing elements from all autosar versions. This is useful in order to give better diagnostics.
-        let (sub_elem_type, new_elem_indices) =
-            if let Some(result) = elemtype.find_sub_element(name, self.fileversion as u32) {
-                // normal case: the element was found in the spec, while restricted to only the current version
-                result
-            } else {
-                // fallback: the search is retried, while allowing matching sub-elements from any AutosarVersion
-                let (sub_elemtype, elem_idx) = elemtype.find_sub_element(name, u32::MAX).ok_or_else(|| {
-                    self.error(ArxmlParserError::IncorrectBeginElement {
-                        element: self.current_element,
-                        sub_element: name,
-                    })
-                })?;
-                // now we need to get the version mask that tells us in what versions this element was actually allowed in
-                // unwrap() is ok here since this can't fail: elem_idx just came from find_sub_element
-                let version_mask = elemtype.get_sub_element_version_mask(&elem_idx).unwrap();
-                // check_version will return an ElementVersionError is strict parsing is on, otherwise it's a warning
-                self.check_version(
-                    version_mask,
-                    ArxmlParserError::ElementVersionError {
-                        element: self.current_element,
-                        sub_element: name,
-                        version: self.fileversion,
-                    },
-                )?;
-                (sub_elemtype, elem_idx)
-            };
+        let key = (elemtype, name, self.fileversion as u32);
+        let entry = match self.sub_element_cache.get(&key) {
+            Some(entry) => entry.clone(),
+            None => {
+                let entry = if let Some((sub_elemtype, idx)) = elemtype.find_sub_element(name, self.fileversion as u32)
+                {
+                    // normal case: the element was found in the spec, while restricted to only the current version
+                    SpecLookupEntry {
+                        lookup: (sub_elemtype, idx),
+                        fallback_version_mask: None,
+                    }
+                } else {
+                    // fallback: the search is retried, while allowing matching sub-elements from any AutosarVersion
+                    let (sub_elemtype, elem_idx) = elemtype.find_sub_element(name, u32::MAX).ok_or_else(|| {
+                        self.error(ArxmlParserError::IncorrectBeginElement {
+                            element: self.current_element,
+                            sub_element: name,
+                        })
+                    })?;
+                    // now we need to get the version mask that tells us in what versions this element was actually allowed in
+                    // unwrap() is ok here since this can't fail: elem_idx just came from find_sub_element
+                    let version_mask = elemtype.get_sub_element_version_mask(&elem_idx).unwrap();
+                    SpecLookupEntry {
+                        lookup: (sub_elemtype, elem_idx),
+                        fallback_version_mask: Some(version_mask),
+                    }
+                };
+                self.sub_element_cache.insert(key, entry.clone());
+                entry
+            }
+        };
 
-        Ok((sub_elem_type, new_elem_indices))
+        if let Some(version_mask) = entry.fallback_version_mask {
+            // check_version will return an ElementVersionError is strict parsing is on, otherwise it's a warning;
+            // both depend on the current element and line, so this runs for every occurrence, not just the first
+            self.check_version(
+                version_mask,
+                ArxmlParserError::ElementVersionError {
+                    element: self.current_element,
+                    sub_element: name,
+                    version: self.fileversion,
+                },
+            )?;
+        }
+        Ok(entry.lookup)
     }
 
     fn check_element_conflict(
@@ -818,11 +871,23 @@ impl<'a> ArxmlParser<'a> {
             })?;
         }
 
-        for (name, _ctype, required) in elemtype.attribute_spec_iter() {
-            if required && !attributes.iter().any(|attr: &Attribute| attr.attrname == name) {
+        let required: SmallVec<[AttributeName; 2]> = match self.required_attributes_cache.get(&elemtype) {
+            Some(cached) => cached.clone(),
+            None => {
+                let computed: SmallVec<[AttributeName; 2]> = elemtype
+                    .attribute_spec_iter()
+                    .filter(|(_name, _ctype, required)| *required)
+                    .map(|(name, _ctype, _required)| name)
+                    .collect();
+                self.required_attributes_cache.insert(elemtype, computed.clone());
+                computed
+            }
+        };
+        for name in required.iter() {
+            if !attributes.iter().any(|attr: &Attribute| attr.attrname == *name) {
                 self.optional_error(ArxmlParserError::RequiredAttributeMissing {
                     element: self.current_element,
-                    attribute: name,
+                    attribute: *name,
                 })?;
             }
         }
