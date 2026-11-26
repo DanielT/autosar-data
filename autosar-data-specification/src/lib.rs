@@ -94,8 +94,8 @@ pub use autosarversion::{AutosarVersion, ParseAutosarVersionError};
 pub use elementname::{ElementName, ParseElementNameError};
 pub use enumitem::{EnumItem, ParseEnumItemError};
 use specification::{
-    ATTRIBUTES, AUTOSAR_ELEMENT, CHARACTER_DATA, DATATYPES, ELEMENTS, REF_ITEMS, REFERENCE_TYPE_IDX, SUBELEMENTS,
-    VERSION_INFO,
+    ATTRIBUTES, AUTOSAR_ELEMENT, CHARACTER_DATA, DATATYPES, ELEMENTS, MAX_SUBELEMENT_DEPTH, REF_ITEMS,
+    REFERENCE_TYPE_IDX, SUBELEMENTS, VERSION_INFO, VERSION_MASKS,
 };
 
 /// `ElementMultiplicity` specifies how often a single child element may occur within its parent
@@ -135,7 +135,7 @@ pub enum ContentMode {
 pub enum CharacterDataSpec {
     /// The character data is an enum value; valid values are given in items and the character data must match one of these
     Enum {
-        items: &'static [(EnumItem, u32)],
+        items: EnumItemList,
     },
     /// The character data is restricted to match a regular expression, which is given in text form in the field `regex`.
     Pattern {
@@ -182,21 +182,49 @@ pub struct ElementType {
 #[derive(Debug, Clone, Copy)]
 pub struct GroupType(u16);
 
-#[derive(Debug)]
-enum SubElement {
+/// The list of valid values of an enum, together with the versions in which each value is valid
+#[derive(Clone, Copy)]
+pub struct EnumItemList {
+    /// enum items, each with an index into `version_masks`
+    items: &'static [(EnumItem, u8)],
+    version_masks: &'static [u32],
+}
+
+/// The location of a sub element inside the specification of its parent `ElementType`
+///
+/// In most cases this contains a single index. If the sub element is part of a nested group
+/// of elements, then the location contains one index for each level of nesting.
+/// It dereferences to a slice of indices.
+#[derive(Clone, Copy)]
+pub struct ElementIndices {
+    len: usize,
+    indices: [usize; MAX_SUBELEMENT_DEPTH],
+}
+
+/// An entry in the `SUBELEMENTS` table: either an element, or a group of elements
+///
+/// The element name is stored here, so that searching for a sub element by name does not need
+/// to look up the name in `ELEMENTS`. For groups, the name is meaningless.
+#[derive(Debug, Clone, Copy)]
+struct SubElement {
+    name: ElementName,
+    /// index into `ELEMENTS`, or if the `GROUP_FLAG` is set, an index into `DATATYPES`
+    def: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubElementKind {
     Element(u16),
     Group(u16),
 }
 
 struct ElementDefinition {
-    name: ElementName,
     elemtype: u16,
     multiplicity: ElementMultiplicity,
     ordered: bool,
-    splittable: u32,
+    /// index into `VERSION_MASKS`
+    splittable: u8,
     restrict_std: StdRestrict,
-    #[cfg(feature = "docstrings")]
-    docstring: Option<u16>,
 }
 
 struct ElementSpec {
@@ -213,6 +241,157 @@ impl AutosarVersion {
     #[must_use]
     pub fn compatible(&self, version_mask: u32) -> bool {
         version_mask & *self as u32 != 0
+    }
+}
+
+/// get the version mask from the `VERSION_INFO` table, which stores indices into `VERSION_MASKS`
+#[inline]
+const fn version_info(idx: usize) -> u32 {
+    VERSION_MASKS[VERSION_INFO[idx] as usize]
+}
+
+const GROUP_FLAG: u16 = 0x8000;
+
+impl SubElement {
+    const fn element(name: ElementName, def: u16) -> Self {
+        assert!(def & GROUP_FLAG == 0);
+        Self { name, def }
+    }
+
+    const fn group(group_id: u16) -> Self {
+        assert!(group_id & GROUP_FLAG == 0);
+        Self {
+            name: ElementName::Autosar,
+            def: group_id | GROUP_FLAG,
+        }
+    }
+
+    #[inline]
+    const fn kind(&self) -> SubElementKind {
+        if self.def & GROUP_FLAG == 0 {
+            SubElementKind::Element(self.def)
+        } else {
+            SubElementKind::Group(self.def & !GROUP_FLAG)
+        }
+    }
+}
+
+impl EnumItemList {
+    /// Create a new `EnumItemList`
+    ///
+    /// Each entry of `items` contains an enum item and an index into `version_masks`.
+    /// This function is only public so that a custom specification can be created for testing.
+    #[must_use]
+    pub const fn new(items: &'static [(EnumItem, u8)], version_masks: &'static [u32]) -> Self {
+        Self { items, version_masks }
+    }
+
+    /// get the version mask of an enum item
+    ///
+    /// Returns None if the item is not part of the list
+    #[must_use]
+    pub fn version_mask(&self, item: EnumItem) -> Option<u32> {
+        self.items
+            .iter()
+            .find(|(list_item, _)| *list_item == item)
+            .map(|(_, ver_idx)| self.version_masks[*ver_idx as usize])
+    }
+
+    /// iterate over all enum items in the list, together with the version mask of each item
+    pub fn iter(&self) -> impl Iterator<Item = (EnumItem, u32)> + use<> {
+        let version_masks = self.version_masks;
+        self.items
+            .iter()
+            .map(move |(item, ver_idx)| (*item, version_masks[*ver_idx as usize]))
+    }
+
+    /// the number of items in the list
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// is the list empty
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+impl core::fmt::Debug for EnumItemList {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl ElementIndices {
+    const fn new() -> Self {
+        Self {
+            len: 0,
+            indices: [0; MAX_SUBELEMENT_DEPTH],
+        }
+    }
+
+    fn push(&mut self, index: usize) {
+        self.indices[self.len] = index;
+        self.len += 1;
+    }
+
+    fn pop(&mut self) {
+        self.len -= 1;
+    }
+}
+
+impl Default for ElementIndices {
+    /// an empty list of indices, which does not refer to any sub element
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl core::ops::Deref for ElementIndices {
+    type Target = [usize];
+
+    fn deref(&self) -> &[usize] {
+        &self.indices[..self.len]
+    }
+}
+
+impl AsRef<[usize]> for ElementIndices {
+    fn as_ref(&self) -> &[usize] {
+        self
+    }
+}
+
+impl PartialEq for ElementIndices {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for ElementIndices {}
+
+impl PartialOrd for ElementIndices {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ElementIndices {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (**self).cmp(&**other)
+    }
+}
+
+impl core::hash::Hash for ElementIndices {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        (**self).hash(state);
+    }
+}
+
+impl core::fmt::Debug for ElementIndices {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        (**self).fmt(f)
     }
 }
 
@@ -247,7 +426,7 @@ impl ElementType {
     }
 
     /// get the spec of a sub element from the index list
-    fn get_sub_element_spec(self, element_indices: &[usize]) -> Option<(&'static SubElement, u32)> {
+    fn get_sub_element_spec(self, element_indices: &[usize]) -> Option<(SubElementKind, u32)> {
         if element_indices.is_empty() {
             return None;
         }
@@ -258,21 +437,21 @@ impl ElementType {
         let mut current_ver_list_start = ver_list_start;
         // go through the hierarchy of groups: only the final index in element_indices can refer to a SubElement::Element
         for &index in &element_indices[..element_indices.len() - 1] {
-            match current_spec.get(index)? {
-                SubElement::Element { .. } => {
+            match current_spec.get(index)?.kind() {
+                SubElementKind::Element(_) => {
                     // elements are not allowed here
                     return None;
                 }
-                SubElement::Group(groupid) => {
-                    current_spec = ElementType::get_sub_elements(*groupid);
-                    current_ver_list_start = ElementType::get_sub_element_ver(*groupid);
+                SubElementKind::Group(groupid) => {
+                    current_spec = ElementType::get_sub_elements(groupid);
+                    current_ver_list_start = ElementType::get_sub_element_ver(groupid);
                 }
             }
         }
 
         let last_idx = *element_indices.last().unwrap();
         let sub_element = current_spec.get(last_idx)?;
-        Some((sub_element, VERSION_INFO[current_ver_list_start + last_idx]))
+        Some((sub_element.kind(), version_info(current_ver_list_start + last_idx)))
     }
 
     /// get the version mask of a sub element
@@ -290,7 +469,7 @@ impl ElementType {
     #[must_use]
     pub fn get_sub_element_multiplicity(&self, element_indices: &[usize]) -> Option<ElementMultiplicity> {
         match self.get_sub_element_spec(element_indices) {
-            Some((SubElement::Element(definition_id), _)) => Some(ELEMENTS[*definition_id as usize].multiplicity),
+            Some((SubElementKind::Element(definition_id), _)) => Some(ELEMENTS[definition_id as usize].multiplicity),
             _ => None,
         }
     }
@@ -308,8 +487,8 @@ impl ElementType {
             Some(DATATYPES[self.typ as usize].mode)
         } else {
             let len = element_indices.len() - 1;
-            if let Some((SubElement::Group(groupid), _)) = self.get_sub_element_spec(&element_indices[..len]) {
-                Some(DATATYPES[*groupid as usize].mode)
+            if let Some((SubElementKind::Group(groupid), _)) = self.get_sub_element_spec(&element_indices[..len]) {
+                Some(DATATYPES[groupid as usize].mode)
             } else {
                 None
             }
@@ -343,35 +522,57 @@ impl ElementType {
     ///         -> Element: TEXT
     ///      -> Element: REMARK
     /// ```
-    /// When searching for TOL in PRM-CHAR, the result should be Some(vec![1, 0, 0, 0, 1])!
+    /// When searching for TOL in PRM-CHAR, the result should be Some([1, 0, 0, 0, 1])!
     #[must_use]
-    pub fn find_sub_element(&self, target_name: ElementName, version: u32) -> Option<(ElementType, Vec<usize>)> {
-        ElementType::find_sub_element_internal(self.typ, target_name, version)
+    pub fn find_sub_element(&self, target_name: ElementName, version: u32) -> Option<(ElementType, ElementIndices)> {
+        let mut indices = ElementIndices::new();
+        let elemtype = ElementType::find_sub_element_internal(self.typ, target_name, version, &mut indices)?;
+        Some((elemtype, indices))
     }
 
     fn find_sub_element_internal(
         etype: u16,
         target_name: ElementName,
         version: u32,
-    ) -> Option<(ElementType, Vec<usize>)> {
+        indices: &mut ElementIndices,
+    ) -> Option<ElementType> {
         let spec = ElementType::get_sub_elements(etype);
+        let ver_info_start = ElementType::get_sub_element_ver(etype);
+
+        // The sub elements of a Bag are sorted by name and never contain groups, so a binary search can be used.
+        // The discriminants of ElementName are assigned in alphabetical order, so comparing them is sufficient.
+        if spec.len() > BINARY_SEARCH_MIN_LEN && DATATYPES[etype as usize].mode == ContentMode::Bag {
+            let target = target_name as u16;
+            let start = spec.partition_point(|sub_element| (sub_element.name as u16) < target);
+            // there can be several entries with the same name but different version masks
+            for (cur_pos, sub_element) in spec.iter().enumerate().skip(start) {
+                if sub_element.name != target_name {
+                    break;
+                }
+                if version & version_info(ver_info_start + cur_pos) != 0 {
+                    indices.push(cur_pos);
+                    return Some(ElementType::new(sub_element.def));
+                }
+            }
+            return None;
+        }
+
         for (cur_pos, sub_element) in spec.iter().enumerate() {
-            match sub_element {
-                SubElement::Element(definition_id) => {
-                    let name = ELEMENTS[*definition_id as usize].name;
-                    let ver_info_start = ElementType::get_sub_element_ver(etype);
-                    let version_mask = VERSION_INFO[ver_info_start + cur_pos];
-                    if (name == target_name) && (version & version_mask != 0) {
-                        return Some((ElementType::new(*definition_id), vec![cur_pos]));
+            match sub_element.kind() {
+                SubElementKind::Element(definition_id) => {
+                    if sub_element.name == target_name && (version & version_info(ver_info_start + cur_pos) != 0) {
+                        indices.push(cur_pos);
+                        return Some(ElementType::new(definition_id));
                     }
                 }
-                SubElement::Group(groupid) => {
-                    if let Some((elemtype, mut indices)) =
-                        ElementType::find_sub_element_internal(*groupid, target_name, version)
+                SubElementKind::Group(groupid) => {
+                    indices.push(cur_pos);
+                    if let Some(elemtype) =
+                        ElementType::find_sub_element_internal(groupid, target_name, version, indices)
                     {
-                        indices.insert(0, cur_pos);
-                        return Some((elemtype, indices));
+                        return Some(elemtype);
                     }
+                    indices.pop();
                 }
             }
         }
@@ -393,10 +594,10 @@ impl ElementType {
             && element_indices[prefix_len] == element_indices2[prefix_len]
         {
             let sub_elem = ElementType::get_sub_elements(result).get(element_indices[prefix_len])?;
-            match sub_elem {
-                SubElement::Element(_) => return Some(GroupType(result)),
-                SubElement::Group(groupid) => {
-                    result = *groupid;
+            match sub_elem.kind() {
+                SubElementKind::Element(_) => return Some(GroupType(result)),
+                SubElementKind::Group(groupid) => {
+                    result = groupid;
                 }
             }
             prefix_len += 1;
@@ -413,12 +614,12 @@ impl ElementType {
 
     pub(crate) fn short_name_version_mask(self) -> Option<u32> {
         let sub_elements = ElementType::get_sub_elements(self.typ);
-        if !sub_elements.is_empty()
-            && let SubElement::Element(idx) = sub_elements[0]
-            && ELEMENTS[idx as usize].name == ElementName::ShortName
+        if let Some(first) = sub_elements.first()
+            && first.name == ElementName::ShortName
+            && let SubElementKind::Element(_) = first.kind()
         {
             let ver_idx = ElementType::get_sub_element_ver(self.typ);
-            return Some(VERSION_INFO[ver_idx]);
+            return Some(version_info(ver_idx));
         }
         None
     }
@@ -471,7 +672,7 @@ impl ElementType {
             attributes.iter().enumerate().find(|(_, (name, ..))| *name == attrname)
         {
             let idx_ver_start = ElementType::get_attributes_ver(self.typ);
-            let version = VERSION_INFO[idx_ver_start + find_pos];
+            let version = version_info(idx_ver_start + find_pos);
             Some(AttributeSpec {
                 spec: &CHARACTER_DATA[*chardata_id as usize],
                 required: *required,
@@ -518,7 +719,7 @@ impl ElementType {
     /// A splittable element may be split across multiple arxml files
     #[must_use]
     pub const fn splittable(&self) -> u32 {
-        ELEMENTS[self.def as usize].splittable
+        VERSION_MASKS[ELEMENTS[self.def as usize].splittable as usize]
     }
 
     /// Is the current `ElementType` splittable in the given version
@@ -526,7 +727,7 @@ impl ElementType {
     /// A splittable element may be split across multiple arxml files
     #[must_use]
     pub const fn splittable_in(&self, version: AutosarVersion) -> bool {
-        (ELEMENTS[self.def as usize].splittable & (version as u32)) != 0
+        (self.splittable() & (version as u32)) != 0
     }
 
     /// Is this `ElementType` restricted to a particular edition of the Autosar standard
@@ -554,10 +755,8 @@ impl ElementType {
                 let (start, end) = DATATYPES[other.typ as usize].ref_info;
                 let ref_by = &REF_ITEMS[start as usize..end as usize];
                 for ref_target_value in ref_by {
-                    for (enumitem, _) in *items {
-                        if ref_target_value == enumitem {
-                            return Some(*ref_target_value);
-                        }
+                    if items.version_mask(*ref_target_value).is_some() {
+                        return Some(*ref_target_value);
                     }
                 }
             }
@@ -576,8 +775,17 @@ impl ElementType {
     #[cfg(feature = "docstrings")]
     #[must_use]
     pub const fn docstring(&self) -> &str {
-        if let Some(docstring_id) = ELEMENTS[self.def as usize].docstring {
-            specification::ELEMENT_DOCSTRINGS[docstring_id as usize]
+        let docstring_id = specification::ELEMENT_DOCSTRING_IDS[self.def as usize] as usize;
+        if docstring_id < specification::ELEMENT_DOCSTRING_OFFSETS.len() - 1 {
+            let start = specification::ELEMENT_DOCSTRING_OFFSETS[docstring_id] as usize;
+            let end = specification::ELEMENT_DOCSTRING_OFFSETS[docstring_id + 1] as usize;
+            let (head, _) = specification::ELEMENT_DOCSTRINGS.as_bytes().split_at(end);
+            let (_, docstring) = head.split_at(start);
+            // the offsets are always at the boundaries between complete docstrings, so this can't fail
+            match core::str::from_utf8(docstring) {
+                Ok(docstring) => docstring,
+                Err(_) => "",
+            }
         } else {
             ""
         }
@@ -648,19 +856,19 @@ impl Iterator for SubelemDefinitionsIter {
             let (start_idx, end_idx) = ElementType::get_sub_element_idx(current_type);
 
             if start_idx + cur_pos < end_idx {
-                match &SUBELEMENTS[start_idx + cur_pos] {
-                    SubElement::Element(idx) => {
+                let sub_element = &SUBELEMENTS[start_idx + cur_pos];
+                match sub_element.kind() {
+                    SubElementKind::Element(idx) => {
                         // found an element, return it and advance
-                        let name = ELEMENTS[*idx as usize].name;
                         self.indices[depth] += 1;
                         let ver_idx = ElementType::get_sub_element_ver(current_type);
-                        let version_mask = VERSION_INFO[ver_idx + cur_pos];
-                        let is_named = ElementType::new(*idx).short_name_version_mask().unwrap_or(0);
-                        Some((name, ElementType::new(*idx), version_mask, is_named))
+                        let version_mask = version_info(ver_idx + cur_pos);
+                        let is_named = ElementType::new(idx).short_name_version_mask().unwrap_or(0);
+                        Some((sub_element.name, ElementType::new(idx), version_mask, is_named))
                     }
-                    SubElement::Group(groupid) => {
+                    SubElementKind::Group(groupid) => {
                         // found a group, descend into it
-                        self.type_id_stack.push(*groupid);
+                        self.type_id_stack.push(groupid);
                         self.indices.push(0);
                         self.next()
                     }
@@ -702,6 +910,9 @@ impl core::fmt::Debug for CharacterDataSpec {
         }
     }
 }
+
+/// minimum length of a sub element list for which `find_sub_element` uses a binary search
+const BINARY_SEARCH_MIN_LEN: usize = 16;
 
 /// expand a version mask (u32) to a list of versions in the mask
 #[must_use]
@@ -784,7 +995,7 @@ mod test {
     fn find_sub_element() {
         let prm_char_type = get_prm_char_element_type();
         let (_, indices) = prm_char_type.find_sub_element(ElementName::Tol, 0xffffffff).unwrap();
-        assert_eq!(indices, vec![1, 0, 0, 0, 1]);
+        assert_eq!(*indices, [1, 0, 0, 0, 1]);
     }
 
     #[test]
@@ -804,12 +1015,12 @@ mod test {
         let (_, indices) = sw_base_type_type
             .find_sub_element(ElementName::BaseTypeSize, AutosarVersion::Autosar_4_0_1 as u32)
             .unwrap();
-        assert_eq!(indices, vec![11, 0]);
+        assert_eq!(*indices, [11, 0]);
 
         let (_, indices) = sw_base_type_type
             .find_sub_element(ElementName::BaseTypeSize, AutosarVersion::Autosar_4_1_1 as u32)
             .unwrap();
-        assert_eq!(indices, vec![13]);
+        assert_eq!(*indices, [12]);
     }
 
     #[test]
@@ -818,11 +1029,10 @@ mod test {
         let (abs_type, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices);
         let (sub_element, _) = sub_elem_spec.unwrap();
-        if let SubElement::Element(idx) = sub_element {
-            let name = ELEMENTS[*idx as usize].name;
-            assert_eq!(name, ElementName::Abs);
-            assert_eq!(ElementType::new(*idx), abs_type);
-        }
+        let SubElementKind::Element(idx) = sub_element else {
+            panic!("expected an element");
+        };
+        assert_eq!(ElementType::new(idx), abs_type);
 
         // the element_indices passed to get_sub_element_spec may not be empty
         let sub_elem_spec2 = prm_char_type.get_sub_element_spec(&[]);
@@ -861,8 +1071,8 @@ mod test {
         let (_, indices) = prm_char_type.find_sub_element(ElementName::Abs, u32::MAX).unwrap();
         let sub_elem_spec = prm_char_type.get_sub_element_spec(&indices).unwrap().0;
         let multiplicity2 = prm_char_type.get_sub_element_multiplicity(&indices).unwrap();
-        if let SubElement::Element(idx) = sub_elem_spec {
-            let multiplicity = ELEMENTS[*idx as usize].multiplicity;
+        if let SubElementKind::Element(idx) = sub_elem_spec {
+            let multiplicity = ELEMENTS[idx as usize].multiplicity;
             assert_eq!(multiplicity, multiplicity2);
         }
 
@@ -1337,7 +1547,7 @@ mod test {
         let txt = format!("{cdata_spec:#?}");
         assert!(txt.starts_with("Pattern"));
         let cdata_spec = CharacterDataSpec::Enum {
-            items: &[(EnumItem::Custom, 0x7e000)],
+            items: EnumItemList::new(&[(EnumItem::Custom, 0)], &[0x7e000]),
         };
         let txt = format!("{cdata_spec:#?}");
         assert!(txt.starts_with("Enum"));

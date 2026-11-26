@@ -12,9 +12,9 @@ impl CharacterData {
                 // the actual value must be an enum item
                 if let CharacterData::Enum(enumitem) = &value {
                     // find the given enum item in the specified list of values
-                    if let Some((_, version_mask)) = items.iter().find(|(name, _)| *name == *enumitem) {
+                    if let Some(version_mask) = items.version_mask(*enumitem) {
                         // and finally check that this value is allowed in the active autosar version
-                        if *version_mask & (file_version as u32) != 0 {
+                        if version_mask & (file_version as u32) != 0 {
                             return true;
                         }
                     }
@@ -60,12 +60,8 @@ impl CharacterData {
     ) -> (bool, u32) {
         if let CharacterDataSpec::Enum { items } = data_spec {
             if let CharacterData::Enum(attrval) = self {
-                if let Some((_, enumitem_version_mask)) = items.iter().find(|(item, _)| *item == *attrval) {
-                    if target_version.compatible(*enumitem_version_mask) {
-                        (true, *enumitem_version_mask)
-                    } else {
-                        (false, *enumitem_version_mask)
-                    }
+                if let Some(enumitem_version_mask) = items.version_mask(*attrval) {
+                    (target_version.compatible(enumitem_version_mask), enumitem_version_mask)
                 } else {
                     // no spec for this item -> not allowed in any version
                     (false, 0)
@@ -83,7 +79,7 @@ impl CharacterData {
         match character_data_spec {
             CharacterDataSpec::Enum { items } => {
                 if let Ok(enumitem) = EnumItem::from_str(input)
-                    && let Some((_, version_mask)) = items.iter().find(|(item, _)| *item == enumitem)
+                    && let Some(version_mask) = items.version_mask(enumitem)
                     && version as u32 & version_mask != 0
                 {
                     return Some(CharacterData::Enum(enumitem));
@@ -419,6 +415,7 @@ fn escape_text<'a>(input: &'a str) -> Cow<'a, str> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use autosar_data_specification::EnumItemList;
 
     fn dummy_validate(s: &[u8]) -> bool {
         s.len() == 1 && (s[0] == b'0' || s[0] == b'1')
@@ -427,7 +424,7 @@ mod test {
     #[test]
     fn check_value() {
         let spec_enum = CharacterDataSpec::Enum {
-            items: &[(EnumItem::default, 0x3ffff), (EnumItem::preserve, 0x0ffff)],
+            items: EnumItemList::new(&[(EnumItem::default, 0), (EnumItem::preserve, 1)], &[0x3ffff, 0x0ffff]),
         };
         let data = CharacterData::Enum(EnumItem::default);
         assert!(CharacterData::check_value(
@@ -527,7 +524,7 @@ mod test {
     #[test]
     fn check_version_compatibility() {
         let spec_enum = CharacterDataSpec::Enum {
-            items: &[(EnumItem::default, 0x0001), (EnumItem::preserve, 0x0002)],
+            items: EnumItemList::new(&[(EnumItem::default, 0), (EnumItem::preserve, 1)], &[0x0001, 0x0002]),
         };
         let data = CharacterData::Enum(EnumItem::default);
         let (result, _) = data.check_version_compatibility(&spec_enum, AutosarVersion::Autosar_4_0_1);
@@ -545,7 +542,7 @@ mod test {
     #[test]
     fn parse() {
         let spec_enum = CharacterDataSpec::Enum {
-            items: &[(EnumItem::default, 0x3ffff), (EnumItem::preserve, 0x0ffff)],
+            items: EnumItemList::new(&[(EnumItem::default, 0), (EnumItem::preserve, 1)], &[0x3ffff, 0x0ffff]),
         };
         let data = CharacterData::parse("default", &spec_enum, AutosarVersion::Autosar_00050).unwrap();
         assert_eq!(data.enum_value().unwrap(), EnumItem::default);

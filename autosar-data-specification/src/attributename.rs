@@ -215,10 +215,123 @@ pub enum AttributeName {
     xsiSchemalocation       = 78,
 }
 
-impl AttributeName {
-    #[rustfmt::skip]
-    const STRING_TABLE: [&'static str; 101] = ["NOHREF", "ONMOUSEOUT", "SHOW-RESOURCE-TYPE", "MOREROWS", "SPANNAME", "ONBLUR", "DEST", "SHOW-RESOURCE-PAGE", "CLASS", "SHOW-RESOURCE-SHORT-NAME", "SHOW-RESOURCE-NUMBER", "SHORT-LABEL", "ONDBLCLICK", "ROWSEP", "FRAME", "ALLOW-BREAK", "HEIGHT", "xmlns:xsi", "BINDING-TIME", "NAMEST", "EDIT-WIDTH", "EDITFIT", "BREAK", "BLUEPRINT-VALUE", "VIEW", "COORDS", "COLOR", "SHOW-RESOURCE-CATEGORY", "xmlns", "PGWIDE", "ORIENT", "FILENAME", "INDEX", "NAME", "TYPE", "ENUM-TABLE", "SHOW-CONTENT", "ONKEYUP", "SHAPE", "ONMOUSEUP", "BASE", "BGCOLOR", "FLOAT", "L", "NOTE-TYPE", "STYLE", "ALT", "COLNUM", "TABSTYLE", "VALIGN", "LEVEL", "GID", "S", "SHOW-RESOURCE-LONG-NAME", "KEEP-WITH-PREVIOUS", "HTML-FIT", "ONMOUSEOVER", "ROTATE", "HELP-ENTRY", "UUID", "INTERVAL-TYPE", "FONT", "WIDTH", "GENERATOR", "ONMOUSEDOWN", "COLWIDTH", "TEX-RENDER", "HREF", "FIT", "HTML-WIDTH", "ITEM-LABEL-POS", "ONMOUSEMOVE", "ALIGN", "ONKEYPRESS", "COLNAME", "SHOW-RESOURCE-ALIAS-NAME", "SCALE", "SI", "xsi:schemaLocation", "ACCESSKEY", "T", "NAMEEND", "xml:space", "EDITSCALE", "VALIDITY", "HTML-SCALE", "COLSEP", "NOTATION", "COLS", "NAME-PATTERN", "EDIT-HEIGHT", "RESOLUTION-POLICY", "SD", "TABINDEX", "TITLE", "ONKEYDOWN", "MIME-TYPE", "HTML-HEIGHT", "ONCLICK", "SHOW-SEE", "ONFOCUS"];
+#[rustfmt::skip]
+static STRING_DATA: &str = concat!(
+    "NOHREF",
+    "ONMOUSEOUT",
+    "SHOW-RESOURCE-TYPE",
+    "MOREROWS",
+    "SPANNAME",
+    "ONBLUR",
+    "DEST",
+    "SHOW-RESOURCE-PAGE",
+    "CLASS",
+    "SHOW-RESOURCE-SHORT-NAME",
+    "SHOW-RESOURCE-NUMBER",
+    "SHORT-LABEL",
+    "ONDBLCLICK",
+    "ROWSEP",
+    "FRAME",
+    "ALLOW-BREAK",
+    "HEIGHT",
+    "xmlns:xsi",
+    "BINDING-TIME",
+    "NAMEST",
+    "EDIT-WIDTH",
+    "EDITFIT",
+    "BREAK",
+    "BLUEPRINT-VALUE",
+    "VIEW",
+    "COORDS",
+    "COLOR",
+    "SHOW-RESOURCE-CATEGORY",
+    "xmlns",
+    "PGWIDE",
+    "ORIENT",
+    "FILENAME",
+    "INDEX",
+    "NAME",
+    "TYPE",
+    "ENUM-TABLE",
+    "SHOW-CONTENT",
+    "ONKEYUP",
+    "SHAPE",
+    "ONMOUSEUP",
+    "BASE",
+    "BGCOLOR",
+    "FLOAT",
+    "L",
+    "NOTE-TYPE",
+    "STYLE",
+    "ALT",
+    "COLNUM",
+    "TABSTYLE",
+    "VALIGN",
+    "LEVEL",
+    "GID",
+    "S",
+    "SHOW-RESOURCE-LONG-NAME",
+    "KEEP-WITH-PREVIOUS",
+    "HTML-FIT",
+    "ONMOUSEOVER",
+    "ROTATE",
+    "HELP-ENTRY",
+    "UUID",
+    "INTERVAL-TYPE",
+    "FONT",
+    "WIDTH",
+    "GENERATOR",
+    "ONMOUSEDOWN",
+    "COLWIDTH",
+    "TEX-RENDER",
+    "HREF",
+    "FIT",
+    "HTML-WIDTH",
+    "ITEM-LABEL-POS",
+    "ONMOUSEMOVE",
+    "ALIGN",
+    "ONKEYPRESS",
+    "COLNAME",
+    "SHOW-RESOURCE-ALIAS-NAME",
+    "SCALE",
+    "SI",
+    "xsi:schemaLocation",
+    "ACCESSKEY",
+    "T",
+    "NAMEEND",
+    "xml:space",
+    "EDITSCALE",
+    "VALIDITY",
+    "HTML-SCALE",
+    "COLSEP",
+    "NOTATION",
+    "COLS",
+    "NAME-PATTERN",
+    "EDIT-HEIGHT",
+    "RESOLUTION-POLICY",
+    "SD",
+    "TABINDEX",
+    "TITLE",
+    "ONKEYDOWN",
+    "MIME-TYPE",
+    "HTML-HEIGHT",
+    "ONCLICK",
+    "SHOW-SEE",
+    "ONFOCUS",
+);
 
+#[rustfmt::skip]
+static STRING_OFFSETS: [u16; 102] = [
+    0, 6, 16, 34, 42, 50, 56, 60, 78, 83, 107, 127, 138, 148, 154, 159,
+    170, 176, 185, 197, 203, 213, 220, 225, 240, 244, 250, 255, 277, 282, 288, 294,
+    302, 307, 311, 315, 325, 337, 344, 349, 358, 362, 369, 374, 375, 384, 389, 392,
+    398, 406, 412, 417, 420, 421, 444, 462, 470, 481, 487, 497, 501, 514, 518, 523,
+    532, 543, 551, 561, 565, 568, 578, 592, 603, 608, 618, 625, 649, 654, 656, 674,
+    683, 684, 691, 700, 709, 717, 727, 733, 741, 745, 757, 768, 785, 787, 795, 800,
+    809, 818, 829, 836, 844, 851,
+];
+
+impl AttributeName {
     /// derive an enum entry from an input string using a perfect hash function
     ///
     /// # Errors
@@ -234,10 +347,16 @@ impl AttributeName {
             .wrapping_add(f1.wrapping_mul(u32::from(d1)))
             .wrapping_add(f2) as usize
             % 101;
-        if AttributeName::STRING_TABLE[item_idx].as_bytes() != input {
+        if Self::name_bytes(item_idx) != input {
             return Err(ParseAttributeNameError);
         }
         Ok(unsafe { core::mem::transmute::<u16, Self>(item_idx as u16) })
+    }
+
+    fn name_bytes(item_idx: usize) -> &'static [u8] {
+        let start = STRING_OFFSETS[item_idx] as usize;
+        let end = STRING_OFFSETS[item_idx + 1] as usize;
+        &STRING_DATA.as_bytes()[start..end]
     }
 
     /// get the str corresponding to an item
@@ -245,7 +364,10 @@ impl AttributeName {
     /// The returned &str has static lifetime, becasue it is a reference to an entry in a list of constants
     #[must_use]
     pub fn to_str(&self) -> &'static str {
-        AttributeName::STRING_TABLE[*self as usize]
+        // all names are ASCII, so every offset is a char boundary
+        let start = STRING_OFFSETS[*self as usize] as usize;
+        let end = STRING_OFFSETS[*self as usize + 1] as usize;
+        &STRING_DATA[start..end]
     }
 }
 
@@ -258,12 +380,12 @@ impl core::str::FromStr for AttributeName {
 
 impl core::fmt::Debug for AttributeName {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(AttributeName::STRING_TABLE[*self as usize])
+        f.write_str(self.to_str())
     }
 }
 
 impl core::fmt::Display for AttributeName {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(AttributeName::STRING_TABLE[*self as usize])
+        f.write_str(self.to_str())
     }
 }

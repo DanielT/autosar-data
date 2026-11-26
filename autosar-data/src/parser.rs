@@ -1,6 +1,6 @@
 use autosar_data_specification::{
-    AttributeName, AttributeSpec, AutosarVersion, CharacterDataSpec, ContentMode, ElementMultiplicity, ElementName,
-    ElementType, EnumItem,
+    AttributeName, AttributeSpec, AutosarVersion, CharacterDataSpec, ContentMode, ElementIndices, ElementMultiplicity,
+    ElementName, ElementType, EnumItem,
 };
 use smallvec::SmallVec;
 use std::borrow::Cow;
@@ -470,7 +470,7 @@ impl<'a> ArxmlParser<'a> {
         let wrapped_element = raw_element.wrap();
         let mut element = wrapped_element.0.write();
 
-        let mut elem_idx: Vec<usize> = Vec::new();
+        let mut elem_idx = ElementIndices::default();
         let mut short_name_found = false;
 
         let mut stored_comment = None;
@@ -613,7 +613,7 @@ impl<'a> ArxmlParser<'a> {
         &mut self,
         name: ElementName,
         elemtype: ElementType,
-    ) -> Result<(ElementType, Vec<usize>), AutosarDataError> {
+    ) -> Result<(ElementType, ElementIndices), AutosarDataError> {
         // Some elements have multiple entries, and the correct one must be chosen based on the autosar version
         // First try to find the sub element using the current file version. If that fails then search again
         // allowing elements from all autosar versions. This is useful in order to give better diagnostics.
@@ -652,7 +652,7 @@ impl<'a> ArxmlParser<'a> {
         name: ElementName,
         elemtype: ElementType,
         elem_indices: &[usize],
-        new_elem_indices: &Vec<usize>,
+        new_elem_indices: &[usize],
     ) -> Result<(), AutosarDataError> {
         if elem_indices.is_empty() || (elem_indices == new_elem_indices) {
             // when elem_indices is empty, that means that this is the first sub-element or found the exact same element as last time
@@ -843,14 +843,14 @@ impl<'a> ArxmlParser<'a> {
                         value: String::from_utf8_lossy(trimmed_input).to_string(),
                     })
                 })?;
-                let (_, version) = items.iter().find(|(item, _)| *item == value).ok_or_else(|| {
+                let version = items.version_mask(value).ok_or_else(|| {
                     self.error(ArxmlParserError::InvalidEnumItem {
                         element: self.current_element,
                         item: value,
                     })
                 })?;
                 self.check_version(
-                    *version,
+                    version,
                     ArxmlParserError::EnumItemVersionError {
                         element: self.current_element,
                         enum_item: value,

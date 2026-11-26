@@ -2,7 +2,7 @@ use smallvec::smallvec;
 use std::{borrow::Cow, time::Duration};
 
 use autosar_data_specification::{
-    AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementMultiplicity, ElementName,
+    AttributeName, AttributeSpec, AutosarVersion, ContentMode, ElementIndices, ElementMultiplicity, ElementName,
 };
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
@@ -1398,7 +1398,7 @@ impl ElementRaw {
                 let len = self.content.len();
                 if !self.elemtype.is_ordered() && len > 1 {
                     // remove all child elements from this element and sort them
-                    let mut sorting_vec: Vec<(Vec<usize>, Element)> = Vec::with_capacity(len);
+                    let mut sorting_vec: Vec<(ElementIndices, Element)> = Vec::with_capacity(len);
                     for ec_elem in &self.content {
                         if let ElementContent::Element(elem) = ec_elem {
                             // descend into the element and sort it before doing anything else with it
